@@ -1,0 +1,21 @@
+# Base Repository Development, Security & Testing Dependencies
+# (Application & ML framework dependencies will be added after stack alignment)
+
+# Code Quality & Formatting
+ruff>=0.3.0
+black>=24.2.0
+
+# Security Vulnerability Scanner
+bandit[toml]>=1.7.7
+
+# Automated Git Pre-Commit Hooks
+pre-commit>=3.6.0
+
+# Testing & Coverage Framework
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+pytest-cov>=4.1.0
+
+# Core Data Validation (Standard Library Helper)
+pydantic>=2.6.0
+python-dotenv>=1.0.0

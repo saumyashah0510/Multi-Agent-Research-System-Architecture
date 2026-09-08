@@ -1,0 +1,22 @@
+[tool.black]
+line-length = 100
+target-version = ['py311']
+include = '\.pyi?$'
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "B", "I"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["backend/tests"]
+python_files = ["test_*.py"]
+asyncio_mode = "auto"
+
+[tool.bandit]
+targets = ["backend/app"]
+skips = ["B101"]
