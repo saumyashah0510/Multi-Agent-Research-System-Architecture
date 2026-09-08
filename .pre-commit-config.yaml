@@ -1,0 +1,49 @@
+# Pre-Commit Automated Security & Quality Gatekeeper Configuration
+# See https://pre-commit.com for more information
+
+repos:
+  # 1. General File Hygiene & Basic Security Checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: detect-private-key
+
+  # 2. Ultra-Fast Python Linter (Ruff)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.3.0
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+
+  # 3. Standard Python Code Formatter (Black)
+  - repo: https://github.com/psf/black
+    rev: 24.2.0
+    hooks:
+      - id: black
+
+  # 4. Static Code Security Scanner (Bandit)
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.7
+    hooks:
+      - id: bandit
+        args: ["-r", "backend/app", "-ll"]
+        additional_dependencies: ["bandit[toml]"]
+        pass_filenames: false
+
+  # 5. Local Automated Pytest Test Execution Gatekeeper
+  - repo: local
+    hooks:
+      - id: pytest-check
+        name: Pytest Unit & Integration Tests
+        entry: pytest backend/tests -v
+        language: python
+        additional_dependencies: ["pytest>=8.0.0", "pytest-asyncio>=0.23.0"]
+        pass_filenames: false
+        always_run: true
