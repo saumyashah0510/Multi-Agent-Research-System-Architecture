@@ -316,5 +316,3 @@ This document provides a step-by-step, exhaustive breakdown of all **5 Domain Ro
 - Integration tests for all FastAPI REST endpoints.
 
 ---
-
-This complete guide is now saved in **[docs/DETAILED_DOMAIN_ROLE_GUIDE.md](file:///c:/Users/OMEN/OneDrive/Desktop/Multi-Agent%20Research%20&%20Literature%20Review%20Assistant/docs/DETAILED_DOMAIN_ROLE_GUIDE.md)**! Let me know how you would like to proceed.
