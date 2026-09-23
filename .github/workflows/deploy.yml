@@ -1,0 +1,22 @@
+name: CD - Automated AWS Cloud Deployment Pipeline
+
+on:
+  push:
+    branches: [ main ]
+
+# TODO (Assignee - DevOps Engineer): Configure automated deployment to AWS App Runner
+jobs:
+  deploy-to-aws:
+    name: Build Docker Container & Trigger AWS Deployment
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      # TODO (Assignee): Configure AWS credentials setup (aws-actions/configure-aws-credentials)
+      # TODO (Assignee): Configure Amazon ECR container login & image push
+      # TODO (Assignee): Trigger AWS App Runner deployment refresh
+      - name: Deployment Placeholder Step
+        run: |
+          echo "TODO: Configure automatic AWS App Runner container image update on git push to main"

@@ -44,6 +44,6 @@ repos:
         name: Pytest Unit & Integration Tests
         entry: pytest backend/tests -v
         language: python
-        additional_dependencies: ["pytest>=8.0.0", "pytest-asyncio>=0.23.0"]
+        additional_dependencies: ["pytest>=8.0.0", "pytest-asyncio>=0.23.0", "fastapi", "pydantic-settings", "httpx", "sqlalchemy", "asyncpg"]
         pass_filenames: false
         always_run: true
