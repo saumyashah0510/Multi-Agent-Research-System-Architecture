@@ -1,4 +1,4 @@
-"""Main FastAPI application entry point skeleton.
+"""Main FastAPI application entry point.
 
 Assignee Task (Issue #1):
 - Initialize FastAPI application instance with metadata.
@@ -7,10 +7,11 @@ Assignee Task (Issue #1):
 """
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.v1.health import router as health_router
+from app.api.v1.reviews import router as reviews_router
 from app.core.config import settings
-
-# TODO (Assignee): Import CORSMiddleware and router from app.api.v1.health
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -18,6 +19,13 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# TODO (Assignee): Add CORSMiddleware allowing cross-origin requests
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-# TODO (Assignee): Register health router with prefix=settings.API_V1_STR
+app.include_router(health_router, prefix=settings.API_V1_STR, tags=["health"])
+app.include_router(reviews_router, prefix=f"{settings.API_V1_STR}/reviews", tags=["reviews"])
