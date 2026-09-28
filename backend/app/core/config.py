@@ -23,7 +23,10 @@ class Settings(BaseSettings):
 
     PROJECT_NAME: str = "Multi-Agent Academic Research Assistant"
     API_V1_STR: str = "/api/v1"
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "")
+    DATABASE_URL: str = os.getenv(
+        "DATABASE_URL",
+        "postgresql://postgres:postgres@localhost:5432/multi_agent_db",
+    )
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,

@@ -13,11 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.core.config import settings
 
-raw_url = settings.DATABASE_URL
+raw_url = settings.DATABASE_URL or "postgresql://postgres:postgres@localhost:5432/multi_agent_db"
 if raw_url.startswith("postgresql://"):
     raw_url = raw_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 elif raw_url.startswith("postgres://"):
     raw_url = raw_url.replace("postgres://", "postgresql+asyncpg://", 1)
+
 
 # Parse and sanitize URL query parameters for asyncpg compatibility
 parsed = urlparse(raw_url)
