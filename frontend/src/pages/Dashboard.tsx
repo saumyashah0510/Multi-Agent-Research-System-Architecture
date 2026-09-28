@@ -1,14 +1,10 @@
 import { useState } from "react";
-import { useSearchParams } from "react-router-dom";
 import ResearchInput from "../components/ResearchInput";
 import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 
 export default function Dashboard() {
-  const [searchParams] = useSearchParams();
-  const currentTab = searchParams.get("tab") || "research";
-
   const [activeQuery, setActiveQuery] = useState<string | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [logs, setLogs] = useState<string[]>([
@@ -89,34 +85,10 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* Contextual Reports Card on Same Page if 'reports' tab clicked */}
-      {currentTab === "reports" && (
-        <div className="w-full max-w-4xl mx-auto mb-8">
-          <Card variant="default" className="p-6 bg-white border-black/10 shadow-sm space-y-4">
-            <div className="flex items-center justify-between border-b border-neutral-100 pb-3">
-              <div className="flex items-center gap-2">
-                <Badge variant="accent">Synthesis Report</Badge>
-                <h3 className="font-serif text-lg font-semibold text-neutral-900">
-                  Adaptive Retrieval & Literature Synthesis
-                </h3>
-              </div>
-              <span className="text-xs text-neutral-500 font-mono">Consensus: 96%</span>
-            </div>
-            <p className="text-sm text-neutral-700 leading-relaxed">
-              Based on the 4 analyzed candidate preprints, stateful multi-agent architectures achieve up to a <strong>41% reduction in factual hallucination</strong> through iterative graph traversal and self-correction verification checkpoints.
-            </p>
-          </Card>
-        </div>
-      )}
-
       {/* Main Literature & Agent Workspace Grid */}
       <div className="w-full grid grid-cols-1 lg:grid-cols-3 gap-6 sm:gap-8 mt-2">
         {/* Candidate Papers Container */}
-        <div
-          className={`lg:col-span-2 space-y-4 transition-all ${
-            currentTab === "papers" ? "ring-2 ring-black/10 rounded-2xl p-2" : ""
-          }`}
-        >
+        <div className="lg:col-span-2 space-y-4">
           <div className="flex items-center justify-between px-1">
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-semibold text-neutral-900 tracking-compact">
@@ -202,11 +174,7 @@ export default function Dashboard() {
         </div>
 
         {/* Agent Activity Feed Sidebar */}
-        <div
-          className={`space-y-4 transition-all ${
-            currentTab === "chat" ? "ring-2 ring-black/10 rounded-2xl p-2" : ""
-          }`}
-        >
+        <div className="space-y-4">
           <div className="flex items-center justify-between px-1">
             <h2 className="text-lg font-semibold text-neutral-900 tracking-compact">
               Live Agent Pipeline
