@@ -22,10 +22,16 @@ from app.db.session import engine
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager ensuring DB tables exist in Neon PostgreSQL on startup."""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    except Exception as e:
+        print(f"LIFESPAN DB INIT NOTICE: Could not initialize DB tables on startup ({e})")
     yield
-    await engine.dispose()
+    try:
+        await engine.dispose()
+    except Exception:
+        pass
 
 
 app = FastAPI(
