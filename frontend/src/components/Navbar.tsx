@@ -1,4 +1,4 @@
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import Button from "./Button";
 import scholarisLogo from "../images/Scholaris_logo.png";
 import { cn } from "../lib/utils";
@@ -20,31 +20,32 @@ const GitHubIcon = () => (
 
 export default function Navbar() {
   const location = useLocation();
-  const currentPath = location.pathname;
-  const isResearchPage =
-    currentPath === "/dashboard" || currentPath === "/research";
+  const [searchParams] = useSearchParams();
+  const currentTab = searchParams.get("tab") || "research";
+  const isDashboard =
+    location.pathname === "/dashboard" || location.pathname === "/research";
 
-  // All 4 options are displayed, and all navigate to the Research page as required by Issue #8
+  // All four options are clickable and land on the same research page (/dashboard)
   const navLinks = [
     {
       name: "Research",
-      href: "/dashboard",
-      isActive: isResearchPage,
+      href: "/dashboard?tab=research",
+      isActive: isDashboard && currentTab === "research",
     },
     {
       name: "Papers",
-      href: "/dashboard",
-      isActive: false,
+      href: "/dashboard?tab=papers",
+      isActive: isDashboard && currentTab === "papers",
     },
     {
       name: "Chat",
-      href: "/dashboard",
-      isActive: false,
+      href: "/dashboard?tab=chat",
+      isActive: isDashboard && currentTab === "chat",
     },
     {
       name: "Reports",
-      href: "/dashboard",
-      isActive: false,
+      href: "/dashboard?tab=reports",
+      isActive: isDashboard && currentTab === "reports",
     },
   ];
 
@@ -71,7 +72,7 @@ export default function Navbar() {
           </span>
         </Link>
 
-        {/* 4 Navigation options from Figma: Research, Papers, Chat, Reports */}
+        {/* All 4 options are active and clickable, landing on the same research page */}
         <div className="flex items-center gap-1 sm:gap-2">
           {navLinks.map((link) => (
             <Link
