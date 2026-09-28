@@ -10,17 +10,20 @@ export default function MainLayout() {
     return <Outlet />;
   }
 
-  // For app dashboard routes, use the dark console frame
+  // For app dashboard routes, apply the signature Scholaris light pastel gradient
   return (
     <div
       id="main-layout"
-      className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans antialiased"
+      className="min-h-screen flex flex-col font-sans-ui text-neutral-900"
+      style={{
+        background: "linear-gradient(180deg, #DFFFAA 0%, #F6F8FB 30%, #F6F8FB 100%)",
+      }}
     >
       <Navbar />
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10">
         <Outlet />
       </main>
-      <footer className="border-t border-slate-900 py-6 text-center text-xs text-slate-500">
+      <footer className="border-t border-black/5 py-6 text-center text-xs text-neutral-500">
         Scholaris AI — Human-in-the-Loop Multi-Agent Research System
       </footer>
     </div>
