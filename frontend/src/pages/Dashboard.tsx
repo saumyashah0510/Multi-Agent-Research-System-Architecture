@@ -13,18 +13,19 @@ export default function Dashboard() {
 
   const handleSearch = ({
     query,
-    pageRange = "1 - 20",
+    numPapers = 10,
     attachedFile,
   }: {
     query: string;
-    pageRange?: string;
+    numPapers?: number;
     attachedFile?: File | null;
   }) => {
+    const cappedPapers = Math.min(numPapers, 20);
     setActiveQuery(query);
     setIsSearching(true);
     setLogs((prev) => [
       ...prev,
-      `Initiating research on: "${query}" (Page Range: ${pageRange})...`,
+      `Initiating research on: "${query}" (Target: ${cappedPapers} papers)...`,
       attachedFile
         ? `[Ingestion Agent] Parsing uploaded document: ${attachedFile.name}...`
         : `[Search Agent] Querying academic vector indexes...`,
@@ -35,7 +36,7 @@ export default function Dashboard() {
       setIsSearching(false);
       setLogs((prev) => [
         ...prev,
-        `[Search Agent] Retrieved candidate preprints within pages ${pageRange}.`,
+        `[Search Agent] Retrieved top ${cappedPapers} candidate preprints.`,
         `[Screening Agent] Scoring papers for relevance & citation methodology...`,
       ]);
     }, 1200);
@@ -72,7 +73,7 @@ export default function Dashboard() {
                 onClick={() =>
                   handleSearch({
                     query: prompt,
-                    pageRange: "1 - 20",
+                    numPapers: 10,
                   })
                 }
                 className="px-3 py-1 rounded-full bg-white/70 hover:bg-white text-neutral-700 border border-neutral-200/60 shadow-xs transition-all hover:border-black/20 cursor-pointer"

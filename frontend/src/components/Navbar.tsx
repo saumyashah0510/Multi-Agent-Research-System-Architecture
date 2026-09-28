@@ -1,7 +1,6 @@
-import { Link, useLocation } from "react-router-dom";
+import { Link } from "react-router-dom";
 import Button from "./Button";
 import scholarisLogo from "../images/Scholaris_logo.png";
-import { cn } from "../lib/utils";
 
 const GitHubIcon = () => (
   <svg
@@ -19,19 +18,15 @@ const GitHubIcon = () => (
 );
 
 export default function Navbar() {
-  const location = useLocation();
-  const isDashboard =
-    location.pathname === "/dashboard" || location.pathname === "/research";
-
   return (
     <header className="w-full bg-transparent">
       <nav
-        className="w-full max-w-[var(--container-max-width)] mx-auto px-6 md:px-12 py-5 flex items-center justify-between gap-4"
+        className="w-full max-w-[var(--container-max-width)] mx-auto px-6 md:px-12 py-5 flex items-center justify-between"
         aria-label="Main Navigation"
       >
         <Link
           to="/"
-          className="inline-flex items-center gap-2.5 text-black no-underline select-none outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 rounded-md shrink-0"
+          className="inline-flex items-center gap-2.5 text-black no-underline select-none outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 rounded-md"
         >
           <img
             src={scholarisLogo}
@@ -46,20 +41,7 @@ export default function Navbar() {
           </span>
         </Link>
 
-        {/* Navigation Area: Only Research page as demanded by current scope */}
-        <div className="flex items-center gap-2 sm:gap-3">
-          <Link
-            to="/dashboard"
-            className={cn(
-              "px-4 py-1.5 rounded-full text-xs sm:text-sm font-semibold tracking-compact transition-colors no-underline",
-              isDashboard
-                ? "bg-white text-black shadow-xs border border-black/10"
-                : "text-neutral-700 hover:text-black hover:bg-black/5"
-            )}
-          >
-            Research
-          </Link>
-
+        <div>
           <Button
             href="https://github.com/saumyashah0510/Multi-Agent-Research-System-Architecture"
             target="_blank"
@@ -67,7 +49,6 @@ export default function Navbar() {
             icon={<GitHubIcon />}
             iconPosition="right"
             ariaLabel="View Repository on GitHub"
-            className="text-xs sm:text-sm"
           >
             <span className="hidden sm:inline">View Repository</span>
             <span className="sm:hidden">GitHub</span>

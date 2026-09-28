@@ -4,7 +4,7 @@ import { cn } from "../lib/utils";
 export interface ResearchInputProps {
   onSearch?: (params: {
     query: string;
-    pageRange: string;
+    numPapers: number;
     attachedFile?: File | null;
   }) => void;
   isLoading?: boolean;
@@ -15,7 +15,7 @@ export default function ResearchInput({
   isLoading = false,
 }: ResearchInputProps) {
   const [query, setQuery] = useState("");
-  const [pageRange, setPageRange] = useState("1 - 20");
+  const [numPapers, setNumPapers] = useState("10");
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -54,7 +54,7 @@ export default function ResearchInput({
     if (onSearch) {
       onSearch({
         query: finalQuery,
-        pageRange,
+        numPapers: Math.min(parseInt(numPapers, 10) || 10, 20),
         attachedFile,
       });
     }
@@ -111,7 +111,7 @@ export default function ResearchInput({
         </div>
       )}
 
-      {/* Bottom Controls Bar: Paperclip + Page Range (1-20) + Up Arrow Submit */}
+      {/* Bottom Controls Bar: Paperclip + Number of Papers (capped at 20) + Up Arrow Submit */}
       <div className="flex flex-wrap items-center justify-between gap-2.5 pt-3 border-t border-neutral-100">
         <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm">
           {/* Paperclip / Attachment Button */}
@@ -141,19 +141,18 @@ export default function ResearchInput({
             </svg>
           </button>
 
-          {/* Upload Page Range: 1 - 20 Chip */}
+          {/* Number of Papers Chip (1 - 20) */}
           <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-neutral-100/90 text-neutral-700 border border-neutral-200/60">
-            <span>Page Range:</span>
+            <span>Number of Papers:</span>
             <select
-              value={pageRange}
-              onChange={(e) => setPageRange(e.target.value)}
+              value={numPapers}
+              onChange={(e) => setNumPapers(e.target.value)}
               className="bg-transparent text-neutral-900 font-semibold outline-none cursor-pointer pr-1"
             >
-              <option value="1 - 20">1 - 20</option>
-              <option value="1 - 5">1 - 5</option>
-              <option value="1 - 10">1 - 10</option>
-              <option value="1 - 15">1 - 15</option>
-              <option value="All Pages">All Pages</option>
+              <option value="5">5</option>
+              <option value="10">10</option>
+              <option value="15">15</option>
+              <option value="20">20 (Max)</option>
             </select>
           </div>
         </div>

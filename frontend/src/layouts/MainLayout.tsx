@@ -10,14 +10,13 @@ export default function MainLayout() {
     return <Outlet />;
   }
 
-  // For app dashboard routes, apply the signature Scholaris light pastel gradient with prominent green
+  // For app dashboard routes, use the exact same background gradient as the home page
   return (
     <div
       id="main-layout"
       className="min-h-screen flex flex-col font-sans-ui text-neutral-900"
       style={{
-        background:
-          "linear-gradient(180deg, #DFFFAA 0%, #DFFFAA 55%, #EDFDE2 80%, #F6F8FB 100%)",
+        background: "linear-gradient(180deg, #DFFFAA 0%, #F6F8FB 100%)",
       }}
     >
       <Navbar />
