@@ -23,10 +23,26 @@ export default function Navbar() {
   const currentPath = location.pathname;
 
   const navLinks = [
-    { name: "Research", href: "/dashboard" },
-    { name: "Papers", href: "/dashboard#papers" },
-    { name: "Chat", href: "/dashboard#chat" },
-    { name: "Reports", href: "/dashboard#reports" },
+    {
+      name: "Research",
+      href: "/dashboard",
+      isActive: currentPath === "/dashboard" || currentPath === "/research",
+    },
+    {
+      name: "Papers",
+      href: "/papers",
+      isActive: currentPath === "/papers",
+    },
+    {
+      name: "Chat",
+      href: "/chat",
+      isActive: currentPath === "/chat",
+    },
+    {
+      name: "Reports",
+      href: "/reports",
+      isActive: currentPath === "/reports",
+    },
   ];
 
   return (
@@ -54,24 +70,20 @@ export default function Navbar() {
 
         {/* Center/Right Navigation Tabs from Figma Design */}
         <div className="flex items-center gap-1 sm:gap-2">
-          {navLinks.map((link) => {
-            const isActive =
-              link.name === "Research" && currentPath === "/dashboard";
-            return (
-              <Link
-                key={link.name}
-                to={link.href}
-                className={cn(
-                  "px-3 sm:px-4 py-1.5 rounded-full text-xs sm:text-sm font-medium tracking-compact transition-colors no-underline",
-                  isActive
-                    ? "bg-white/80 text-black shadow-sm border border-black/5"
-                    : "text-neutral-700 hover:text-black hover:bg-black/5"
-                )}
-              >
-                {link.name}
-              </Link>
-            );
-          })}
+          {navLinks.map((link) => (
+            <Link
+              key={link.name}
+              to={link.href}
+              className={cn(
+                "px-3 sm:px-4 py-1.5 rounded-full text-xs sm:text-sm font-medium tracking-compact transition-colors no-underline",
+                link.isActive
+                  ? "bg-white text-black font-semibold shadow-xs border border-black/10"
+                  : "text-neutral-700 hover:text-black hover:bg-black/5"
+              )}
+            >
+              {link.name}
+            </Link>
+          ))}
         </div>
 
         <div className="hidden lg:block">

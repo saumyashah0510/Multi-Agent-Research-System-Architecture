@@ -2,9 +2,10 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import MainLayout from "./layouts/MainLayout";
 import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
+import Papers from "./pages/Papers";
+import Chat from "./pages/Chat";
+import Reports from "./pages/Reports";
 
-// Application root component
-// TODO: Add global providers (e.g., QueryClientProvider, ThemeProvider) here.
 export default function App() {
   return (
     <BrowserRouter>
@@ -12,6 +13,10 @@ export default function App() {
         <Route element={<MainLayout />}>
           <Route index element={<Home />} />
           <Route path="dashboard" element={<Dashboard />} />
+          <Route path="research" element={<Dashboard />} />
+          <Route path="papers" element={<Papers />} />
+          <Route path="chat" element={<Chat />} />
+          <Route path="reports" element={<Reports />} />
         </Route>
       </Routes>
     </BrowserRouter>
