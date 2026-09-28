@@ -1,12 +1,5 @@
-"""Redis caching service for academic search API results and session states.
-
-Assignee Task (Issue BE-04):
-- Connect to Redis using REDIS_URL from settings.
-- Implement get_cached_query(key) and set_cached_query(key, value, expire_seconds) helper functions.
-- Implement check_redis_connection() for health status pings.
-"""
-
-from typing import Optional
+import json
+from typing import Any, Dict, List, Optional, Union
 
 import redis.asyncio as aioredis
 
@@ -27,21 +20,36 @@ def get_redis_client() -> aioredis.Redis:
     return redis_client
 
 
-async def get_cached_query(key: str) -> str | None:
-    """Retrieve cached search query result string from Redis."""
+async def get_cached_query(key: str, as_json: bool = False) -> Any | None:
+    """Retrieve cached search query result from Redis.
+
+    If as_json=True, deserializes JSON string into a Python dict or list.
+    """
     client = get_redis_client()
     try:
         val = await client.get(key)
+        if val is None:
+            return None
+        if as_json:
+            return json.loads(val)
         return val
     except Exception:
         return None
 
 
-async def set_cached_query(key: str, value: str, expire_seconds: int = 86400) -> bool:
-    """Save query result string into Redis with an expiration TTL timer."""
+async def set_cached_query(
+    key: str,
+    value: Union[str, Dict[str, Any], List[Any]],
+    expire_seconds: int = 86400,
+) -> bool:
+    """Save query result string, dict, or list into Redis with an expiration TTL timer."""
     client = get_redis_client()
     try:
-        await client.set(key, value, ex=expire_seconds)
+        if isinstance(value, (dict, list)):
+            serialized_val = json.dumps(value)
+        else:
+            serialized_val = str(value)
+        await client.set(key, serialized_val, ex=expire_seconds)
         return True
     except Exception:
         return False
