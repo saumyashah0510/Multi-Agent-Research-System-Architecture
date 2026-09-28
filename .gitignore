@@ -28,6 +28,7 @@ MANIFEST
 
 # Pytest / Code Coverage
 .pytest_cache/
+.ruff_cache/
 .coverage
 .coverage.*
 htmlcov/
