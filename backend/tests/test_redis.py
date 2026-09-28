@@ -56,6 +56,33 @@ async def test_get_cached_query_hit(monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.mark.asyncio
+async def test_set_cached_query_dict_json(monkeypatch: pytest.MonkeyPatch):
+    """Verify set_cached_query serializes dict/list to JSON string automatically."""
+    mock_client = AsyncMock()
+    mock_client.set.return_value = True
+    monkeypatch.setattr(redis_service, "get_redis_client", lambda: mock_client)
+
+    data = {"papers": [{"id": 1, "title": "Test Paper"}]}
+    result = await redis_service.set_cached_query("test_dict_key", data, 600)
+    assert result is True
+    mock_client.set.assert_called_once_with(
+        "test_dict_key", '{"papers": [{"id": 1, "title": "Test Paper"}]}', ex=600
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_cached_query_as_json(monkeypatch: pytest.MonkeyPatch):
+    """Verify get_cached_query returns parsed JSON dict when as_json=True."""
+    mock_client = AsyncMock()
+    mock_client.get.return_value = '{"status": "ok", "items": [1, 2]}'
+    monkeypatch.setattr(redis_service, "get_redis_client", lambda: mock_client)
+
+    result = await redis_service.get_cached_query("test_json_key", as_json=True)
+    assert result == {"status": "ok", "items": [1, 2]}
+    mock_client.get.assert_called_once_with("test_json_key")
+
+
+@pytest.mark.asyncio
 async def test_get_cached_query_miss_or_error(monkeypatch: pytest.MonkeyPatch):
     """Verify get_cached_query returns None on cache miss or exception."""
     mock_client = AsyncMock()
