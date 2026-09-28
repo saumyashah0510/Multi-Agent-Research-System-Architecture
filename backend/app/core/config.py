@@ -27,6 +27,7 @@ class Settings(BaseSettings):
         "DATABASE_URL",
         "postgresql://postgres:postgres@localhost:5432/multi_agent_db",
     )
+    REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,
