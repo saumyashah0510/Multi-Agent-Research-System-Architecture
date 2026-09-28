@@ -42,3 +42,26 @@ def test_async_session_factory():
     """Verify that AsyncSessionLocal is properly configured with AsyncSession."""
     session = AsyncSessionLocal()
     assert isinstance(session, AsyncSession)
+
+
+def test_orm_models_instantiation():
+    """Verify BE-03 ORM models (User, LiteratureReview, Paper, ExecutionLog) can be instantiated."""
+    from app.models import ExecutionLog, LiteratureReview, Paper, User
+
+    user = User(email="test@example.com", hashed_password="hashed_secret")
+    assert user.email == "test@example.com"
+
+    review = LiteratureReview(user_query="CRISPR Gene Editing", status="pending")
+    assert review.user_query == "CRISPR Gene Editing"
+
+    paper = Paper(
+        title="CRISPR Advances",
+        arxiv_id="2301.01234",
+        relevance_score=0.95,
+        review=review,
+    )
+    assert paper.title == "CRISPR Advances"
+    assert paper.review == review
+
+    log = ExecutionLog(agent_name="SearchAgent", message="Search completed")
+    assert log.agent_name == "SearchAgent"
