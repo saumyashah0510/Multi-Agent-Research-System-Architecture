@@ -12,6 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
+from app.services.redis_service import check_redis_connection
 
 router = APIRouter()
 
@@ -31,12 +32,21 @@ async def health_check(
         db_error = str(e)
         print(f"HEALTH CHECK DB ERROR: {e}")
 
-    # TODO (Assignee - BE-04): Add Redis ping check ("redis": "connected")
+    redis_status = "disconnected"
+    try:
+        if await check_redis_connection():
+            redis_status = "connected"
+    except Exception:
+        redis_status = "disconnected"
+
+    is_healthy = db_status == "connected" and redis_status == "connected"
+
     res = {
-        "status": "healthy" if db_status == "connected" else "degraded",
+        "status": "healthy" if is_healthy else "degraded",
         "service": "multi-agent-research-backend",
         "version": "1.0.0",
         "database": db_status,
+        "redis": redis_status,
     }
     if db_error:
         res["database_error"] = db_error

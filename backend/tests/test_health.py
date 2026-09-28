@@ -27,8 +27,14 @@ def client():
     app.dependency_overrides.clear()
 
 
-def test_health_check_returns_200(client: TestClient):
+def test_health_check_returns_200(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     """Verify GET /api/v1/health returns HTTP 200 and expected health check payload."""
+
+    async def mock_redis_ok():
+        return True
+
+    monkeypatch.setattr("app.api.v1.health.check_redis_connection", mock_redis_ok)
+
     response = client.get("/api/v1/health")
     assert response.status_code == 200
     data = response.json()
@@ -36,9 +42,10 @@ def test_health_check_returns_200(client: TestClient):
     assert data["service"] == "multi-agent-research-backend"
     assert data["version"] == "1.0.0"
     assert data["database"] == "connected"
+    assert data["redis"] == "connected"
 
 
-def test_health_check_db_disconnected(client: TestClient):
+def test_health_check_db_disconnected(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     """Verify GET /api/v1/health returns degraded status when database ping fails."""
 
     async def override_get_db_failure():
@@ -46,12 +53,17 @@ def test_health_check_db_disconnected(client: TestClient):
         mock_session.execute.side_effect = Exception("DB Connection Failed")
         yield mock_session
 
+    async def mock_redis_ok():
+        return True
+
+    monkeypatch.setattr("app.api.v1.health.check_redis_connection", mock_redis_ok)
     app.dependency_overrides[get_db] = override_get_db_failure
     response = client.get("/api/v1/health")
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "degraded"
     assert data["database"] == "disconnected"
+    assert data["redis"] == "connected"
     app.dependency_overrides.clear()
 
 
