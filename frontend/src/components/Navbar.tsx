@@ -1,6 +1,7 @@
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import Button from "./Button";
 import scholarisLogo from "../images/Scholaris_logo.png";
+import { cn } from "../lib/utils";
 
 const GitHubIcon = () => (
   <svg
@@ -18,15 +19,41 @@ const GitHubIcon = () => (
 );
 
 export default function Navbar() {
+  const location = useLocation();
+  const currentPath = location.pathname;
+
+  const navLinks = [
+    {
+      name: "Research",
+      href: "/dashboard",
+      isActive: currentPath === "/dashboard" || currentPath === "/research",
+    },
+    {
+      name: "Papers",
+      href: "/papers",
+      isActive: currentPath === "/papers",
+    },
+    {
+      name: "Chat",
+      href: "/chat",
+      isActive: currentPath === "/chat",
+    },
+    {
+      name: "Reports",
+      href: "/reports",
+      isActive: currentPath === "/reports",
+    },
+  ];
+
   return (
     <header className="w-full bg-transparent">
       <nav
-        className="w-full max-w-[var(--container-max-width)] mx-auto px-6 md:px-12 py-5 flex items-center justify-between"
+        className="w-full max-w-[var(--container-max-width)] mx-auto px-6 md:px-12 py-5 flex items-center justify-between gap-4"
         aria-label="Main Navigation"
       >
         <Link
           to="/"
-          className="inline-flex items-center gap-2.5 text-black no-underline select-none outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 rounded-md"
+          className="inline-flex items-center gap-2.5 text-black no-underline select-none outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 rounded-md shrink-0"
         >
           <img
             src={scholarisLogo}
@@ -41,7 +68,25 @@ export default function Navbar() {
           </span>
         </Link>
 
-        <div>
+        {/* 4 Dashboard options from Figma: Research, Papers, Chat, Reports */}
+        <div className="flex items-center gap-1 sm:gap-2">
+          {navLinks.map((link) => (
+            <Link
+              key={link.name}
+              to={link.href}
+              className={cn(
+                "px-3.5 sm:px-4 py-1.5 rounded-full text-xs sm:text-sm font-medium tracking-compact transition-colors no-underline",
+                link.isActive
+                  ? "bg-white text-black font-semibold shadow-xs border border-black/10"
+                  : "text-neutral-700 hover:text-black hover:bg-black/5"
+              )}
+            >
+              {link.name}
+            </Link>
+          ))}
+        </div>
+
+        <div className="hidden lg:block">
           <Button
             href="https://github.com/saumyashah0510/Multi-Agent-Research-System-Architecture"
             target="_blank"
@@ -49,6 +94,7 @@ export default function Navbar() {
             icon={<GitHubIcon />}
             iconPosition="right"
             ariaLabel="View Repository on GitHub"
+            className="text-xs sm:text-sm"
           >
             <span className="hidden sm:inline">View Repository</span>
             <span className="sm:hidden">GitHub</span>
