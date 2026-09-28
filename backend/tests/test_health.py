@@ -38,6 +38,23 @@ def test_health_check_returns_200(client: TestClient):
     assert data["database"] == "connected"
 
 
+def test_health_check_db_disconnected(client: TestClient):
+    """Verify GET /api/v1/health returns degraded status when database ping fails."""
+
+    async def override_get_db_failure():
+        mock_session = AsyncMock()
+        mock_session.execute.side_effect = Exception("DB Connection Failed")
+        yield mock_session
+
+    app.dependency_overrides[get_db] = override_get_db_failure
+    response = client.get("/api/v1/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "degraded"
+    assert data["database"] == "disconnected"
+    app.dependency_overrides.clear()
+
+
 def test_create_review_task(client: TestClient):
     """Verify POST /api/v1/reviews/ accepts query and returns accepted review_id."""
     payload = {
