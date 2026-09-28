@@ -5,6 +5,7 @@ export interface ResearchInputProps {
   onSearch?: (params: {
     query: string;
     numPapers: number;
+    citationFormat?: string;
     attachedFile?: File | null;
   }) => void;
   isLoading?: boolean;
@@ -16,6 +17,7 @@ export default function ResearchInput({
 }: ResearchInputProps) {
   const [query, setQuery] = useState("");
   const [numPapers, setNumPapers] = useState("10");
+  const [citationFormat, setCitationFormat] = useState("APA");
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -55,10 +57,12 @@ export default function ResearchInput({
       onSearch({
         query: finalQuery,
         numPapers: Math.min(parseInt(numPapers, 10) || 10, 20),
+        citationFormat,
         attachedFile,
       });
     }
   };
+
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -143,7 +147,7 @@ export default function ResearchInput({
 
           {/* Number of Papers Chip (1 - 20) */}
           <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-neutral-100/90 text-neutral-700 border border-neutral-200/60">
-            <span>Number of Papers:</span>
+            <span>Papers:</span>
             <select
               value={numPapers}
               onChange={(e) => setNumPapers(e.target.value)}
@@ -155,6 +159,23 @@ export default function ResearchInput({
               <option value="20">20 (Max)</option>
             </select>
           </div>
+
+          {/* Citation Format Dropdown Chip */}
+          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-neutral-100/90 text-neutral-700 border border-neutral-200/60">
+            <span>Citation:</span>
+            <select
+              value={citationFormat}
+              onChange={(e) => setCitationFormat(e.target.value)}
+              className="bg-transparent text-neutral-900 font-semibold outline-none cursor-pointer pr-1"
+            >
+              <option value="APA">APA</option>
+              <option value="IEEE">IEEE</option>
+              <option value="MLA">MLA</option>
+              <option value="Harvard">Harvard</option>
+              <option value="Chicago">Chicago</option>
+            </select>
+          </div>
+
         </div>
 
         {/* Circular Upward Arrow Submit Button */}

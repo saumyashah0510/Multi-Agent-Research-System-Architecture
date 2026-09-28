@@ -14,10 +14,12 @@ export default function Dashboard() {
   const handleSearch = ({
     query,
     numPapers = 10,
+    citationFormat = "APA",
     attachedFile,
   }: {
     query: string;
     numPapers?: number;
+    citationFormat?: string;
     attachedFile?: File | null;
   }) => {
     const cappedPapers = Math.min(numPapers, 20);
@@ -25,11 +27,12 @@ export default function Dashboard() {
     setIsSearching(true);
     setLogs((prev) => [
       ...prev,
-      `Initiating research on: "${query}" (Target: ${cappedPapers} papers)...`,
+      `Initiating research on: "${query}" (Target: ${cappedPapers} papers, Style: ${citationFormat})...`,
       attachedFile
         ? `[Ingestion Agent] Parsing uploaded document: ${attachedFile.name}...`
         : `[Search Agent] Querying academic vector indexes...`,
     ]);
+
 
     // Simulated search feedback for interactive responsiveness
     setTimeout(() => {
