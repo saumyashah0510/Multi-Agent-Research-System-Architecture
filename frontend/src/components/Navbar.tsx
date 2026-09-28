@@ -21,27 +21,30 @@ const GitHubIcon = () => (
 export default function Navbar() {
   const location = useLocation();
   const currentPath = location.pathname;
+  const isResearchPage =
+    currentPath === "/dashboard" || currentPath === "/research";
 
+  // All 4 options are displayed, and all navigate to the Research page as required by Issue #8
   const navLinks = [
     {
       name: "Research",
       href: "/dashboard",
-      isActive: currentPath === "/dashboard" || currentPath === "/research",
+      isActive: isResearchPage,
     },
     {
       name: "Papers",
-      href: "/papers",
-      isActive: currentPath === "/papers",
+      href: "/dashboard",
+      isActive: false,
     },
     {
       name: "Chat",
-      href: "/chat",
-      isActive: currentPath === "/chat",
+      href: "/dashboard",
+      isActive: false,
     },
     {
       name: "Reports",
-      href: "/reports",
-      isActive: currentPath === "/reports",
+      href: "/dashboard",
+      isActive: false,
     },
   ];
 
@@ -68,7 +71,7 @@ export default function Navbar() {
           </span>
         </Link>
 
-        {/* 4 Dashboard options from Figma: Research, Papers, Chat, Reports */}
+        {/* 4 Navigation options from Figma: Research, Papers, Chat, Reports */}
         <div className="flex items-center gap-1 sm:gap-2">
           {navLinks.map((link) => (
             <Link
