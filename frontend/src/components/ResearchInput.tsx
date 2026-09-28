@@ -4,9 +4,7 @@ import { cn } from "../lib/utils";
 export interface ResearchInputProps {
   onSearch?: (params: {
     query: string;
-    numPapers: number;
-    source: string;
-    dateRange: string;
+    pageRange: string;
     attachedFile?: File | null;
   }) => void;
   isLoading?: boolean;
@@ -17,10 +15,7 @@ export default function ResearchInput({
   isLoading = false,
 }: ResearchInputProps) {
   const [query, setQuery] = useState("");
-  const [numPapers, setNumPapers] = useState("10");
-  const [source, setSource] = useState("All");
-  const [dateRange, setDateRange] = useState("Publication Date");
-  const [showDateMenu, setShowDateMenu] = useState(false);
+  const [pageRange, setPageRange] = useState("1 - 20");
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -46,7 +41,6 @@ export default function ResearchInput({
     if (e) e.preventDefault();
     if (isLoading) return;
 
-    // If query is empty and no file attached, supply a smart default topic
     const finalQuery =
       query.trim() ||
       (attachedFile
@@ -60,9 +54,7 @@ export default function ResearchInput({
     if (onSearch) {
       onSearch({
         query: finalQuery,
-        numPapers: parseInt(numPapers, 10) || 10,
-        source,
-        dateRange,
+        pageRange,
         attachedFile,
       });
     }
@@ -119,10 +111,10 @@ export default function ResearchInput({
         </div>
       )}
 
-      {/* Bottom Controls Bar from Figma Mockup */}
+      {/* Bottom Controls Bar: Paperclip + Page Range (1-20) + Up Arrow Submit */}
       <div className="flex flex-wrap items-center justify-between gap-2.5 pt-3 border-t border-neutral-100">
         <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm">
-          {/* Paperclip / Attachment Button (Now Fully Functional) */}
+          {/* Paperclip / Attachment Button */}
           <button
             type="button"
             onClick={handleTriggerUpload}
@@ -149,87 +141,24 @@ export default function ResearchInput({
             </svg>
           </button>
 
-          {/* Publication Date Chip */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setShowDateMenu(!showDateMenu)}
-              className={cn(
-                "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium tracking-compact transition-colors border cursor-pointer",
-                dateRange !== "Publication Date"
-                  ? "bg-[#DFFFAA] text-black border-black/10"
-                  : "bg-neutral-100/90 hover:bg-neutral-200/80 text-neutral-700 border-neutral-200/60"
-              )}
-            >
-              <svg
-                className="w-3.5 h-3.5 text-neutral-500"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-                strokeWidth="2"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-                />
-              </svg>
-              <span>{dateRange}</span>
-            </button>
-
-            {showDateMenu && (
-              <div className="absolute top-full left-0 mt-1.5 w-44 bg-white rounded-xl shadow-lg border border-neutral-200/80 py-1.5 z-20 text-xs">
-                {["Publication Date (Any)", "Past 1 Year", "Past 3 Years", "Past 5 Years", "2020 - 2026"].map(
-                  (range) => (
-                    <button
-                      key={range}
-                      type="button"
-                      onClick={() => {
-                        setDateRange(range.replace(" (Any)", ""));
-                        setShowDateMenu(false);
-                      }}
-                      className="w-full text-left px-3 py-1.5 hover:bg-neutral-100 text-neutral-700 font-medium cursor-pointer"
-                    >
-                      {range}
-                    </button>
-                  )
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Number of Papers Chip */}
+          {/* Upload Page Range: 1 - 20 Chip */}
           <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-neutral-100/90 text-neutral-700 border border-neutral-200/60">
-            <span>Number of Papers</span>
+            <span>Page Range:</span>
             <select
-              value={numPapers}
-              onChange={(e) => setNumPapers(e.target.value)}
+              value={pageRange}
+              onChange={(e) => setPageRange(e.target.value)}
               className="bg-transparent text-neutral-900 font-semibold outline-none cursor-pointer pr-1"
             >
-              <option value="5">5</option>
-              <option value="10">10</option>
-              <option value="20">20</option>
-              <option value="50">50</option>
-            </select>
-          </div>
-
-          {/* Sources Chip */}
-          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-neutral-100/90 text-neutral-700 border border-neutral-200/60">
-            <span>Sources</span>
-            <select
-              value={source}
-              onChange={(e) => setSource(e.target.value)}
-              className="bg-transparent text-neutral-900 font-semibold outline-none cursor-pointer pr-1"
-            >
-              <option value="All">All</option>
-              <option value="arXiv">arXiv</option>
-              <option value="Semantic Scholar">Semantic Scholar</option>
-              <option value="PubMed">PubMed</option>
+              <option value="1 - 20">1 - 20</option>
+              <option value="1 - 5">1 - 5</option>
+              <option value="1 - 10">1 - 10</option>
+              <option value="1 - 15">1 - 15</option>
+              <option value="All Pages">All Pages</option>
             </select>
           </div>
         </div>
 
-        {/* Circular Upward Arrow Submit Button (Always responsive & active) */}
+        {/* Circular Upward Arrow Submit Button */}
         <button
           type="button"
           onClick={() => handleSubmit()}

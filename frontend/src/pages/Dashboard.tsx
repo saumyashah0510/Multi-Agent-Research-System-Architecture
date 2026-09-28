@@ -13,20 +13,21 @@ export default function Dashboard() {
 
   const handleSearch = ({
     query,
-    numPapers,
-    source,
+    pageRange = "1 - 20",
+    attachedFile,
   }: {
     query: string;
-    numPapers: number;
-    source: string;
-    dateRange: string;
+    pageRange?: string;
+    attachedFile?: File | null;
   }) => {
     setActiveQuery(query);
     setIsSearching(true);
     setLogs((prev) => [
       ...prev,
-      `Initiating query: "${query}" across ${source} (target: ${numPapers} papers)...`,
-      `[Search Agent] querying academic indexes...`,
+      `Initiating research on: "${query}" (Page Range: ${pageRange})...`,
+      attachedFile
+        ? `[Ingestion Agent] Parsing uploaded document: ${attachedFile.name}...`
+        : `[Search Agent] Querying academic vector indexes...`,
     ]);
 
     // Simulated search feedback for interactive responsiveness
@@ -34,7 +35,7 @@ export default function Dashboard() {
       setIsSearching(false);
       setLogs((prev) => [
         ...prev,
-        `[Search Agent] Fetched top candidate preprints.`,
+        `[Search Agent] Retrieved candidate preprints within pages ${pageRange}.`,
         `[Screening Agent] Scoring papers for relevance & citation methodology...`,
       ]);
     }, 1200);
@@ -71,9 +72,7 @@ export default function Dashboard() {
                 onClick={() =>
                   handleSearch({
                     query: prompt,
-                    numPapers: 10,
-                    source: "All",
-                    dateRange: "Publication Date",
+                    pageRange: "1 - 20",
                   })
                 }
                 className="px-3 py-1 rounded-full bg-white/70 hover:bg-white text-neutral-700 border border-neutral-200/60 shadow-xs transition-all hover:border-black/20 cursor-pointer"

@@ -20,30 +20,8 @@ const GitHubIcon = () => (
 
 export default function Navbar() {
   const location = useLocation();
-  const currentPath = location.pathname;
-
-  const navLinks = [
-    {
-      name: "Research",
-      href: "/dashboard",
-      isActive: currentPath === "/dashboard" || currentPath === "/research",
-    },
-    {
-      name: "Papers",
-      href: "/papers",
-      isActive: currentPath === "/papers",
-    },
-    {
-      name: "Chat",
-      href: "/chat",
-      isActive: currentPath === "/chat",
-    },
-    {
-      name: "Reports",
-      href: "/reports",
-      isActive: currentPath === "/reports",
-    },
-  ];
+  const isDashboard =
+    location.pathname === "/dashboard" || location.pathname === "/research";
 
   return (
     <header className="w-full bg-transparent">
@@ -68,25 +46,20 @@ export default function Navbar() {
           </span>
         </Link>
 
-        {/* Center/Right Navigation Tabs from Figma Design */}
-        <div className="flex items-center gap-1 sm:gap-2">
-          {navLinks.map((link) => (
-            <Link
-              key={link.name}
-              to={link.href}
-              className={cn(
-                "px-3 sm:px-4 py-1.5 rounded-full text-xs sm:text-sm font-medium tracking-compact transition-colors no-underline",
-                link.isActive
-                  ? "bg-white text-black font-semibold shadow-xs border border-black/10"
-                  : "text-neutral-700 hover:text-black hover:bg-black/5"
-              )}
-            >
-              {link.name}
-            </Link>
-          ))}
-        </div>
+        {/* Navigation Area: Only Research page as demanded by current scope */}
+        <div className="flex items-center gap-2 sm:gap-3">
+          <Link
+            to="/dashboard"
+            className={cn(
+              "px-4 py-1.5 rounded-full text-xs sm:text-sm font-semibold tracking-compact transition-colors no-underline",
+              isDashboard
+                ? "bg-white text-black shadow-xs border border-black/10"
+                : "text-neutral-700 hover:text-black hover:bg-black/5"
+            )}
+          >
+            Research
+          </Link>
 
-        <div className="hidden lg:block">
           <Button
             href="https://github.com/saumyashah0510/Multi-Agent-Research-System-Architecture"
             target="_blank"
@@ -96,7 +69,8 @@ export default function Navbar() {
             ariaLabel="View Repository on GitHub"
             className="text-xs sm:text-sm"
           >
-            <span>GitHub</span>
+            <span className="hidden sm:inline">View Repository</span>
+            <span className="sm:hidden">GitHub</span>
           </Button>
         </div>
       </nav>
