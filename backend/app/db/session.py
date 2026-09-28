@@ -7,16 +7,47 @@ Assignee Task (Issue BE-02):
 """
 
 from collections.abc import AsyncGenerator
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
 
-database_url = settings.DATABASE_URL
-if database_url.startswith("postgresql://"):
-    database_url = database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
-elif database_url.startswith("postgres://"):
-    database_url = database_url.replace("postgres://", "postgresql+asyncpg://", 1)
+raw_url = settings.DATABASE_URL or "postgresql://postgres:postgres@localhost:5432/multi_agent_db"
+if raw_url.startswith("postgresql://"):
+    raw_url = raw_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+elif raw_url.startswith("postgres://"):
+    raw_url = raw_url.replace("postgres://", "postgresql+asyncpg://", 1)
+
+
+# Parse and sanitize URL query parameters for asyncpg compatibility
+parsed = urlparse(raw_url)
+if parsed.query:
+    params = parse_qs(parsed.query)
+    # Map sslmode to ssl
+    if "sslmode" in params and "ssl" not in params:
+        params["ssl"] = params.pop("sslmode")
+    else:
+        params.pop("sslmode", None)
+    # Remove asyncpg-incompatible parameters (e.g., channel_binding, target_session_attrs)
+    params.pop("channel_binding", None)
+    params.pop("target_session_attrs", None)
+    params.pop("gssencmode", None)
+
+    new_query = urlencode(params, doseq=True)
+    database_url = urlunparse(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            parsed.path,
+            parsed.params,
+            new_query,
+            parsed.fragment,
+        )
+    )
+else:
+    database_url = raw_url
+
 
 engine = create_async_engine(
     database_url,
