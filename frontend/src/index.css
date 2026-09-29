@@ -4,20 +4,46 @@
 @theme {
   --font-serif: var(--font-serif);
   --font-sans: var(--font-sans);
+
+  --color-surface: var(--color-surface);
+  --color-accent: var(--color-accent);
+  --color-text-primary: var(--color-text-primary);
+  --color-text-secondary: var(--color-text-secondary);
+
+  --color-primary-blue: var(--color-primary-blue);
+  --color-primary-blue-hover: var(--color-primary-blue-hover);
+
+  --color-pill-sky: var(--color-pill-sky);
+  --color-pill-sky-text: var(--color-pill-sky-text);
+
+  --color-danger: var(--color-danger);
+  --color-danger-hover: var(--color-danger-hover);
+
+  --color-success: var(--color-success);
+  --color-success-dark: var(--color-success-dark);
+  --color-success-light: var(--color-success-light);
+
+  --color-tint-mint: var(--tint-mint);
+  --color-tint-lavender: var(--tint-lavender);
+  --color-tint-sky: var(--tint-sky);
 }
 
 body {
   font-family: var(--font-sans);
   background-color: var(--color-surface);
   color: var(--color-text-primary);
+  line-height: var(--line-height-body, 1.15);
   margin: 0;
   padding: 0;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
+.font-serif,
 .font-serif-heading {
   font-family: var(--font-serif);
+  letter-spacing: var(--tracking-compact, -0.04em);
+  line-height: var(--line-height-heading, 1.1);
 }
 
 .font-sans-ui {

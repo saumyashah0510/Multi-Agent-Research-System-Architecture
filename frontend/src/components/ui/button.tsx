@@ -29,9 +29,9 @@ const buttonVariants: Record<NonNullable<ButtonProps["variant"]>, string> = {
   link:
     "text-neutral-950 underline-offset-4 hover:underline p-0 h-auto font-medium",
   accent:
-    "bg-[var(--color-accent,#DFFFAA)] text-neutral-950 border border-black/10 hover:brightness-95 shadow-sm active:scale-[0.98]",
+    "bg-[var(--color-accent)] text-neutral-950 border border-black/10 hover:brightness-95 shadow-sm active:scale-[0.98]",
   destructive:
-    "bg-rose-600 text-white hover:bg-rose-700 shadow-sm active:scale-[0.98]",
+    "bg-[var(--color-danger)] text-white hover:bg-[var(--color-danger-hover)] shadow-sm active:scale-[0.98]",
 };
 
 const buttonSizes: Record<NonNullable<ButtonProps["size"]>, string> = {

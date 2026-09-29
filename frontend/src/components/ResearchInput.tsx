@@ -1,13 +1,129 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { cn } from "../lib/utils";
 
+interface DropdownOption {
+  label: string;
+  value: string;
+}
+
+function CustomDropdown({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: DropdownOption[];
+  onChange: (val: string) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    if (isOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isOpen]);
+
+  const selectedOption =
+    options.find((opt) => opt.value === value) ?? options[0] ?? {
+      label: value,
+      value,
+    };
+
+  return (
+    <div className="relative inline-block text-left" ref={dropdownRef}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className={cn(
+          "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all cursor-pointer border select-none",
+          isOpen
+            ? "bg-white text-neutral-900 border-black/20 shadow-xs ring-2 ring-black/5"
+            : "bg-neutral-100/90 text-neutral-700 border-neutral-200/60 hover:bg-neutral-200/70 hover:text-neutral-900"
+        )}
+      >
+        <span className="text-neutral-500 font-normal">{label}:</span>
+        <span className="font-semibold text-neutral-900">{selectedOption.label}</span>
+        <svg
+          className={cn("w-3 h-3 text-neutral-500 transition-transform duration-200", isOpen && "rotate-180")}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {isOpen && (
+        <div className="absolute left-0 bottom-full mb-1.5 sm:bottom-auto sm:top-full sm:mt-1.5 min-w-[120px] bg-white rounded-xl shadow-lg border border-neutral-200/80 p-1.5 z-50 animate-in fade-in zoom-in-95 duration-150">
+          {options.map((option) => {
+            const isSelected = option.value === value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => {
+                  onChange(option.value);
+                  setIsOpen(false);
+                }}
+                className={cn(
+                  "w-full text-left px-3 py-2 rounded-lg text-xs transition-colors flex items-center justify-between cursor-pointer font-medium",
+                  isSelected
+                    ? "bg-[var(--color-accent)] text-neutral-900 font-semibold shadow-xs"
+                    : "text-neutral-700 hover:bg-neutral-100/80 hover:text-neutral-900"
+                )}
+              >
+                <span>{option.label}</span>
+                {isSelected && (
+                  <svg className="w-3.5 h-3.5 text-neutral-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const paperOptions: DropdownOption[] = [
+  { label: "5", value: "5" },
+  { label: "7", value: "7" },
+  { label: "10", value: "10" },
+  { label: "15", value: "15" },
+  { label: "20 (Max)", value: "20" },
+];
+
+const citationOptions: DropdownOption[] = [
+  { label: "APA", value: "APA" },
+  { label: "IEEE", value: "IEEE" },
+  { label: "MLA", value: "MLA" },
+  { label: "Harvard", value: "Harvard" },
+  { label: "Chicago", value: "Chicago" },
+];
+
+export interface ResearchSearchParams {
+  query: string;
+  max_papers: number;
+  citation_format?: string;
+  attachedFile?: File | null;
+  review_id?: string;
+}
+
 export interface ResearchInputProps {
-  onSearch?: (params: {
-    query: string;
-    numPapers: number;
-    citationFormat?: string;
-    attachedFile?: File | null;
-  }) => void;
+  onSearch?: (params: ResearchSearchParams) => void;
   isLoading?: boolean;
 }
 
@@ -16,9 +132,12 @@ export default function ResearchInput({
   isLoading = false,
 }: ResearchInputProps) {
   const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(false);
   const [numPapers, setNumPapers] = useState("10");
   const [citationFormat, setCitationFormat] = useState("APA");
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
+
+  const isSubmitting = isLoading || loading;
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -39,9 +158,9 @@ export default function ResearchInput({
     }
   };
 
-  const handleSubmit = (e?: React.FormEvent) => {
+  const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (isLoading) return;
+    if (isSubmitting) return;
 
     const finalQuery =
       query.trim() ||
@@ -53,13 +172,45 @@ export default function ResearchInput({
       setQuery(finalQuery);
     }
 
-    if (onSearch) {
-      onSearch({
-        query: finalQuery,
-        numPapers: Math.min(parseInt(numPapers, 10) || 10, 20),
-        citationFormat,
-        attachedFile,
+    const parsedMaxPapers = Math.min(parseInt(numPapers, 10) || 10, 20);
+
+    setLoading(true);
+    try {
+      const response = await fetch("/api/v1/reviews/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          query: finalQuery,
+          citation_format: citationFormat,
+          max_papers: parsedMaxPapers,
+        }),
       });
+
+      const data = response.ok ? await response.json() : null;
+
+      if (onSearch) {
+        onSearch({
+          query: finalQuery,
+          max_papers: parsedMaxPapers,
+          citation_format: citationFormat,
+          attachedFile,
+          review_id: data?.review_id,
+        });
+      }
+    } catch (err) {
+      console.error("Error submitting review task:", err);
+      if (onSearch) {
+        onSearch({
+          query: finalQuery,
+          max_papers: parsedMaxPapers,
+          citation_format: citationFormat,
+          attachedFile,
+        });
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -74,7 +225,7 @@ export default function ResearchInput({
   return (
     <form
       onSubmit={handleSubmit}
-      className="w-full max-w-3xl mx-auto bg-white rounded-2xl sm:rounded-3xl border border-neutral-200/90 shadow-[0_8px_30px_rgb(0,0,0,0.06)] p-3.5 sm:p-5 transition-all hover:shadow-[0_12px_40px_rgb(0,0,0,0.09)]"
+      className="w-full bg-white rounded-2xl border border-neutral-200/90 shadow-[0_8px_30px_rgb(0,0,0,0.06)] p-3.5 sm:p-5 transition-all hover:shadow-[0_12px_40px_rgb(0,0,0,0.09)]"
     >
       {/* Hidden File Input for PDF/Document Upload */}
       <input
@@ -99,7 +250,7 @@ export default function ResearchInput({
 
       {/* Uploaded File Badge */}
       {attachedFile && (
-        <div className="mb-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#E3FBD6] border border-black/10 text-xs text-neutral-800 w-fit">
+        <div className="mb-2 flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--color-success-light)] border border-black/10 text-xs text-neutral-800 w-fit">
           <span className="font-semibold">📎 {attachedFile.name}</span>
           <span className="text-neutral-500">
             ({(attachedFile.size / 1024).toFixed(1)} KB)
@@ -126,7 +277,7 @@ export default function ResearchInput({
             className={cn(
               "p-1.5 sm:p-2 rounded-lg transition-colors cursor-pointer flex items-center justify-center",
               attachedFile
-                ? "bg-[#DFFFAA] text-black"
+                ? "bg-[var(--color-accent)] text-black"
                 : "text-neutral-500 hover:text-neutral-800 hover:bg-neutral-100"
             )}
           >
@@ -145,36 +296,21 @@ export default function ResearchInput({
             </svg>
           </button>
 
-          {/* Number of Papers Chip (1 - 20) */}
-          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-neutral-100/90 text-neutral-700 border border-neutral-200/60">
-            <span>Papers:</span>
-            <select
-              value={numPapers}
-              onChange={(e) => setNumPapers(e.target.value)}
-              className="bg-transparent text-neutral-900 font-semibold outline-none cursor-pointer pr-1"
-            >
-              <option value="5">5</option>
-              <option value="10">10</option>
-              <option value="15">15</option>
-              <option value="20">20 (Max)</option>
-            </select>
-          </div>
+          {/* Number of Papers Custom Dropdown Chip (1 - 20) */}
+          <CustomDropdown
+            label="Number of Papers"
+            value={numPapers}
+            options={paperOptions}
+            onChange={(val) => setNumPapers(val)}
+          />
 
-          {/* Citation Format Dropdown Chip */}
-          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-neutral-100/90 text-neutral-700 border border-neutral-200/60">
-            <span>Citation:</span>
-            <select
-              value={citationFormat}
-              onChange={(e) => setCitationFormat(e.target.value)}
-              className="bg-transparent text-neutral-900 font-semibold outline-none cursor-pointer pr-1"
-            >
-              <option value="APA">APA</option>
-              <option value="IEEE">IEEE</option>
-              <option value="MLA">MLA</option>
-              <option value="Harvard">Harvard</option>
-              <option value="Chicago">Chicago</option>
-            </select>
-          </div>
+          {/* Citation Format Custom Dropdown Chip */}
+          <CustomDropdown
+            label="Citation"
+            value={citationFormat}
+            options={citationOptions}
+            onChange={(val) => setCitationFormat(val)}
+          />
 
         </div>
 
@@ -182,15 +318,15 @@ export default function ResearchInput({
         <button
           type="button"
           onClick={() => handleSubmit()}
-          disabled={isLoading}
+          disabled={isSubmitting}
           aria-label="Start Research"
           className={cn(
             "w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-white transition-all shadow-md shrink-0 cursor-pointer",
-            "bg-[#4F6BF7] hover:bg-[#3D59E3] hover:scale-105 active:scale-95 shadow-[#4F6BF7]/30",
-            isLoading && "opacity-75 cursor-wait"
+            "bg-[var(--color-primary-blue)] hover:bg-[var(--color-primary-blue-hover)] hover:scale-105 active:scale-95 shadow-[var(--color-primary-blue)]/30",
+            isSubmitting && "opacity-75 cursor-wait"
           )}
         >
-          {isLoading ? (
+          {isSubmitting ? (
             <svg
               className="animate-spin h-4 w-4 text-white"
               fill="none"

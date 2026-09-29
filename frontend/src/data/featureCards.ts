@@ -1,45 +1,73 @@
+import home1 from "../images/home_1.png";
+import home2 from "../images/home_2.png";
+import home3 from "../images/home_3.png";
+import home4 from "../images/home_4.png";
+import home5 from "../images/home_5.png";
+
 export interface FeatureCardData {
   id: string;
   heading: string;
   subheading: string;
   description: string;
   image: string;
-  imageAlt?: string;
+  imageAlt: string;
   imagePosition: "left" | "right";
   tint: "mint" | "lavender" | "sky";
 }
 
 export const featureCards: FeatureCardData[] = [
   {
-    id: "multi-agent-search",
-    heading: "01 / Multi-Agent Discovery",
-    subheading: "Automated Academic Search across ArXiv & OpenAlex",
+    id: "how-it-works",
+    heading: "How it works",
+    subheading: "From a question to answers you can trust",
     description:
-      "Autonomous search agents execute expanded academic queries, retrieve paper metadata, and perform semantic deduplication in seconds.",
-    image: "https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?q=80&w=600&auto=format&fit=crop",
-    imageAlt: "Academic paper discovery",
+      "Tell Scholaris what you're researching. It finds the right papers, lets you pick what counts, and shows you how they connect ,  with every claim traceable back to its source.",
+    image: home1,
+    imageAlt: "Researcher exploring literature across arXiv, PubMed, and OpenAlex",
     imagePosition: "right",
     tint: "mint",
   },
   {
-    id: "human-in-the-loop",
-    heading: "02 / Human-in-the-Loop",
-    subheading: "Interactive Screening & Approval Control",
+    id: "discover",
+    heading: "Discover",
+    subheading: "Ask in your own words",
     description:
-      "Review candidate papers with relevance scoring. Approve or reject papers before vector embedding and report synthesis.",
-    image: "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?q=80&w=600&auto=format&fit=crop",
-    imageAlt: "Human in the loop approval",
+      "Type your research question like you'd ask a colleague. Scholaris searches arXiv, PubMed, and OpenAlex at once, so you don't have to search each one yourself.",
+    image: home2,
+    imageAlt: "Automated search interface discovering academic literature across connected databases",
     imagePosition: "left",
     tint: "lavender",
   },
   {
-    id: "structured-synthesis",
-    heading: "03 / Automated Synthesis",
-    subheading: "Structured Methodology Matrices & Citation Reports",
+    id: "review",
+    heading: "Review",
+    subheading: "You're always in control",
     description:
-      "Generates comprehensive literature reviews complete with methodology comparison matrices, identified research gaps, and formatted APA/IEEE references.",
-    image: "https://images.unsplash.com/photo-1507842217343-583bb7270b66?q=80&w=600&auto=format&fit=crop",
-    imageAlt: "Literature review synthesis",
+      "Scholaris shortlists papers that look relevant , you decide what actually belongs. One tap to approve, one tap to skip. Nothing gets used without your say-so.",
+    image: home3,
+    imageAlt: "Human-in-the-loop candidate paper screening and decision panel",
+    imagePosition: "right",
+    tint: "sky",
+  },
+  {
+    id: "synthesis",
+    heading: "Synthesis",
+    subheading: "See the whole picture at once",
+    description:
+      "Scholaris reads your approved papers and shows you where they agree, where they clash, and what's still unanswered ,  so you're not piecing it together paper by paper.",
+    image: home4,
+    imageAlt: "Synthesis dashboard displaying comparison matrix, thematic clusters, and research gaps",
+    imagePosition: "left",
+    tint: "mint",
+  },
+  {
+    id: "ask",
+    heading: "Ask",
+    subheading: "Talk to your papers directly",
+    description:
+      "Ask a question and get an answer pulled straight from your papers , with a citation attached, so you can check it yourself instead of taking Scholaris's word for it.",
+    image: home5,
+    imageAlt: "Conversational literature assistant with verifiable citation footnotes",
     imagePosition: "right",
     tint: "sky",
   },
