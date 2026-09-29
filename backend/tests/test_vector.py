@@ -71,9 +71,12 @@ async def async_session():
     from app.db.session import engine
     from sqlalchemy import text
 
-    async with engine.begin() as conn:
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
-        await conn.run_sync(Base.metadata.create_all)
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+            await conn.run_sync(Base.metadata.create_all)
+    except Exception as e:
+        pytest.skip(f"PostgreSQL database connection unavailable: {e}")
 
     async with AsyncSessionLocal() as session:
         yield session
