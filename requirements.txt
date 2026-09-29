@@ -30,5 +30,6 @@ reportlab>=4.0.0
 # Database, Caching & Async Drivers
 sqlalchemy>=2.0.0
 asyncpg>=0.29.0
+pgvector>=0.2.5
 greenlet>=3.0.0
 redis>=5.0.0

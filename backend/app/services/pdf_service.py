@@ -13,10 +13,23 @@ REQUEST_TIMEOUT = 10.0
 SECTION_ALIASES = {
     "abstract": {
         "abstract",
+        "summary",
     },
     "introduction": {
         "introduction",
         "background",
+        "overview",
+        "motivation",
+    },
+    "related_work": {
+        "related work",
+        "prior work",
+        "literature review",
+    },
+    "preliminaries": {
+        "preliminaries",
+        "problem formulation",
+        "definitions",
     },
     "methods": {
         "methods",
@@ -25,16 +38,28 @@ SECTION_ALIASES = {
         "materials and methods",
         "materials & methods",
         "experimental methods",
+        "system design",
+        "architecture",
+        "proposed method",
+        "approach",
     },
     "results": {
         "results",
         "findings",
+        "experiments",
+        "evaluation",
+        "experimental results",
+    },
+    "discussion": {
+        "discussion",
+        "analysis",
     },
     "conclusion": {
         "conclusion",
         "conclusions",
         "discussion and conclusion",
         "conclusions and future work",
+        "future work",
     },
 }
 
