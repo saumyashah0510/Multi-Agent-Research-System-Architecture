@@ -15,6 +15,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
 if TYPE_CHECKING:
+    from app.models.chunk import PaperChunk
     from app.models.review import LiteratureReview
 
 
@@ -29,6 +30,10 @@ class Paper(Base):
     abstract: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     published_year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     arxiv_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
+    doi: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+    pubmed_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
+    pdf_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, default="arxiv")
     relevance_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True, default=0.0)
     is_approved: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     review_id: Mapped[Optional[int]] = mapped_column(
@@ -38,6 +43,9 @@ class Paper(Base):
     # Relationships
     review: Mapped[Optional["LiteratureReview"]] = relationship(
         "LiteratureReview", back_populates="papers"
+    )
+    chunks: Mapped[list["PaperChunk"]] = relationship(
+        "PaperChunk", back_populates="paper", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:

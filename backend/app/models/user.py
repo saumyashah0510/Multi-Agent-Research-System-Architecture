@@ -5,11 +5,15 @@ Assignee Task (Issue BE-03):
 """
 
 from datetime import datetime
+from typing import TYPE_CHECKING, List
 
 from sqlalchemy import DateTime, Integer, String, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+
+if TYPE_CHECKING:
+    from app.models.review import LiteratureReview
 
 
 class User(Base):
@@ -22,6 +26,11 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    # Relationships
+    reviews: Mapped[List["LiteratureReview"]] = relationship(
+        "LiteratureReview", back_populates="user", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:

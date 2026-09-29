@@ -4,7 +4,6 @@ import io
 
 import httpx
 import pytest
-
 from app.services.pdf_service import (
     _extract_pdf_text,
     _extract_sections,
@@ -147,9 +146,7 @@ async def test_download_and_extract_pdf(
         mock_download,
     )
 
-    result = await download_and_extract_pdf(
-        "https://example.com/paper.pdf"
-    )
+    result = await download_and_extract_pdf("https://example.com/paper.pdf")
 
     assert "Abstract" in result["raw_text"]
     assert "abstract" in result["sections"]
@@ -168,18 +165,14 @@ async def test_download_failure(
     async def mock_download(
         pdf_url: str,
     ) -> bytes:
-        raise httpx.ConnectError(
-            "Connection failed"
-        )
+        raise httpx.ConnectError("Connection failed")
 
     monkeypatch.setattr(
         "app.services.pdf_service._download_pdf",
         mock_download,
     )
 
-    result = await download_and_extract_pdf(
-        "https://example.com/paper.pdf"
-    )
+    result = await download_and_extract_pdf("https://example.com/paper.pdf")
 
     assert result == {
         "raw_text": "",
