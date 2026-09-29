@@ -26,9 +26,9 @@ export default function FeatureCard({
   className = "",
 }: FeatureCardProps) {
   const gradientMap: Record<"mint" | "lavender" | "sky", string> = {
-    mint: "linear-gradient(135deg, #BFE8B2 0%, #D2F0C6 50%, #E2F6DB 100%)",
-    lavender: "linear-gradient(135deg, #C2C5F6 0%, #D4D7F8 50%, #E6E7FA 100%)",
-    sky: "linear-gradient(135deg, #B2DBFA 0%, #C8E5FC 50%, #E0EFFD 100%)",
+    mint: "var(--gradient-card-mint)",
+    lavender: "var(--gradient-card-lavender)",
+    sky: "var(--gradient-card-sky)",
   };
 
   const cardStyle: React.CSSProperties = {

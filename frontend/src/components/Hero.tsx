@@ -29,7 +29,7 @@ export default function Hero() {
 
   return (
     <section
-      className="w-full pt-8 pb-16 md:pt-12 md:pb-24 px-6 md:px-12 flex flex-col items-center text-center bg-transparent"
+      className="w-full pt-12 sm:pt-16 md:pt-20 pb-16 md:pb-24 px-6 md:px-12 flex flex-col items-center text-center bg-transparent"
       aria-label="Hero Section"
     >
       <motion.div

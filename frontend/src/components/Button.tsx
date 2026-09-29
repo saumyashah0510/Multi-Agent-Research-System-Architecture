@@ -35,9 +35,10 @@ export default function Button({
   const buttonStyle: React.CSSProperties = {
     backgroundColor: "var(--color-button-primary)",
     color: "var(--color-button-primary-text)",
-    borderRadius: "var(--radius-sm)",
+    borderRadius: "var(--radius-lg)",
     fontFamily: "var(--font-sans)",
-    letterSpacing: "-0.04em",
+    letterSpacing: "var(--tracking-compact)",
+    boxShadow: "var(--shadow-button)",
     transition:
       "box-shadow var(--duration-fast) var(--ease-standard), background-color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard)",
   };

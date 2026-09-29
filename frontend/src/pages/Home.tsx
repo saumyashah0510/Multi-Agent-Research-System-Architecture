@@ -8,22 +8,19 @@ export default function Home() {
   return (
     <div
       className="min-h-screen flex flex-col font-sans-ui"
-      style={{ backgroundColor: "var(--color-surface)" }}
+      style={{
+        background: "var(--gradient-hero-bg)",
+      }}
     >
-      {/* Top Banner: Hero Gradient hosting Navbar and Hero */}
-      <div
-        className="w-full flex flex-col"
-        style={{
-          background: "linear-gradient(180deg, #DFFFAA 0%, #F6F8FB 100%)",
-        }}
-      >
-        <Navbar />
-        <Hero />
-      </div>
+      {/* Sticky Top Navigation */}
+      <Navbar />
+
+      {/* Hero Section */}
+      <Hero />
 
       {/* Main Content Area */}
       <main
-        className="w-full max-w-[var(--container-max-width)] mx-auto px-6 md:px-12 pt-10 md:pt-14 pb-0 flex flex-col items-center"
+        className="relative z-10 w-full max-w-[var(--container-max-width)] mx-auto px-6 md:px-12 pt-10 md:pt-14 pb-0 flex flex-col items-center"
         aria-label="How Scholaris Works"
       >
         {/* Feature Narrative Cards */}

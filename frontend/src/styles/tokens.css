@@ -1,21 +1,48 @@
 :root {
   /* 3.1 Color palette */
   --color-text-primary: #000000;
-  --color-text-secondary: #4B5563;
+  --color-text-secondary: #6B7280;
   --color-surface: #F6F8FB;
   --color-accent: #DFFFAA;
   --color-button-primary: #000000;
   --color-button-primary-text: #FFFFFF;
+
+  /* Interactive / Brand Colors */
+  --color-primary-blue: #4F6BF7;
+  --color-primary-blue-hover: #3D59E3;
+
+  /* Status / Pill Colors */
+  --color-pill-sky: #BDE3FA;
+  --color-pill-sky-text: #1F2937;
+
+  /* Danger / Alert Colors */
+  --color-danger: #EF4444;
+  --color-danger-hover: #DC2626;
+
+  /* Success / Verification Colors */
+  --color-success: #2E7D32;
+  --color-success-dark: #1B5E20;
+  --color-success-light: #E3FBD6;
 
   /* Section tint colors (closed set) */
   --tint-mint: #E3FBD6;
   --tint-lavender: #E3E4FA;
   --tint-sky: #DDEEFB;
 
+  /* Gradients */
+  --gradient-card-mint: linear-gradient(135deg, #BFE8B2 0%, #D2F0C6 50%, #E2F6DB 100%);
+  --gradient-card-lavender: linear-gradient(135deg, #C2C5F6 0%, #D4D7F8 50%, #E6E7FA 100%);
+  --gradient-card-sky: linear-gradient(135deg, #B2DBFA 0%, #C8E5FC 50%, #E0EFFD 100%);
+  --gradient-hero-bg: linear-gradient(180deg, var(--color-accent) 0%, var(--color-surface) 580px, var(--color-surface) 580px);
+  --gradient-page-bg: linear-gradient(180deg, var(--color-accent) 0%, var(--color-surface) 100vh, var(--color-surface) 100vh);
+  --gradient-footer-bg: linear-gradient(180deg, var(--color-surface) 0%, var(--color-accent) 100%);
+
   /* 3.2 Typography */
-  --font-serif: "Source Serif 4", "Source Serif Pro", Georgia, serif;
-  --font-sans: "Roboto", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-serif: "Domine", Georgia, serif;
+  --font-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --tracking-compact: -0.04em;
+  --line-height-heading: 1.1;
+  --line-height-body: 1.15;
 
   /* 3.4 Spacing scale */
   --space-1: 4px;
@@ -31,10 +58,13 @@
   /* 3.5 Radius scale */
   --radius-sm: 8px;
   --radius-lg: 16px;
+  --radius-pill: 9999px;
 
   /* 3.6 Elevation (shadow) tokens */
   --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.06);
   --shadow-button: 0 1px 3px rgba(0, 0, 0, 0.15);
+  --shadow-container: 0 8px 30px rgba(0, 0, 0, 0.06);
+  --shadow-container-hover: 0 12px 40px rgba(0, 0, 0, 0.09);
 
   /* 3.7 Motion tokens */
   --duration-fast: 150ms;

@@ -8,10 +8,10 @@ __pycache__/
 
 # Distribution / packaging
 .Python
-build/
+/build/
 develop-eggs/
-dist/
-downloads/
+/dist/
+/downloads/
 eggs/
 .eggs/
 /lib/
@@ -65,9 +65,13 @@ venv.bak/
 .DS_Store
 Thumbs.db
 
-# Project Scratch & Temp Downloads
+# Project Scratch & Temp Downloads (root only)
 /data/
-downloads/
-tmp/
-scratch/
+/downloads/
+/tmp/
+/scratch/
 *.log
+
+# Source Protection: Explicitly prevent Git from ever ignoring application source files
+!**/src/**
+!**/src/**/*

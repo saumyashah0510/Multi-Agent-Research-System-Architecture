@@ -14,7 +14,7 @@ export function Badge({
     default: "bg-black text-white",
     secondary: "bg-neutral-100 text-neutral-800",
     outline: "border border-neutral-300 text-neutral-800",
-    accent: "bg-[#DFFFAA] text-black border border-black/10",
+    accent: "bg-[var(--color-accent)] text-black border border-black/10",
   };
 
   return (
