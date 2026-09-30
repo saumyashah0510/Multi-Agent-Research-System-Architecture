@@ -54,12 +54,22 @@ SECTION_ALIASES = {
         "discussion",
         "analysis",
     },
+    "limitations": {
+        "limitations",
+        "threats to validity",
+        "drawbacks",
+        "scope and limitations",
+    },
+    "future_work": {
+        "future work",
+        "future directions",
+        "open challenges",
+        "conclusions and future work",
+    },
     "conclusion": {
         "conclusion",
         "conclusions",
         "discussion and conclusion",
-        "conclusions and future work",
-        "future work",
     },
 }
 

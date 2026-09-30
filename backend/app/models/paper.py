@@ -33,6 +33,7 @@ class Paper(Base):
     doi: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
     pubmed_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
     pdf_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    sections: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
     source: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, default="arxiv")
     relevance_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True, default=0.0)
     is_approved: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
