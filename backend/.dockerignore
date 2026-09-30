@@ -1,0 +1,26 @@
+# Python Caches & Environments (All Nested Directories)
+**/__pycache__/
+**/*.py[cod]
+**/*$py.class
+**/.pytest_cache/
+**/.ruff_cache/
+venv/
+.venv/
+env/
+
+# Version Control & Local Configs
+.git/
+.gitignore
+.env
+.env.local
+*.log
+
+# Node & Frontend Build Artifacts
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# Documentation & IDE
+docs/
+.vscode/
+.idea/
