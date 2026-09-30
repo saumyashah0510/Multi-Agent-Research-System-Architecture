@@ -29,6 +29,16 @@ This guide documents the complete automated AWS Cloud infrastructure deployment 
 
 ---
 
+## 🌐 Live AWS Cloud Application Endpoints
+
+When the EC2 server instance is running, the application is accessible via your permanent AWS Elastic IP (`13.207.232.123`):
+
+- **Frontend User Interface**: 👉 `http://13.207.232.123:3000`
+- **FastAPI Backend Health Check**: 👉 `http://13.207.232.123:8000/api/v1/health`
+- **FastAPI Interactive API Documentation**: 👉 `http://13.207.232.123:8000/docs`
+
+---
+
 ## 🛠️ Key Terraform Resources Configured
 
 1. **Remote State Backend (`terraform/providers.tf`)**:

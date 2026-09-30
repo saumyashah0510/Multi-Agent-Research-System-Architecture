@@ -45,5 +45,8 @@ jobs:
             fi
             cd /home/ubuntu/app
             git pull origin main
+            if [ ! -f "/home/ubuntu/app/.env" ]; then
+              cp /home/ubuntu/app/.env.example /home/ubuntu/app/.env
+            fi
             docker compose up --build -d
             echo "DEPLOYMENT COMPLETE! Application running cleanly on EC2!"
