@@ -4,19 +4,46 @@ on:
   push:
     branches: [ main ]
 
-# TODO (Assignee - DevOps Engineer): Configure automated deployment to AWS App Runner
 jobs:
   deploy-to-aws:
-    name: Build Docker Container & Trigger AWS Deployment
+    name: Build & Deploy Container Stack to AWS EC2
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      # TODO (Assignee): Configure AWS credentials setup (aws-actions/configure-aws-credentials)
-      # TODO (Assignee): Configure Amazon ECR container login & image push
-      # TODO (Assignee): Trigger AWS App Runner deployment refresh
-      - name: Deployment Placeholder Step
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Ensure AWS EC2 Server is Running
         run: |
-          echo "TODO: Configure automatic AWS App Runner container image update on git push to main"
+          echo "Checking EC2 Instance state..."
+          INSTANCE_STATE=$(aws ec2 describe-instances --instance-ids ${{ secrets.EC2_INSTANCE_ID }} --query "Reservations[0].Instances[0].State.Name" --output text)
+          echo "Current EC2 Instance State: $INSTANCE_STATE"
+
+          if [ "$INSTANCE_STATE" != "running" ]; then
+            echo "Instance is stopped. Starting EC2 Instance..."
+            aws ec2 start-instances --instance-ids ${{ secrets.EC2_INSTANCE_ID }}
+            aws ec2 wait instance-running --instance-ids ${{ secrets.EC2_INSTANCE_ID }}
+            echo "EC2 Instance is now RUNNING!"
+          fi
+
+      - name: SSH Deploy & Restart Containers on EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            if [ ! -d "/home/ubuntu/app" ]; then
+              git clone https://github.com/saumyashah0510/Multi-Agent-Research-System-Architecture.git /home/ubuntu/app
+            fi
+            cd /home/ubuntu/app
+            git pull origin main
+            docker compose up --build -d
+            echo "DEPLOYMENT COMPLETE! Application running cleanly on EC2!"
