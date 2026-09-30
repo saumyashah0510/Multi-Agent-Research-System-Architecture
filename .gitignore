@@ -75,3 +75,12 @@ Thumbs.db
 # Source Protection: Explicitly prevent Git from ever ignoring application source files
 !**/src/**
 !**/src/**/*
+
+# Terraform Ignore Rules
+**/.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+override.tf
+override.tf.json
+*tfplan*
