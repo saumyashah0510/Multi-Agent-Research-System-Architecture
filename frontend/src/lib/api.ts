@@ -40,8 +40,8 @@ export async function submitHumanDecision(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
+      user_decision: decision,
       approved_paper_ids: approvedPaperIds,
-      decision: decision,
     }),
   });
   if (!res.ok) {

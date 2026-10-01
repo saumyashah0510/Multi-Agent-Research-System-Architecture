@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import ResearchInput, { type ResearchSearchParams } from "../components/ResearchInput";
-import PaperSummaryCard, { type PaperSummary } from "../components/PaperSummaryCard";
-import { cn } from "../lib/utils";
+import PaperGrid from "../components/dashboard/paper-grid";
+import { type PaperSummary } from "../components/PaperSummaryCard";
+import { submitHumanDecision } from "../lib/api";
 
 // Single example summary card per user specification
 const defaultPapers: PaperSummary[] = [
@@ -35,6 +36,20 @@ export default function Dashboard() {
   const [searchStepIndex, setSearchStepIndex] = useState(0);
   const [papers, setPapers] = useState<PaperSummary[]>(defaultPapers);
 
+  // Review session state
+  const [reviewId, setReviewId] = useState<string | null>(null);
+
+  // Single source of truth for selected paper IDs
+  const [selectedPaperIds, setSelectedPaperIds] = useState<string[]>(
+    defaultPapers.filter((p) => p.isSelected).map((p) => p.id)
+  );
+
+  // Approval submission state
+  const [isProceeding, setIsProceeding] = useState(false);
+  const [isFindingMore, setIsFindingMore] = useState(false);
+  const [approvalError, setApprovalError] = useState<string | null>(null);
+  const [approvalSuccess, setApprovalSuccess] = useState<string | null>(null);
+
   // Rotate reassuring loading status lines while searching
   useEffect(() => {
     if (!isSearching) return;
@@ -44,28 +59,84 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, [isSearching]);
 
-  const handleSearch = ({ query }: ResearchSearchParams) => {
-    setActiveQuery(query);
+  const handleSearch = (params: ResearchSearchParams) => {
+    setActiveQuery(params.query);
     setIsSearching(true);
     setSearchStepIndex(0);
+    setApprovalError(null);
+    setApprovalSuccess(null);
+
+    // Track review_id from research search params if returned by backend API
+    if (params.review_id) {
+      setReviewId(params.review_id);
+    } else {
+      setReviewId(null);
+    }
 
     // Simulate search latency to allow researcher to see satisfying discovery progression
     setTimeout(() => {
       setIsSearching(false);
       setHasSearched(true);
       setPapers(defaultPapers);
+      setSelectedPaperIds(defaultPapers.filter((p) => p.isSelected).map((p) => p.id));
     }, 2400);
   };
 
   const togglePaperSelection = (id: string) => {
-    setPapers((prev) =>
-      prev.map((paper) =>
-        paper.id === id ? { ...paper, isSelected: !paper.isSelected } : paper
-      )
+    setSelectedPaperIds((prev) =>
+      prev.includes(id) ? prev.filter((pId) => pId !== id) : [...prev, id]
     );
   };
 
-  const selectedCount = papers.filter((p) => p.isSelected).length;
+  const handleProceed = async () => {
+    if (!reviewId) {
+      setApprovalError("Review session is not ready. Please initiate a search to start a review task.");
+      return;
+    }
+    if (selectedPaperIds.length === 0) {
+      setApprovalError("Please select at least one paper before proceeding.");
+      return;
+    }
+
+    setIsProceeding(true);
+    setApprovalError(null);
+    setApprovalSuccess(null);
+
+    try {
+      await submitHumanDecision(reviewId, selectedPaperIds, "continue");
+      setApprovalSuccess(
+        `Selection approved successfully! (${selectedPaperIds.length} paper${
+          selectedPaperIds.length > 1 ? "s" : ""
+        } submitted for review ID: ${reviewId})`
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to submit paper approvals";
+      setApprovalError(message);
+    } finally {
+      setIsProceeding(false);
+    }
+  };
+
+  const handleFindMore = async () => {
+    if (!reviewId) {
+      setApprovalError("Review session is not ready. Please initiate a search to start a review task.");
+      return;
+    }
+
+    setIsFindingMore(true);
+    setApprovalError(null);
+    setApprovalSuccess(null);
+
+    try {
+      await submitHumanDecision(reviewId, [], "find_more");
+      setApprovalSuccess(`Request to search for more papers submitted successfully! (Review ID: ${reviewId})`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to submit request for more papers";
+      setApprovalError(message);
+    } finally {
+      setIsFindingMore(false);
+    }
+  };
 
   return (
     <div
@@ -114,91 +185,20 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* COMPLETED SEARCH RESULTS */}
+      {/* COMPLETED SEARCH RESULTS (Paper Approval Grid) */}
       {!isSearching && hasSearched && (
-        <div className="w-full space-y-5 animate-in fade-in duration-300">
-          {/* Status & Action Bar: Exact same width */}
-          <div className="w-full bg-white rounded-2xl border border-neutral-200/80 shadow-xs p-3.5 sm:p-4 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-2.5">
-              {/* Papers found pill */}
-              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[var(--color-pill-sky)] text-neutral-800">
-                <span>Papers found</span>
-                <span className="bg-white text-neutral-900 font-bold px-2 py-0.5 rounded-full text-xs shadow-xs">
-                  {papers.length}
-                </span>
-              </div>
-
-              {/* Most relevant pill */}
-              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[var(--color-pill-sky)] text-neutral-800">
-                <span>Most relevant</span>
-                <span className="bg-white text-neutral-900 font-bold px-2 py-0.5 rounded-full text-xs shadow-xs">
-                  {papers.length}
-                </span>
-              </div>
-            </div>
-
-            {/* Search again button - consistent rounded-full pill button */}
-            <button
-              type="button"
-              onClick={() => {
-                window.scrollTo({ top: 0, behavior: "smooth" });
-              }}
-              className="bg-[var(--color-danger)] hover:bg-[var(--color-danger-hover)] text-white text-xs sm:text-sm font-semibold px-4 py-1.5 rounded-full shadow-xs transition-colors cursor-pointer tracking-compact"
-            >
-              Search again
-            </button>
-          </div>
-
-
-          <div className="w-full bg-white rounded-2xl border border-neutral-200/80 shadow-xs p-5 sm:p-7 space-y-6">
-            {/* Header: Title + Selected Counter */}
-            <div className="flex items-center justify-between pb-2 border-b border-neutral-100">
-              <h2 className="font-serif text-xl sm:text-2xl font-bold text-neutral-900 tracking-compact">
-                Most relevant papers
-              </h2>
-
-              {/* Selected Badge */}
-              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-[var(--color-pill-sky)] text-neutral-800">
-                <span>Selected</span>
-                <span className="bg-white px-2 py-0.5 rounded-full text-neutral-900 font-bold shadow-xs">
-                  {selectedCount}
-                </span>
-                <span>of {papers.length}</span>
-              </div>
-            </div>
-
-            {/* Reusable Paper Summary Cards List */}
-            <div className="space-y-4">
-              {papers.map((paper) => (
-                <PaperSummaryCard
-                  key={paper.id}
-                  paper={paper}
-                  onToggleSelect={togglePaperSelection}
-                />
-              ))}
-            </div>
-
-            {/* Action Footer for Selected Papers */}
-            <div className="pt-4 border-t border-neutral-100 flex flex-col sm:flex-row items-center justify-between gap-4">
-              <span className="text-xs text-neutral-500">
-                {selectedCount} paper ready for automated literature synthesis & citation analysis.
-              </span>
-
-              <button
-                type="button"
-                disabled={selectedCount === 0}
-                className={cn(
-                  "px-6 py-2.5 rounded-lg text-sm font-semibold tracking-compact transition-all shadow-sm cursor-pointer",
-                  selectedCount > 0
-                    ? "bg-neutral-900 hover:bg-black text-white hover:shadow-md"
-                    : "bg-neutral-200 text-neutral-400 cursor-not-allowed"
-                )}
-              >
-                Proceed with Selected Paper ({selectedCount}) →
-              </button>
-            </div>
-          </div>
-        </div>
+        <PaperGrid
+          papers={papers}
+          selectedPaperIds={selectedPaperIds}
+          onToggleSelect={togglePaperSelection}
+          onProceed={handleProceed}
+          onFindMore={handleFindMore}
+          reviewId={reviewId}
+          isProceeding={isProceeding}
+          isFindingMore={isFindingMore}
+          errorMessage={approvalError}
+          successMessage={approvalSuccess}
+        />
       )}
     </div>
   );
