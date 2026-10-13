@@ -30,17 +30,35 @@ export interface AgentLog {
   level: "info" | "success" | "warning" | "error";
 }
 
+export interface ThematicCluster {
+  theme: string;
+  summary: string;
+  citations: string[];
+}
+
+export interface MethodologyMatrixEntry {
+  method: string;
+  papers: string[];
+}
+
+export interface ReportReference {
+  id: string;
+  title: string;
+  authors: string;
+  year: number;
+  venue?: string;
+  url?: string;
+}
+
 export interface SynthesizedReport {
   title: string;
-  summary: string;
-  keyThemes: string[];
-  methodologyMatrix?: Array<{
-    paperTitle: string;
-    methodology: string;
-    findings: string;
-  }>;
-  researchGaps: string[];
-  references: string[];
+  executive_summary: string;
+  thematic_clusters: ThematicCluster[];
+  methodology_matrix: MethodologyMatrixEntry[];
+  research_gaps: string[];
+  references: ReportReference[];
+  summary?: string;
+  keyThemes?: string[];
 }
 
 export interface ReviewTask {
