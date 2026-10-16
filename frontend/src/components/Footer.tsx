@@ -6,7 +6,7 @@ export default function Footer() {
 
   return (
     <footer
-      className="w-full pt-10 md:pt-12 pb-12 px-6 md:px-12 flex flex-col items-center mt-4 md:mt-6 border-t border-black/5 tracking-compact"
+      className="w-full pt-6 sm:pt-8 pb-6 sm:pb-8 px-6 md:px-12 flex flex-col items-center border-t border-black/5 tracking-compact"
       style={{
         background: "var(--gradient-footer-bg)",
       }}
@@ -14,9 +14,9 @@ export default function Footer() {
     >
       <div className="w-full max-w-[var(--container-max-width)] mx-auto flex flex-col">
         {/* Top Section: Brand + Links Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-10 md:gap-8 pb-12 border-b border-black/10">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 md:gap-8 pb-6 border-b border-black/10">
           {/* Brand Column (2 cols on md) */}
-          <div className="md:col-span-2 flex flex-col items-start space-y-4">
+          <div className="md:col-span-2 flex flex-col items-start space-y-2.5">
             <Link
               to="/"
               className="inline-flex items-center gap-2.5 select-none outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 rounded-md"
@@ -38,36 +38,36 @@ export default function Footer() {
           </div>
 
           {/* Column 1: Platform */}
-          <div className="flex flex-col space-y-3">
+          <div className="flex flex-col space-y-2.5">
             <h4 className="font-sans-ui font-semibold text-xs uppercase tracking-wider text-neutral-900">
               Platform
             </h4>
             <ul className="space-y-2 text-sm text-neutral-600 font-sans-ui">
               <li>
-                <Link to="/dashboard" className="hover:text-black transition-colors">
-                  Research Console
+                <Link to="/dashboard?tab=research" className="hover:text-black transition-colors">
+                  Research
                 </Link>
               </li>
               <li>
-                <a href="#how-it-works" className="hover:text-black transition-colors">
-                  Discovery Engine
-                </a>
+                <Link to="/dashboard?tab=papers" className="hover:text-black transition-colors">
+                  Papers
+                </Link>
               </li>
               <li>
-                <a href="#review" className="hover:text-black transition-colors">
-                  Paper Screening
-                </a>
+                <Link to="/dashboard?tab=chat" className="hover:text-black transition-colors">
+                  Chat
+                </Link>
               </li>
               <li>
-                <a href="#synthesis" className="hover:text-black transition-colors">
-                  Synthesis Matrix
-                </a>
+                <Link to="/dashboard?tab=reports" className="hover:text-black transition-colors">
+                  Reports
+                </Link>
               </li>
             </ul>
           </div>
 
           {/* Column 2: Resources */}
-          <div className="flex flex-col space-y-3">
+          <div className="flex flex-col space-y-2.5">
             <h4 className="font-sans-ui font-semibold text-xs uppercase tracking-wider text-neutral-900">
               Resources
             </h4>
@@ -82,37 +82,15 @@ export default function Footer() {
                   GitHub Repository
                 </a>
               </li>
-              <li>
-                <a
-                  href="https://github.com/saumyashah0510/Multi-Agent-Research-System-Architecture#readme"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="hover:text-black transition-colors"
-                >
-                  Documentation
-                </a>
-              </li>
             </ul>
           </div>
         </div>
 
-        {/* Bottom Section: Copyright & Legal */}
-        <div className="pt-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-neutral-500 font-sans-ui">
+        {/* Bottom Section: Copyright */}
+        <div className="pt-4 sm:pt-5 flex flex-col sm:flex-row items-center justify-between gap-3 text-sm text-neutral-500 font-sans-ui">
           <p>
             &copy; {currentYear} Scholaris AI. Human-in-the-Loop Literature Review Pipeline.
           </p>
-
-          <div className="flex items-center space-x-6">
-            <span className="hover:text-black cursor-pointer">
-              Privacy Policy
-            </span>
-            <span className="hover:text-black cursor-pointer">
-              Terms of Service
-            </span>
-            <span className="hover:text-black cursor-pointer">
-              MIT License
-            </span>
-          </div>
         </div>
       </div>
     </footer>
