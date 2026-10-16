@@ -19,10 +19,13 @@
   --color-danger: #EF4444;
   --color-danger-hover: #DC2626;
 
-  /* Success / Verification Colors */
+  /* Success / Verification / Relevance / Completed Colors (Single Source of Truth) */
   --color-success: #2E7D32;
   --color-success-dark: #1B5E20;
   --color-success-light: #E3FBD6;
+  --color-success-border: rgba(46, 125, 50, 0.3);
+  --color-success-text: #1B5E20;
+  --color-success-text-subtle: rgba(27, 94, 32, 0.85);
 
   /* Section tint colors (closed set) */
   --tint-mint: #E3FBD6;

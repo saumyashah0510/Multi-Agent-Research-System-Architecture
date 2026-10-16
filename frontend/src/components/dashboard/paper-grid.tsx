@@ -1,3 +1,4 @@
+import { CircleCheck } from "lucide-react";
 import { cn } from "../../lib/utils";
 import PaperSummaryCard, { type PaperSummary } from "../PaperSummaryCard";
 
@@ -6,10 +7,7 @@ export interface PaperGridProps {
   selectedPaperIds: string[];
   onToggleSelect: (id: string) => void;
   onProceed: () => void;
-  onFindMore: () => void;
-  reviewId?: string | null;
   isProceeding?: boolean;
-  isFindingMore?: boolean;
   errorMessage?: string | null;
   successMessage?: string | null;
   className?: string;
@@ -20,66 +18,15 @@ export default function PaperGrid({
   selectedPaperIds,
   onToggleSelect,
   onProceed,
-  onFindMore,
-  reviewId,
   isProceeding = false,
-  isFindingMore = false,
   errorMessage = null,
   successMessage = null,
   className = "",
 }: PaperGridProps) {
   const selectedCount = selectedPaperIds.length;
-  const isSubmitting = isProceeding || isFindingMore;
-  const hasReviewId = Boolean(reviewId);
 
   return (
     <div className={cn("w-full space-y-5 animate-in fade-in duration-300", className)}>
-      {/* Top Status & Search Control Bar */}
-      <div className="w-full bg-white rounded-2xl border border-neutral-200/80 shadow-xs p-3.5 sm:p-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2.5">
-          {/* Papers found pill */}
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[var(--color-pill-sky)] text-neutral-800">
-            <span>Papers found</span>
-            <span className="bg-white text-neutral-900 font-bold px-2 py-0.5 rounded-full text-xs shadow-xs">
-              {papers.length}
-            </span>
-          </div>
-
-          {/* Most relevant pill */}
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[var(--color-pill-sky)] text-neutral-800">
-            <span>Most relevant</span>
-            <span className="bg-white text-neutral-900 font-bold px-2 py-0.5 rounded-full text-xs shadow-xs">
-              {papers.length}
-            </span>
-          </div>
-        </div>
-
-        {/* Find More Papers Action Button */}
-        <button
-          type="button"
-          onClick={onFindMore}
-          disabled={!hasReviewId || isSubmitting}
-          className={cn(
-            "text-xs sm:text-sm font-semibold px-4 py-1.5 rounded-full shadow-xs transition-colors tracking-compact flex items-center gap-1.5",
-            !hasReviewId || isSubmitting
-              ? "bg-neutral-200 text-neutral-400 cursor-not-allowed"
-              : "bg-[var(--color-danger)] hover:bg-[var(--color-danger-hover)] text-white cursor-pointer"
-          )}
-        >
-          {isFindingMore ? (
-            <>
-              <svg className="animate-spin h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-              </svg>
-              <span>Submitting...</span>
-            </>
-          ) : (
-            <span>Find More Papers</span>
-          )}
-        </button>
-      </div>
-
       {/* Main Candidate Papers Card Container */}
       <div className="w-full bg-white rounded-2xl border border-neutral-200/80 shadow-xs p-5 sm:p-7 space-y-6">
         {/* Header: Section Title + Selected Count Badge */}
@@ -98,19 +45,6 @@ export default function PaperGrid({
           </div>
         </div>
 
-        {/* Informational Message: Review Session Missing Warning */}
-        {!hasReviewId && (
-          <div className="p-3.5 sm:p-4 rounded-xl bg-amber-50 border border-amber-200/80 text-amber-800 text-xs sm:text-sm flex items-start gap-2.5">
-            <span className="text-amber-600 font-bold shrink-0">⚠️</span>
-            <div>
-              <p className="font-semibold">Review session not initialized</p>
-              <p className="text-amber-700/90 text-xs mt-0.5">
-                Start a research search above to establish a review session ID before approving papers.
-              </p>
-            </div>
-          </div>
-        )}
-
         {/* Error Alert Banner */}
         {errorMessage && (
           <div className="p-3.5 sm:p-4 rounded-xl bg-red-50 border border-red-200/80 text-red-800 text-xs sm:text-sm flex items-start gap-2.5 animate-in fade-in duration-200">
@@ -122,13 +56,13 @@ export default function PaperGrid({
           </div>
         )}
 
-        {/* Success Alert Banner */}
+        {/* Success Alert Banner: exactly matches relevance score and completed green color */}
         {successMessage && (
-          <div className="p-3.5 sm:p-4 rounded-xl bg-emerald-50 border border-emerald-200/80 text-emerald-800 text-xs sm:text-sm flex items-start gap-2.5 animate-in fade-in duration-200">
-            <span className="text-emerald-600 font-bold shrink-0">✓</span>
+          <div className="p-3.5 sm:p-4 rounded-xl bg-[var(--color-success-light)] border border-[var(--color-success)]/30 text-[var(--color-success-dark)] text-xs sm:text-sm flex items-start gap-2.5 animate-in fade-in duration-200">
+            <CircleCheck className="w-4 h-4 text-[var(--color-success)] shrink-0 stroke-[2.2] mt-0.5" />
             <div className="flex-1">
-              <p className="font-semibold">Success</p>
-              <p className="text-emerald-700/90 text-xs mt-0.5">{successMessage}</p>
+              <p className="font-semibold text-[var(--color-success-dark)]">Success</p>
+              <p className="text-[var(--color-success-dark)]/85 text-xs mt-0.5">{successMessage}</p>
             </div>
           </div>
         )}
@@ -158,12 +92,12 @@ export default function PaperGrid({
 
           <button
             type="button"
-            disabled={selectedCount === 0 || !hasReviewId || isSubmitting}
+            disabled={selectedCount === 0 || isProceeding}
             onClick={onProceed}
             className={cn(
               "px-6 py-2.5 rounded-lg text-sm font-semibold tracking-compact transition-all shadow-sm flex items-center justify-center gap-2",
-              selectedCount > 0 && hasReviewId && !isSubmitting
-                ? "bg-neutral-900 hover:bg-black text-white hover:shadow-md cursor-pointer"
+              selectedCount > 0 && !isProceeding
+                ? "bg-neutral-900 hover:bg-black text-white hover:shadow-md cursor-pointer active:scale-95"
                 : "bg-neutral-200 text-neutral-400 cursor-not-allowed"
             )}
           >
