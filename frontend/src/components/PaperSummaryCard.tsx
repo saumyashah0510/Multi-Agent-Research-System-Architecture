@@ -1,3 +1,4 @@
+import { ExternalLink, Check } from "lucide-react";
 import { cn } from "../lib/utils";
 
 export interface PaperSummary {
@@ -7,9 +8,10 @@ export interface PaperSummary {
   year: number | string;
   venue: string;
   abstract: string;
-  tags: string[];
+  tags?: string[];
   relevanceScore?: number;
   isSelected?: boolean;
+  url?: string;
 }
 
 export interface PaperSummaryCardProps {
@@ -24,7 +26,10 @@ export default function PaperSummaryCard({
   className = "",
 }: PaperSummaryCardProps) {
   const isSelected = Boolean(paper.isSelected);
-  const relevance = paper.relevanceScore ?? 95;
+  const relevance = paper.relevanceScore ?? 98;
+  const paperUrl =
+    paper.url ||
+    `https://scholar.google.com/scholar?q=${encodeURIComponent(paper.title)}`;
 
   return (
     <div
@@ -50,37 +55,35 @@ export default function PaperSummaryCard({
         >
           {isSelected ? (
             // Solid green circle for selected
-            <div className="w-4.5 h-4.5 sm:w-5 sm:h-5 rounded-full bg-[var(--color-success)] flex items-center justify-center text-white shadow-xs">
-              <svg
-                className="w-2.5 h-2.5 sm:w-3 sm:h-3 stroke-[3]"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M5 13l4 4L19 7"
-                />
-              </svg>
+            <div className="w-5 h-5 rounded-full bg-[var(--color-success)] flex items-center justify-center text-white shadow-xs">
+              <Check className="w-3.5 h-3.5 text-white stroke-[3]" />
             </div>
           ) : (
-            // Hollow green outline circle for unselected
-            <div className="w-4.5 h-4.5 sm:w-5 sm:h-5 rounded-full border-2 border-[var(--color-success)] bg-transparent hover:bg-emerald-50 transition-colors" />
+            // Hollow outline circle for unselected
+            <div className="w-5 h-5 rounded-full border-2 border-neutral-300 bg-transparent hover:border-neutral-400 hover:bg-neutral-50 transition-colors" />
           )}
         </button>
 
         {/* Paper Details */}
         <div className="flex-1 space-y-1 sm:space-y-1.5 min-w-0">
-          <div className="flex items-start justify-between gap-2">
+          {/* Top Header: Title and Right Upper Corner Direct Link Icon */}
+          <div className="flex items-start justify-between gap-3">
             <h3 className="font-serif text-sm sm:text-base md:text-lg font-bold text-neutral-900 tracking-compact leading-snug">
               {paper.title}
             </h3>
 
-            {/* Relevance Percentage Placeholder Badge */}
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-semibold bg-[var(--color-success-light)] text-[var(--color-success-dark)] border border-[var(--color-success)]/30 shrink-0">
-              {relevance}% Relevance
-            </span>
+            {/* Direct Link Icon cleanly placed in the top right corner */}
+            <a
+              href={paperUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              title="Open publication website in new tab"
+              aria-label={`Open direct paper link for ${paper.title}`}
+              className="p-1 rounded-md text-neutral-400 hover:text-neutral-900 hover:bg-neutral-100 transition-colors shrink-0 -mt-0.5 -mr-0.5"
+            >
+              <ExternalLink className="w-4 h-4" />
+            </a>
           </div>
 
           {/* Authors and Venue Metadata */}
@@ -89,23 +92,15 @@ export default function PaperSummaryCard({
           </p>
 
           {/* Summary / Abstract Text: Hidden on mobile, shown on tablet/desktop */}
-          <p className="hidden sm:block text-xs sm:text-sm text-black leading-relaxed font-sans-ui pt-1 font-normal">
+          <p className="hidden sm:block text-xs sm:text-sm text-neutral-700 leading-relaxed font-sans-ui pt-1 font-normal">
             {paper.abstract}
           </p>
 
-          {/* Metadata Badges: essential on mobile, full on desktop */}
-          <div className="flex flex-wrap items-center gap-1.5 pt-1 sm:pt-2">
-            {paper.tags.map((tag, idx) => (
-              <span
-                key={tag}
-                className={cn(
-                  "px-2 sm:px-2.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-medium bg-neutral-100 text-neutral-700 border border-neutral-200/60",
-                  idx > 1 && "hidden sm:inline-flex"
-                )}
-              >
-                {tag}
-              </span>
-            ))}
+          {/* Bottom Row: Only Relevance Score Badge positioned at the bottom left */}
+          <div className="pt-2 sm:pt-3 flex items-center justify-start">
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10.5px] sm:text-[11px] font-semibold bg-[var(--color-success-light)] text-[var(--color-success-dark)] border border-[var(--color-success)]/30 shrink-0">
+              {relevance}% Relevance
+            </span>
           </div>
         </div>
       </div>
