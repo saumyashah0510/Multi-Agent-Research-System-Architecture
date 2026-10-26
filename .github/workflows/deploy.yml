@@ -39,6 +39,8 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
+          command_timeout: 30m
+          timeout: 60s
           script: |
             if [ ! -d "/home/ubuntu/app" ]; then
               git clone https://github.com/saumyashah0510/Multi-Agent-Research-System-Architecture.git /home/ubuntu/app
