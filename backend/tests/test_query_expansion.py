@@ -8,8 +8,10 @@ from app.core.config import settings
 
 
 @pytest.mark.asyncio
-async def test_query_expansion_node_success():
+async def test_query_expansion_node_success(monkeypatch):
     """Verify standard query expansion generates structured domains and 3-5 sub-queries."""
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "mock-gemini-key")
+
     mock_response = MagicMock()
     mock_response.text = (
         '{"target_domains": ["cs.AI", "cs.LG", "quant-ph"], '
@@ -55,8 +57,10 @@ async def test_query_expansion_node_missing_api_key_fallback(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_query_expansion_node_resilience_on_exception():
+async def test_query_expansion_node_resilience_on_exception(monkeypatch):
     """Verify pipeline resiliency when Gemini API throws an unexpected exception."""
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "mock-gemini-key")
+
     with patch("app.agents.nodes.query_expansion_node.genai.Client") as mock_client_cls:
         mock_client = MagicMock()
         mock_client.models.generate_content.side_effect = RuntimeError("API quota exceeded")
