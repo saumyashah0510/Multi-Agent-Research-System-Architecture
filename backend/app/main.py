@@ -53,3 +53,7 @@ app.add_middleware(
 
 app.include_router(health_router, prefix=settings.API_V1_STR, tags=["health"])
 app.include_router(reviews_router, prefix=f"{settings.API_V1_STR}/reviews", tags=["reviews"])
+
+# TODO (Assignee - BE-09): Mount WebSocket router for real-time progress streaming:
+# from app.api.v1.ws import router as ws_router
+# app.include_router(ws_router, prefix=f"{settings.API_V1_STR}/ws", tags=["websocket"])
