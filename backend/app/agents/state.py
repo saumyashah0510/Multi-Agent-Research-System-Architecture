@@ -4,7 +4,7 @@ import operator
 from typing import Annotated, Any, Dict, List, TypedDict
 
 
-class AgentState(TypedDict):
+class AgentState(TypedDict, total=False):
     """Global state shared across all 9 agent nodes in the literature review pipeline."""
 
     review_id: int
