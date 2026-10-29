@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import ResearchInput, { type ResearchSearchParams } from "../components/ResearchInput";
 import PaperGrid from "../components/dashboard/paper-grid";
 import { type PaperSummary } from "../components/PaperSummaryCard";
@@ -23,6 +24,7 @@ const defaultPapers: PaperSummary[] = [
 ];
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [activeQuery, setActiveQuery] = useState<string>(
     "How does generative AI affect student learning and academic performance?"
   );
@@ -33,6 +35,10 @@ export default function Dashboard() {
 
   // Review session state
   const [reviewId, setReviewId] = useState<string | null>(null);
+
+  // TODO (Assignee - FE-05): Connect useReviewWebSocket(reviewId) to stream live events
+  // const ws = useReviewWebSocket(reviewId);
+  // Pass ws.stages, ws.status, and update papers state when ws.screenedPapers updates
 
   // Single source of truth for selected paper IDs
   const [selectedPaperIds, setSelectedPaperIds] = useState<string[]>(
@@ -80,12 +86,15 @@ export default function Dashboard() {
     try {
       if (reviewId) {
         await submitHumanDecision(reviewId, selectedPaperIds, "continue");
+        // TODO (Assignee - FE-06): Redirect user to /review/:reviewId for downstream stages
+        navigate(`/review/${reviewId}`);
+      } else {
+        setApprovalSuccess(
+          `Selection approved successfully! (${selectedPaperIds.length} paper${
+            selectedPaperIds.length > 1 ? "s" : ""
+          } submitted for synthesis matrix)`
+        );
       }
-      setApprovalSuccess(
-        `Selection approved successfully! (${selectedPaperIds.length} paper${
-          selectedPaperIds.length > 1 ? "s" : ""
-        } submitted for synthesis matrix)`
-      );
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to submit paper approvals";
       setApprovalError(message);

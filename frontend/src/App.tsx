@@ -3,6 +3,8 @@ import MainLayout from "./layouts/MainLayout";
 import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
 
+import ReviewDetail from "./pages/ReviewDetail";
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -11,6 +13,8 @@ export default function App() {
           <Route index element={<Home />} />
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="research" element={<Dashboard />} />
+          <Route path="review/:reviewId" element={<ReviewDetail />} />
+          <Route path="reviews/:reviewId" element={<ReviewDetail />} />
           <Route path="papers" element={<Dashboard />} />
           <Route path="chat" element={<Dashboard />} />
           <Route path="reports" element={<Dashboard />} />
