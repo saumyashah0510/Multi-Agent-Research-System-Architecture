@@ -71,3 +71,9 @@ async def close_redis_client() -> None:
     if redis_client is not None:
         await redis_client.close()
         redis_client = None
+
+
+# TODO (Assignee - BE-09): Implement Redis Pub/Sub event publisher:
+# async def publish_review_event(review_id: int, event_data: Dict[str, Any]) -> int:
+#     """Publish a real-time JSON event to Redis channel 'review:{review_id}:events'."""
+#     pass

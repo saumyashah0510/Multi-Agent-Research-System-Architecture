@@ -49,3 +49,32 @@ export async function submitHumanDecision(
   }
   return res.json();
 }
+
+export async function sendReviewChatMessage(
+  reviewId: string,
+  query: string,
+  history: Array<{ role: string; content: string }> = [],
+  topK: number = 5
+) {
+  const res = await fetch(`${API_BASE_URL}/reviews/${reviewId}/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query, history, top_k: topK }),
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to send chat message: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function fetchPastReviews(limit: number = 20) {
+  const res = await fetch(`${API_BASE_URL}/reviews/?limit=${limit}`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch past reviews: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export function getReviewPdfDownloadUrl(reviewId: string): string {
+  return `${API_BASE_URL}/reviews/${reviewId}/export`;
+}

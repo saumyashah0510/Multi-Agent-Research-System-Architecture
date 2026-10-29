@@ -55,5 +55,23 @@ async def approve_papers(
     review_id: str,
     request: ReviewApprovalRequest | None = None,
 ) -> dict[str, Any]:
-    """Endpoint for receiving human-selected papers."""
+    """Endpoint for receiving human-selected papers and resuming LangGraph execution.
+
+    TODO (Assignee - AI-05):
+    1. Update review status from 'awaiting_user_input' in Neon DB
+    2. Resume the paused LangGraph workflow using Command(resume=...) or graph.update_state()
+    3. Pass user_decision ('continue' or 'find_more') and approved_paper_ids
+    4. Return status: 'resumed'
+    """
     return {"status": "approved", "review_id": review_id}
+
+
+# TODO (Assignee - BE-10): Implement RAG Chat endpoint with conversation history:
+# @router.post("/{review_id}/chat", response_model=ChatResponse, summary="Chat with literature review using RAG")
+# async def chat_with_review(review_id: int, request: ChatRequest, db: AsyncSession = Depends(get_db)):
+#     """Perform pgvector similarity search on review chunks, pass question + history to chat_service."""
+#     # 1. Verify literature review exists in DB (or raise HTTPException 404)
+#     # 2. Retrieve top-4 relevant chunks: chunks = await similarity_search(db, request.question, review_id, top_k=4)
+#     # 3. Call chat_service: result = await generate_rag_chat_response(request.question, chunks, [h.model_dump() for h in request.history])
+#     # 4. Return ChatResponse(answer=result["answer"], citations=result["citations"])
+#     pass

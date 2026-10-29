@@ -26,3 +26,16 @@ class ExecutionLog(Base):
 
     def __repr__(self) -> str:
         return f"<ExecutionLog(id={self.id}, agent='{self.agent_name}')>"
+
+
+# TODO (Assignee - BE-08): Define ReviewLog ORM model for literature review checkpoints:
+# class ReviewLog(Base):
+#     __tablename__ = "review_logs"
+#     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, autoincrement=True)
+#     review_id: Mapped[int] = mapped_column(Integer, ForeignKey("literature_reviews.id", ondelete="CASCADE"), nullable=False, index=True)
+#     agent_name: Mapped[str] = mapped_column(String(100), index=True, nullable=False)
+#     message: Mapped[str] = mapped_column(Text, nullable=False)
+#     status: Mapped[str] = mapped_column(String(50), index=True, nullable=False)
+#     payload: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
+#     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+#     review: Mapped["LiteratureReview"] = relationship("LiteratureReview", back_populates="review_logs")

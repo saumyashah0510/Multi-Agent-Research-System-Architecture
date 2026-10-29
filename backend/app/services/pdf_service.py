@@ -226,3 +226,9 @@ async def download_and_extract_pdf(
             "raw_text": "",
             "sections": {},
         }
+
+
+# TODO (Assignee - AI-06): Optional AWS S3 caching for downloaded paper PDFs:
+# async def cache_pdf_to_s3(pdf_bytes: bytes, s3_key: str) -> Optional[str]:
+#     """Cache paper PDF to s3://multi-agent-research-pdf-bucket/papers/{arxiv_id}.pdf with safe local fallback."""
+#     pass
