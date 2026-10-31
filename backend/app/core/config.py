@@ -29,7 +29,21 @@ class Settings(BaseSettings):
     )
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
+    GEMINI_FALLBACK_MODELS: str = os.getenv(
+        "GEMINI_FALLBACK_MODELS", "gemini-2.5-flash,gemini-flash-latest"
+    )
+
+    @property
+    def gemini_model_candidates(self) -> list[str]:
+        """Return ordered list of Gemini models: primary first, followed by fallbacks."""
+        primary = self.GEMINI_MODEL.strip() if self.GEMINI_MODEL else "gemini-3.1-flash-lite"
+        fallbacks = [
+            m.strip()
+            for m in self.GEMINI_FALLBACK_MODELS.split(",")
+            if m.strip() and m.strip() != primary
+        ]
+        return [primary] + fallbacks
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,

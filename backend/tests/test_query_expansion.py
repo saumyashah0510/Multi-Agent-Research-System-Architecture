@@ -33,32 +33,26 @@ async def test_query_expansion_node_success(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_query_expansion_node_empty_query_fallback():
-    """Verify fallback behavior when an empty or whitespace user query is provided."""
+async def test_query_expansion_node_empty_query_fail_fast():
+    """Verify ValueError is raised when an empty or whitespace user query is provided."""
     state = {"user_query": "   "}
-    result = await query_expansion_node(state)
-
-    assert "Computer Science" in result["target_domains"]
-    assert len(result["search_queries"]) > 0
-    assert result["current_step"] == "query_expansion_completed"
+    with pytest.raises(ValueError, match="user_query cannot be empty"):
+        await query_expansion_node(state)
 
 
 @pytest.mark.asyncio
-async def test_query_expansion_node_missing_api_key_fallback(monkeypatch):
-    """Verify fallback behavior when GEMINI_API_KEY is not configured."""
+async def test_query_expansion_node_missing_api_key_fail_fast(monkeypatch):
+    """Verify RuntimeError is raised when GEMINI_API_KEY is not configured."""
     monkeypatch.setattr(settings, "GEMINI_API_KEY", "")
 
     state = {"user_query": "Deep Reinforcement Learning in Robotics"}
-    result = await query_expansion_node(state)
-
-    assert result["target_domains"] == ["Computer Science"]
-    assert result["search_queries"] == ["Deep Reinforcement Learning in Robotics"]
-    assert result["current_step"] == "query_expansion_completed"
+    with pytest.raises(RuntimeError, match="GEMINI_API_KEY is not configured"):
+        await query_expansion_node(state)
 
 
 @pytest.mark.asyncio
-async def test_query_expansion_node_resilience_on_exception(monkeypatch):
-    """Verify pipeline resiliency when Gemini API throws an unexpected exception."""
+async def test_query_expansion_node_api_failure_fail_fast(monkeypatch):
+    """Verify RuntimeError is raised when Gemini API throws an exception."""
     monkeypatch.setattr(settings, "GEMINI_API_KEY", "mock-gemini-key")
 
     with patch("app.agents.nodes.query_expansion_node.genai.Client") as mock_client_cls:
@@ -67,8 +61,5 @@ async def test_query_expansion_node_resilience_on_exception(monkeypatch):
         mock_client_cls.return_value = mock_client
 
         state = {"user_query": "Transformer Attention Sparsity"}
-        result = await query_expansion_node(state)
-
-        assert result["target_domains"] == ["Computer Science"]
-        assert result["search_queries"] == ["Transformer Attention Sparsity"]
-        assert result["current_step"] == "query_expansion_completed"
+        with pytest.raises(RuntimeError, match="Query expansion failed due to LLM error"):
+            await query_expansion_node(state)

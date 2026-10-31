@@ -32,43 +32,52 @@ async def query_expansion_node(state: AgentState) -> Dict[str, Any]:
     """Expand user research query into 3-5 targeted sub-queries and classify domains."""
     user_query = state.get("user_query", "").strip()
 
-    # 1. Fallback if query is empty or whitespace
+    # 1. Fail-fast if query is empty or whitespace
     if not user_query:
-        logger.warning(
-            "Empty user_query provided to query_expansion_node; applying default fallback."
-        )
-        return {
-            "target_domains": ["Computer Science", "Artificial Intelligence"],
-            "search_queries": ["Academic Literature Review"],
-            "current_step": "query_expansion_completed",
-        }
+        error_msg = "user_query cannot be empty. Please provide a research topic."
+        logger.error(error_msg)
+        raise ValueError(error_msg)
 
-    # 2. Fallback if Gemini API key is missing
+    # 2. Fail-fast if Gemini API key is missing
     if not settings.GEMINI_API_KEY:
-        logger.warning("GEMINI_API_KEY not configured; returning raw user_query as fallback.")
-        return {
-            "target_domains": ["Computer Science"],
-            "search_queries": [user_query],
-            "current_step": "query_expansion_completed",
-        }
+        error_msg = "GEMINI_API_KEY is not configured; cannot execute query expansion."
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
 
     try:
-        # 3. Call Google Gemini LLM with structured Pydantic schema
+        # 3. Call Google Gemini LLM with structured Pydantic schema and model fallback cascade
         client = genai.Client(api_key=settings.GEMINI_API_KEY)
-        model_name = settings.GEMINI_MODEL or "gemini-3.1-flash-lite"
-
-        user_content = f"Research Topic: {user_query}\n\nDeconstruct this topic into academic target domains and 3-5 search queries."
-
-        response = client.models.generate_content(
-            model=model_name,
-            contents=[QUERY_EXPANSION_SYSTEM_PROMPT, user_content],
-            config={
-                "response_mime_type": "application/json",
-                "response_schema": QueryExpansionOutput,
-            },
+        candidate_models = settings.gemini_model_candidates
+        user_content = (
+            f"Research Topic: {user_query}\n\n"
+            "Deconstruct this topic into academic target domains and 3-5 search queries."
         )
 
-        parsed_output = QueryExpansionOutput.model_validate_json(response.text)
+        parsed_output = None
+        last_model_error = None
+
+        for model_name in candidate_models:
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=[QUERY_EXPANSION_SYSTEM_PROMPT, user_content],
+                    config={
+                        "response_mime_type": "application/json",
+                        "response_schema": QueryExpansionOutput,
+                    },
+                )
+                parsed_output = QueryExpansionOutput.model_validate_json(response.text)
+                break
+            except Exception as model_err:
+                logger.warning(
+                    f"Gemini model '{model_name}' failed during query expansion ({model_err}); trying fallback."
+                )
+                last_model_error = model_err
+
+        if parsed_output is None:
+            raise RuntimeError(
+                f"All configured Gemini models {candidate_models} failed. Last error: {last_model_error}"
+            )
 
         # Ensure search_queries is never empty
         queries = parsed_output.search_queries
@@ -87,9 +96,5 @@ async def query_expansion_node(state: AgentState) -> Dict[str, Any]:
 
     except Exception as exc:
         logger.error(f"Error executing Gemini Query Expansion: {exc}", exc_info=True)
-        # Resilient fallback so the pipeline never breaks
-        return {
-            "target_domains": ["Computer Science"],
-            "search_queries": [user_query],
-            "current_step": "query_expansion_completed",
-        }
+        # Strict Fail-Fast: surface the error directly
+        raise RuntimeError(f"Query expansion failed due to LLM error: {exc}") from exc
