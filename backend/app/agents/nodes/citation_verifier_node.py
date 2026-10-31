@@ -55,25 +55,69 @@ async def citation_verification_node(state: AgentState) -> Dict[str, Any]:
         logger.error(error_msg)
         raise RuntimeError(error_msg)
 
-    # 3. Compile source paper knowledge base
+    # 3. Compile unified source paper knowledge base (linking IDs and titles)
+    id_to_paper: Dict[str, Dict[str, Any]] = {}
+    for paper in approved_papers:
+        if paper.get("arxiv_id"):
+            id_to_paper[str(paper["arxiv_id"]).lower()] = paper
+        if paper.get("doi"):
+            id_to_paper[str(paper["doi"]).lower()] = paper
+        if paper.get("title"):
+            id_to_paper[paper["title"].strip().lower()] = paper
+
     paper_sources: Dict[str, str] = {}
     for paper in approved_papers:
         title = paper.get("title", "").strip()
         abstract = paper.get("abstract", "").strip()
-        if title:
-            paper_sources[title.lower()] = f"Title: {title}\nAbstract: {abstract}"
+        p_id = paper.get("arxiv_id") or paper.get("doi") or title
 
-    for p_id, content in extracted_pdf_contents.items():
+        # Check extracted content by ID or title
+        content = (
+            extracted_pdf_contents.get(p_id)
+            or extracted_pdf_contents.get(str(paper.get("arxiv_id", "")))
+            or extracted_pdf_contents.get(title)
+            or extracted_pdf_contents.get(title.lower())
+            or {}
+        )
+
+        sections = [f"Title: {title}"]
+        if abstract or (isinstance(content, dict) and content.get("abstract")):
+            chosen_abstract = (
+                content.get("abstract")
+                if isinstance(content, dict) and content.get("abstract")
+                else abstract
+            )
+            sections.append(f"Abstract: {chosen_abstract}")
         if isinstance(content, dict):
-            sections = []
+            methodology = content.get("methodology") or content.get("methods") or ""
+            results = content.get("results") or ""
+            if methodology:
+                sections.append(f"Methodology: {methodology[:1200]}")
+            if results:
+                sections.append(f"Results: {results[:1000]}")
+
+        text_rep = "\n".join(sections)
+        if title:
+            paper_sources[title.lower()] = text_rep
+        if paper.get("arxiv_id"):
+            paper_sources[str(paper["arxiv_id"]).lower()] = text_rep
+        if paper.get("doi"):
+            paper_sources[str(paper["doi"]).lower()] = text_rep
+
+    # Include any extracted contents keyed by identifiers not already mapped
+    for p_id, content in extracted_pdf_contents.items():
+        norm_pid = str(p_id).lower()
+        if norm_pid not in paper_sources and isinstance(content, dict):
+            matched_paper = id_to_paper.get(norm_pid)
+            p_title = matched_paper.get("title", p_id) if matched_paper else p_id
+            sections = [f"Title: {p_title}"]
             if content.get("abstract"):
                 sections.append(f"Abstract: {content['abstract']}")
             if content.get("methodology"):
                 sections.append(f"Methodology: {content['methodology'][:1200]}")
             if content.get("results"):
                 sections.append(f"Results: {content['results'][:1000]}")
-            text_rep = "\n".join(sections)
-            paper_sources[p_id.lower()] = text_rep
+            paper_sources[norm_pid] = "\n".join(sections)
 
     # 4. Formulate claims to verify from methodology matrix and gaps
     claims_to_verify = []
