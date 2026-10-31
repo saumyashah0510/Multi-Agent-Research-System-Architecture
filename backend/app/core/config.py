@@ -34,6 +34,12 @@ class Settings(BaseSettings):
         "GEMINI_FALLBACK_MODELS", "gemini-2.5-flash,gemini-flash-latest"
     )
 
+    # LangSmith Observability & Tracing
+    LANGCHAIN_TRACING_V2: str = os.getenv("LANGCHAIN_TRACING_V2", "false")
+    LANGCHAIN_API_KEY: str = os.getenv("LANGCHAIN_API_KEY", "")
+    LANGCHAIN_PROJECT: str = os.getenv("LANGCHAIN_PROJECT", "multi-agent-literature-review")
+    LANGCHAIN_ENDPOINT: str = os.getenv("LANGCHAIN_ENDPOINT", "https://api.smith.langchain.com")
+
     @property
     def gemini_model_candidates(self) -> list[str]:
         """Return ordered list of Gemini models: primary first, followed by fallbacks."""
