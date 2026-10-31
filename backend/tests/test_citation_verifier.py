@@ -98,8 +98,11 @@ async def test_citation_verification_hallucinated_claim_flagged(monkeypatch):
 
         result = await citation_verification_node(state)
 
-        # Hallucinated assertion must be excluded from verified_references
+        # Hallucinated assertion must be excluded from verified_references and retained in rejected_claims
         assert len(result["verified_references"]) == 0
+        assert len(result["rejected_claims"]) == 1
+        assert result["has_hallucinations"] is True
+        assert "Detected hallucinated" in result["verification_summary"]
         assert result["current_step"] == "citation_verification_completed"
 
 
@@ -114,6 +117,8 @@ async def test_citation_verification_empty_state_fallback():
     result = await citation_verification_node(state)
 
     assert result["verified_references"] == []
+    assert result["rejected_claims"] == []
+    assert result["has_hallucinations"] is False
     assert result["current_step"] == "citation_verification_completed"
 
 

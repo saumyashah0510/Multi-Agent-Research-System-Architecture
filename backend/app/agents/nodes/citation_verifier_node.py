@@ -43,6 +43,9 @@ async def citation_verification_node(state: AgentState) -> Dict[str, Any]:
         logger.info("No claims or methodology matrix available for citation verification.")
         return {
             "verified_references": [],
+            "rejected_claims": [],
+            "has_hallucinations": False,
+            "verification_summary": "No claims or methodology matrix available for citation verification.",
             "current_step": "citation_verification_completed",
         }
 
@@ -80,7 +83,7 @@ async def citation_verification_node(state: AgentState) -> Dict[str, Any]:
         strengths = m.get("strengths", [])
         limitations = m.get("limitations", [])
 
-        target_paper = papers[0] if papers else "General Literature"
+        target_paper = ", ".join(papers) if papers else "General Literature"
         for strength in strengths:
             if strength and strength.strip():
                 claims_to_verify.append(
@@ -98,6 +101,9 @@ async def citation_verification_node(state: AgentState) -> Dict[str, Any]:
     if not claims_to_verify:
         return {
             "verified_references": [],
+            "rejected_claims": [],
+            "has_hallucinations": False,
+            "verification_summary": "No claims formulated for citation verification.",
             "current_step": "citation_verification_completed",
         }
 
@@ -111,6 +117,7 @@ async def citation_verification_node(state: AgentState) -> Dict[str, Any]:
         f"SOURCE TEXT EXCERPTS:\n\n{sources_text}\n\n"
         f"CLAIMS TO VERIFY:\n\n{claims_text}\n\n"
         "Audit each claim against the source text excerpts. "
+        "Strictly enforce source attribution: evidence from one paper cannot substantiate a claim attributed to a different paper. "
         "Extract verbatim quotes for supported claims and flag any unsupported or fabricated assertions."
     )
 
@@ -145,20 +152,30 @@ async def citation_verification_node(state: AgentState) -> Dict[str, Any]:
                 f"All configured Gemini models {candidate_models} failed during citation verification. Last error: {last_model_error}"
             )
 
-        # 7. Retain only substantiated citations to protect downstream report synthesis
+        # 7. Retain substantiated citations and record rejected claims for audit trail
         verified_refs = [
             citation.model_dump()
             for citation in parsed_output.verified_citations
-            if citation.is_supported
+            if citation.is_supported and citation.confidence >= 0.70
+        ]
+        rejected_claims = [
+            citation.model_dump()
+            for citation in parsed_output.verified_citations
+            if not citation.is_supported or citation.confidence < 0.70
         ]
 
+        has_hallucinations = parsed_output.has_hallucinations or len(rejected_claims) > 0
+
         logger.info(
-            f"Citation verification complete: {len(verified_refs)} of "
-            f"{len(parsed_output.verified_citations)} claims verified (Hallucinations detected: {parsed_output.has_hallucinations})."
+            f"Citation verification complete: {len(verified_refs)} verified, "
+            f"{len(rejected_claims)} rejected (Hallucinations: {has_hallucinations})."
         )
 
         return {
             "verified_references": verified_refs,
+            "rejected_claims": rejected_claims,
+            "has_hallucinations": has_hallucinations,
+            "verification_summary": parsed_output.verification_summary,
             "current_step": "citation_verification_completed",
         }
 

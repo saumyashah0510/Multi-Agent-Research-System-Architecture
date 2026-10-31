@@ -2,9 +2,10 @@
 
 Assignee Task (Issue AI-10):
 - Read user_query, approved_papers, methodology_matrix, research_gaps, and verified_references from AgentState
+- Read audit trail (rejected_claims, has_hallucinations, verification_summary) to safeguard against hallucination resurgence
 - Call Gemini LLM with structured output schema (SynthesizedReviewOutput)
 - Produce comprehensive academic literature review report (executive summary, thematic clusters, methodology matrix, research gaps, conclusion, references)
-- Export markdown formatting helper for multi-format downstream consumption
+- Export robust markdown formatting helper for multi-format downstream consumption (with pipe escaping)
 - Update state["synthesized_review"] and set current_step to "synthesis_completed"
 """
 
@@ -28,13 +29,29 @@ CRITICAL SYNTHESIS GUIDELINES:
 1. Title: Formulate an authoritative, publication-ready academic title reflecting the synthesis.
 2. Executive Summary: Provide an extensive, rigorous multi-paragraph synthesis of the overarching domain, architectural paradigms, empirical performance trends, and primary open challenges.
 3. Thematic Clusters: Group the literature into 2 to 4 thematic clusters (e.g., architectural paradigms, benchmark evaluation, optimization trade-offs). Under each cluster, provide in-depth comparative analysis rather than simple isolated summaries, referencing relevant papers.
-4. Methodology Matrix: Preserve or synthesize a comparative methodology breakdown mapping methods, papers used, strengths, and limitations.
-5. Research Gaps: Articulate 3 to 5 actionable research gaps, unresolved contradictions, or engineering bottlenecks that future research must address.
+4. Methodology Matrix: Preserve or synthesize a comparative methodology breakdown mapping methods, papers used, strengths, and limitations. Ensure each method accurately references the papers that used it.
+5. Research Gaps: Articulate actionable research gaps (typically 3 to 5, or fewer if the domain scope is tightly focused) that future research must address.
 6. Conclusion: Formulate a definitive conclusion summarizing theoretical implications and the next frontier for the domain.
 7. References: Include a curated bibliography listing the evaluated papers and verified citations.
+8. Citation & Evidence Grounding (STRICT):
+   - Use ONLY verified citations and approved papers as factual evidence.
+   - Never fabricate DOIs, URLs, publication venues, authors, or experimental results.
+   - If any preliminary claim was flagged in the audit trail as a rejected/unsupported hallucination, STRICTLY EXCLUDE IT from the report.
+   - Preserve the association between each methodology and its cited papers.
 
 Rigorously ground all statements in the provided paper metadata, extracted contents, and verified citations. Output must strictly conform to the requested JSON schema.
 """
+
+
+def _clean_table_cell(value: Any) -> str:
+    """Format and escape values for safe Markdown table cells."""
+    if isinstance(value, list):
+        text = "<br>".join(str(item) for item in value if item)
+    else:
+        text = str(value or "")
+    # Escape pipe characters to avoid corrupting Markdown tables
+    escaped = text.replace("|", "\\|").replace("\n", "<br>").strip()
+    return escaped or "N/A"
 
 
 def format_review_as_markdown(review: Dict[str, Any]) -> str:
@@ -73,10 +90,10 @@ def format_review_as_markdown(review: Dict[str, Any]) -> str:
         lines.append("| Methodology | Papers Evaluated | Strengths | Limitations |")
         lines.append("| :--- | :--- | :--- | :--- |")
         for item in methodology_matrix:
-            m_name = item.get("method_name", "N/A")
-            papers = "<br>".join(item.get("papers_used", [])) or "N/A"
-            strengths = "<br>".join(item.get("strengths", [])) or "N/A"
-            limitations = "<br>".join(item.get("limitations", [])) or "N/A"
+            m_name = _clean_table_cell(item.get("method_name", "N/A"))
+            papers = _clean_table_cell(item.get("papers_used", []))
+            strengths = _clean_table_cell(item.get("strengths", []))
+            limitations = _clean_table_cell(item.get("limitations", []))
             lines.append(f"| **{m_name}** | {papers} | {strengths} | {limitations} |")
         lines.append("")
 
@@ -96,12 +113,20 @@ def format_review_as_markdown(review: Dict[str, Any]) -> str:
         for idx, ref in enumerate(references, 1):
             if isinstance(ref, dict):
                 ref_title = ref.get("title") or ref.get("paper_id_or_title") or f"Reference {idx}"
+                cite_key = ref.get("citation_key")
+                summary = ref.get("summary")
                 claim = ref.get("claim")
                 quote = ref.get("matched_passage")
-                if claim and quote:
-                    lines.append(f'{idx}. **{ref_title}** - *"{claim}"* (Grounding: *"{quote}"*)')
-                else:
-                    lines.append(f"{idx}. **{ref_title}**")
+
+                ref_parts = [f"**{ref_title}**"]
+                if cite_key:
+                    ref_parts.append(f"`[{cite_key}]`")
+                if summary:
+                    ref_parts.append(f"- {summary}")
+                elif claim and quote:
+                    ref_parts.append(f'- *"{claim}"* (Grounding: *"{quote}"*)')
+
+                lines.append(f"{idx}. {' '.join(ref_parts)}")
             else:
                 lines.append(f"{idx}. {ref}")
         lines.append("")
@@ -117,11 +142,14 @@ async def report_synthesis_node(state: AgentState) -> Dict[str, Any]:
     research_gaps: List[str] = state.get("research_gaps") or []
     verified_references: List[Dict[str, Any]] = state.get("verified_references") or []
     extracted_pdf_contents: Dict[str, Any] = state.get("extracted_pdf_contents") or {}
+    rejected_claims: List[Dict[str, Any]] = state.get("rejected_claims") or []
+    has_hallucinations: bool = state.get("has_hallucinations", False)
+    verification_summary: str = state.get("verification_summary", "")
 
-    # 1. Graceful return if no papers or matrix available
-    if not approved_papers and not methodology_matrix and not research_gaps:
+    # 1. Graceful return if no inputs are available
+    if not (approved_papers or methodology_matrix or research_gaps or verified_references):
         logger.info(
-            "Insufficient literature or matrix items to synthesize report; returning empty review."
+            "Insufficient literature or evidence to synthesize report; returning empty review."
         )
         empty_review = {
             "title": f"Literature Review: {user_query}",
@@ -145,13 +173,22 @@ async def report_synthesis_node(state: AgentState) -> Dict[str, Any]:
 
     # 3. Assemble synthesis input prompt payload
     papers_context = []
-    for p in approved_papers[:10]:
+    for p in approved_papers[:12]:
         title = p.get("title", "Untitled")
+        authors = p.get("authors")
+        year = p.get("year")
         abstract = p.get("abstract", "")
-        papers_context.append(f"Paper: {title}\nAbstract: {abstract}")
+
+        header = f"Paper: {title}"
+        if authors:
+            auth_str = ", ".join(authors) if isinstance(authors, list) else str(authors)
+            header += f" | Authors: {auth_str}"
+        if year:
+            header += f" ({year})"
+        papers_context.append(f"{header}\nAbstract: {abstract}")
 
     # Include extracted sections if available
-    for p_id, content in list(extracted_pdf_contents.items())[:5]:
+    for p_id, content in list(extracted_pdf_contents.items())[:8]:
         if isinstance(content, dict):
             sec_texts = []
             if content.get("methodology"):
@@ -164,36 +201,59 @@ async def report_synthesis_node(state: AgentState) -> Dict[str, Any]:
     matrix_context = []
     for m in methodology_matrix:
         name = m.get("method_name", "Method")
+        papers = ", ".join(m.get("papers_used", [])) or "Unspecified"
         strengths = ", ".join(m.get("strengths", []))
         limits = ", ".join(m.get("limitations", []))
         matrix_context.append(
-            f"- Method: {name} | Strengths: [{strengths}] | Limitations: [{limits}]"
+            f"- Method: {name}\n  Papers Used: [{papers}]\n  Strengths: [{strengths}]\n  Limitations: [{limits}]"
         )
 
     refs_context = []
-    for r in verified_references[:8]:
+    for r in verified_references[:10]:
         claim = r.get("claim", "")
         quote = r.get("matched_passage", "")
         p_title = r.get("paper_id_or_title", "")
         if claim:
             refs_context.append(f'- [{p_title}] Claim: {claim} (Grounding Quote: "{quote}")')
 
-    user_content = (
-        f"RESEARCH TOPIC / USER QUERY:\n{user_query}\n\n"
-        f"APPROVED PAPERS & LITERATURE EVIDENCE:\n\n"
-        + ("\n\n---\n\n".join(papers_context) if papers_context else "No papers provided.")
-        + "\n\n"
+    # Audit Trail Context from Agent 08 (to explicitly warn Gemini of rejected assertions)
+    audit_context = []
+    if has_hallucinations or rejected_claims:
+        audit_context.append("PRIOR VERIFICATION AUDIT TRAIL:")
+        audit_context.append(
+            "- Status: Hallucinated / unverified preliminary assertions were detected."
+        )
+        if verification_summary:
+            audit_context.append(f"- Verifier Assessment: {verification_summary}")
+        if rejected_claims:
+            audit_context.append(
+                "- REJECTED ASSERTIONS (DO NOT INCLUDE OR CITE IN FINAL SYNTHESIS):"
+            )
+            for rc in rejected_claims[:6]:
+                rc_claim = rc.get("claim", "")
+                if rc_claim:
+                    audit_context.append(f'  * "{rc_claim}"')
+
+    user_content_sections = [
+        f"RESEARCH TOPIC / USER QUERY:\n{user_query}",
+        "APPROVED PAPERS & LITERATURE EVIDENCE:\n"
+        + ("\n\n---\n\n".join(papers_context) if papers_context else "No papers provided."),
         "EXISTING METHODOLOGY MATRIX:\n"
-        + ("\n".join(matrix_context) if matrix_context else "None provided.")
-        + "\n\n"
+        + ("\n".join(matrix_context) if matrix_context else "None provided."),
         "IDENTIFIED RESEARCH GAPS:\n"
-        + ("\n".join(f"- {g}" for g in research_gaps) if research_gaps else "None provided.")
-        + "\n\n"
+        + ("\n".join(f"- {g}" for g in research_gaps) if research_gaps else "None provided."),
         "VERIFIED CITATIONS (GROUND TRUTH):\n"
-        + ("\n".join(refs_context) if refs_context else "None provided.")
-        + "\n\n"
-        "Synthesize a cohesive, high-impact academic literature review following the instructions."
+        + ("\n".join(refs_context) if refs_context else "None provided."),
+    ]
+
+    if audit_context:
+        user_content_sections.append("\n".join(audit_context))
+
+    user_content_sections.append(
+        "Synthesize a cohesive, publication-grade academic literature review adhering strictly to the guidelines."
     )
+
+    user_content = "\n\n".join(user_content_sections)
 
     try:
         # 4. Call Google Gemini LLM with structured Pydantic schema and model fallback cascade

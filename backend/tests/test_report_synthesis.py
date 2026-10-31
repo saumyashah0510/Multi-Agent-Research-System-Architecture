@@ -217,10 +217,10 @@ def test_format_review_as_markdown():
         ],
         "methodology_matrix": [
             {
-                "method_name": "VQE",
+                "method_name": "VQE | PQC Hybrid",
                 "papers_used": ["Paper 1"],
                 "strengths": ["Accurate"],
-                "limitations": ["Barren plateaus"],
+                "limitations": ["Barren plateaus | Scaling overhead"],
             }
         ],
         "research_gaps": ["Error correction", "Scalability"],
@@ -241,7 +241,10 @@ def test_format_review_as_markdown():
     assert "## Thematic Clusters & Comparative Analysis" in md_output
     assert "### 1. Variational Algorithms" in md_output
     assert "## Comparative Methodology Matrix" in md_output
-    assert "| **VQE** | Paper 1 | Accurate | Barren plateaus |" in md_output
+    assert (
+        "| **VQE \\| PQC Hybrid** | Paper 1 | Accurate | Barren plateaus \\| Scaling overhead |"
+        in md_output
+    )
     assert "## Unresolved Research Gaps & Open Challenges" in md_output
     assert "1. Error correction" in md_output
     assert "## Conclusion & Future Directions" in md_output
