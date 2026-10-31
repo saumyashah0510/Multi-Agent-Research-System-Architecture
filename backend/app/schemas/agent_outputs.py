@@ -101,6 +101,18 @@ class ThematicClusterItem(BaseModel):
     )
 
 
+class ReferenceItem(BaseModel):
+    """Curated reference citation in synthesis report."""
+
+    title: str = Field(..., description="Title of the cited research paper")
+    citation_key: str = Field(
+        default="", description="Citation key, paper ID, or author-year reference"
+    )
+    summary: str = Field(
+        default="", description="Brief relevance or key contribution to this review"
+    )
+
+
 class SynthesizedReviewOutput(BaseModel):
     """Structured output schema for Agent 09 Synthesis Report."""
 
@@ -112,6 +124,6 @@ class SynthesizedReviewOutput(BaseModel):
     conclusion: str = Field(
         default="", description="Concluding synthesis remarks and future directions"
     )
-    references: List[dict] = Field(
+    references: List[ReferenceItem] = Field(
         default_factory=list, description="Curated reference bibliography"
     )
