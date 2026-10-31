@@ -187,6 +187,16 @@ async def report_synthesis_node(state: AgentState) -> Dict[str, Any]:
             header += f" ({year})"
         papers_context.append(f"{header}\nAbstract: {abstract}")
 
+    # Map p_id to title if known so excerpts have full paper titles
+    id_to_title: Dict[str, str] = {}
+    for p in approved_papers:
+        if p.get("arxiv_id"):
+            id_to_title[str(p["arxiv_id"]).lower()] = p.get("title", "")
+        if p.get("doi"):
+            id_to_title[str(p["doi"]).lower()] = p.get("title", "")
+        if p.get("title"):
+            id_to_title[p["title"].strip().lower()] = p.get("title", "")
+
     # Include extracted sections if available
     for p_id, content in list(extracted_pdf_contents.items())[:8]:
         if isinstance(content, dict):
@@ -196,7 +206,10 @@ async def report_synthesis_node(state: AgentState) -> Dict[str, Any]:
             if content.get("results"):
                 sec_texts.append(f"Results: {content['results'][:800]}")
             if sec_texts:
-                papers_context.append(f"Paper Excerpts ({p_id}):\n" + "\n".join(sec_texts))
+                resolved_title = id_to_title.get(str(p_id).lower(), p_id)
+                papers_context.append(
+                    f"Paper Excerpts ({resolved_title}):\n" + "\n".join(sec_texts)
+                )
 
     matrix_context = []
     for m in methodology_matrix:
