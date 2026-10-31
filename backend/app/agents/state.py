@@ -19,6 +19,9 @@ class AgentState(TypedDict, total=False):
     methodology_matrix: List[dict]
     research_gaps: List[str]
     verified_references: List[dict]
+    rejected_claims: List[dict]
+    has_hallucinations: bool
+    verification_summary: str
     user_decision: str
     synthesized_review: Dict[str, Any]
     current_step: str
