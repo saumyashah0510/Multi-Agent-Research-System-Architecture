@@ -81,14 +81,16 @@ async def citation_verification_node(state: AgentState) -> Dict[str, Any]:
         limitations = m.get("limitations", [])
 
         target_paper = papers[0] if papers else "General Literature"
-        if strengths:
-            claims_to_verify.append(
-                f"Paper: {target_paper}\nClaim: {method} exhibits strength: {'; '.join(strengths)}"
-            )
-        if limitations:
-            claims_to_verify.append(
-                f"Paper: {target_paper}\nClaim: {method} exhibits limitation: {'; '.join(limitations)}"
-            )
+        for strength in strengths:
+            if strength and strength.strip():
+                claims_to_verify.append(
+                    f"Paper: {target_paper}\nClaim: {method} exhibits strength: {strength.strip()}"
+                )
+        for limitation in limitations:
+            if limitation and limitation.strip():
+                claims_to_verify.append(
+                    f"Paper: {target_paper}\nClaim: {method} exhibits limitation: {limitation.strip()}"
+                )
 
     for gap in research_gaps[:3]:
         claims_to_verify.append(f"Paper: Cross-Study Analysis\nClaim: Research Gap: {gap}")
