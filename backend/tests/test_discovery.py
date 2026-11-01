@@ -8,6 +8,7 @@ Assignee Task (Issue TEST-01):
 
 from unittest.mock import AsyncMock, patch
 
+import app.agents.nodes.discovery_node as discovery_module
 import pytest
 from app.schemas.paper import PaperResponse
 
@@ -119,3 +120,182 @@ def test_relevance_screening_score_threshold():
     approved = [p for p in candidates if (p.relevance_score or 0.0) >= threshold]
     assert len(approved) == 2
     assert all((p.relevance_score or 0.0) >= threshold for p in approved)
+
+
+# ==========================================
+# Agent 02: Discovery Node Tests (AI-03)
+# ==========================================
+
+
+@pytest.mark.asyncio
+async def test_discovery_returns_normalized_papers(monkeypatch):
+    mock_search = AsyncMock(
+        return_value=[
+            {
+                "title": "Quantum Machine Learning",
+                "authors": ["Alice Smith"],
+                "abstract": "Research on quantum machine learning.",
+                "publication_date": "2025-06-10",
+                "arxiv_id": "2506.12345",
+                "doi": "10.1234/example",
+                "source": "arxiv",
+            }
+        ]
+    )
+
+    monkeypatch.setattr(discovery_module, "search_academic_papers", mock_search)
+
+    result = await discovery_module.discovery_node({"search_queries": ["Quantum ML"]})
+
+    assert len(result["discovered_papers"]) == 1
+    assert result["discovered_papers"][0]["year"] == 2025
+    assert result["current_step"] == "paper_discovery_completed"
+
+
+@pytest.mark.asyncio
+async def test_discovery_deduplicates_by_arxiv_id(monkeypatch):
+    mock_search = AsyncMock(
+        side_effect=[
+            [
+                {
+                    "title": "Quantum Computing",
+                    "abstract": "First abstract.",
+                    "arxiv_id": "2501.12345",
+                }
+            ],
+            [
+                {
+                    "title": "Different title",
+                    "abstract": "Second abstract.",
+                    "arxiv_id": "2501.12345",
+                }
+            ],
+        ]
+    )
+
+    monkeypatch.setattr(discovery_module, "search_academic_papers", mock_search)
+
+    result = await discovery_module.discovery_node(
+        {"search_queries": ["Quantum", "Quantum Algorithms"]}
+    )
+
+    assert len(result["discovered_papers"]) == 1
+    assert mock_search.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_discovery_deduplicates_by_doi(monkeypatch):
+    mock_search = AsyncMock(
+        return_value=[
+            {
+                "title": "First Paper",
+                "abstract": "First abstract.",
+                "doi": "10.1234/duplicate",
+            },
+            {
+                "title": "Second Paper",
+                "abstract": "Second abstract.",
+                "doi": "https://doi.org/10.1234/duplicate",
+            },
+        ]
+    )
+
+    monkeypatch.setattr(discovery_module, "search_academic_papers", mock_search)
+
+    result = await discovery_module.discovery_node({"search_queries": ["Research"]})
+
+    assert len(result["discovered_papers"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_discovery_deduplicates_normalized_titles(monkeypatch):
+    mock_search = AsyncMock(
+        return_value=[
+            {
+                "title": "Quantum: Machine Learning!",
+                "abstract": "First abstract.",
+            },
+            {
+                "title": "quantum machine learning",
+                "abstract": "Second abstract.",
+            },
+        ]
+    )
+
+    monkeypatch.setattr(discovery_module, "search_academic_papers", mock_search)
+
+    result = await discovery_module.discovery_node({"search_queries": ["Quantum ML"]})
+
+    assert len(result["discovered_papers"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_discovery_filters_incomplete_papers(monkeypatch):
+    mock_search = AsyncMock(
+        return_value=[
+            {"title": "", "abstract": "Missing title."},
+            {"title": "Missing abstract", "abstract": ""},
+            {
+                "title": "Valid Paper",
+                "abstract": "Valid abstract.",
+            },
+        ]
+    )
+
+    monkeypatch.setattr(discovery_module, "search_academic_papers", mock_search)
+
+    result = await discovery_module.discovery_node({"search_queries": ["Research"]})
+
+    assert len(result["discovered_papers"]) == 1
+    assert result["discovered_papers"][0]["title"] == "Valid Paper"
+
+
+@pytest.mark.asyncio
+async def test_discovery_falls_back_to_user_query(monkeypatch):
+    mock_search = AsyncMock(return_value=[])
+
+    monkeypatch.setattr(discovery_module, "search_academic_papers", mock_search)
+
+    await discovery_module.discovery_node(
+        {
+            "search_queries": [],
+            "user_query": "Quantum Computing",
+        }
+    )
+
+    mock_search.assert_awaited_once_with("Quantum Computing", max_results=10)
+
+
+@pytest.mark.asyncio
+async def test_discovery_continues_after_query_failure(monkeypatch):
+    mock_search = AsyncMock(
+        side_effect=[
+            RuntimeError("API unavailable"),
+            [
+                {
+                    "title": "Successful Paper",
+                    "abstract": "Successful abstract.",
+                }
+            ],
+        ]
+    )
+
+    monkeypatch.setattr(discovery_module, "search_academic_papers", mock_search)
+
+    result = await discovery_module.discovery_node({"search_queries": ["Failed", "Successful"]})
+
+    assert len(result["discovered_papers"]) == 1
+    assert result["discovered_papers"][0]["title"] == "Successful Paper"
+
+
+@pytest.mark.asyncio
+async def test_discovery_handles_empty_queries(monkeypatch):
+    mock_search = AsyncMock()
+
+    monkeypatch.setattr(discovery_module, "search_academic_papers", mock_search)
+
+    result = await discovery_module.discovery_node({"search_queries": [], "user_query": ""})
+
+    assert result["discovered_papers"] == []
+    assert result["current_step"] == "paper_discovery_completed"
+    mock_search.assert_not_awaited()
