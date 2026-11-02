@@ -145,3 +145,25 @@ export interface ReviewHistoryItem {
   created_at: string;
   pdf_url?: string;
 }
+
+export interface WebSocketStageUpdateEvent {
+  event: string;
+  stage: ReviewStatus | string;
+  status?: string;
+  message?: string;
+  data?: {
+    sub_queries?: string[];
+    queries?: string[];
+    counts?: Record<string, number>;
+    total_count?: number;
+    count?: number;
+    screened_papers?: any[];
+    screened_count?: number;
+    total?: number;
+    progress?: number;
+    [key: string]: any;
+  };
+  review_id?: string;
+  timestamp?: string;
+  [key: string]: any;
+}
