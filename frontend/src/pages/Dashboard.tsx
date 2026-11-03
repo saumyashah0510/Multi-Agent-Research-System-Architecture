@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import ResearchInput, { type ResearchSearchParams } from "../components/ResearchInput";
 import PaperGrid from "../components/dashboard/paper-grid";
 import { type PaperSummary } from "../components/PaperSummaryCard";
-import { submitHumanDecision } from "../lib/api";
+import { createReviewTask, submitHumanDecision } from "../lib/api";
 import ResearchProgress from "../components/pipeline/ResearchProgress";
+import useReviewWebSocket from "../hooks/useReviewWebSocket";
 
 // Single example summary card per user specification
 const defaultPapers: PaperSummary[] = [
@@ -31,19 +32,35 @@ export default function Dashboard() {
   const [hasSearched, setHasSearched] = useState(false);
   const [isPipelineDone, setIsPipelineDone] = useState(false);
   const [pipelineSession, setPipelineSession] = useState(0);
-  const [papers] = useState<PaperSummary[]>(defaultPapers);
+  const [papers, setPapers] = useState<PaperSummary[]>(defaultPapers);
 
   // Review session state
   const [reviewId, setReviewId] = useState<string | null>(null);
 
-  // TODO (Assignee - FE-05): Connect useReviewWebSocket(reviewId) to stream live events
-  // const ws = useReviewWebSocket(reviewId);
-  // Pass ws.stages, ws.status, and update papers state when ws.screenedPapers updates
+  // Connect useReviewWebSocket(reviewId) to stream live events
+  const ws = useReviewWebSocket(reviewId);
 
   // Single source of truth for selected paper IDs
   const [selectedPaperIds, setSelectedPaperIds] = useState<string[]>(
     defaultPapers.filter((p) => p.isSelected).map((p) => p.id)
   );
+
+  // Synchronize screened papers from WebSocket when available
+  useEffect(() => {
+    if (ws.screenedPapers && ws.screenedPapers.length > 0) {
+      setPapers(ws.screenedPapers);
+      setSelectedPaperIds(
+        ws.screenedPapers.filter((p) => p.isSelected !== false).map((p) => p.id)
+      );
+    }
+  }, [ws.screenedPapers]);
+
+  // Synchronize pipeline completion / pause state
+  useEffect(() => {
+    if (ws.isPausedForInput || ws.status === "COMPLETED") {
+      setIsPipelineDone(true);
+    }
+  }, [ws.isPausedForInput, ws.status]);
 
   // Approval submission state
   const [isProceeding, setIsProceeding] = useState(false);
@@ -51,7 +68,7 @@ export default function Dashboard() {
   const [approvalError, setApprovalError] = useState<string | null>(null);
   const [approvalSuccess, setApprovalSuccess] = useState<string | null>(null);
 
-  const handleSearch = (params: ResearchSearchParams) => {
+  const handleSearch = async (params: ResearchSearchParams) => {
     setActiveQuery(params.query);
     setHasSearched(true);
     setIsPipelineDone(false);
@@ -59,11 +76,21 @@ export default function Dashboard() {
     setApprovalError(null);
     setApprovalSuccess(null);
 
-    // Track review_id from research search params if returned by backend API
-    if (params.review_id) {
-      setReviewId(params.review_id);
-    } else {
-      setReviewId(null);
+    // Call backend API createReviewTask to obtain the real review_id
+    try {
+      const res = await createReviewTask(params.query, params.max_papers || 10);
+      if (res && res.review_id) {
+        setReviewId(res.review_id);
+      } else if (params.review_id) {
+        setReviewId(params.review_id);
+      }
+    } catch (err) {
+      console.warn("Could not initiate backend review task, fallback to params/offline:", err);
+      if (params.review_id) {
+        setReviewId(params.review_id);
+      } else {
+        setReviewId(null);
+      }
     }
   };
 
@@ -182,7 +209,11 @@ export default function Dashboard() {
             <ResearchProgress
               key={`pipeline-session-${pipelineSession}-${activeQuery}`}
               query={activeQuery}
-              autoStart={true}
+              stages={reviewId ? ws.stages : undefined}
+              isRunning={reviewId ? (ws.isConnected && ws.status !== "COMPLETED") : undefined}
+              isCompleted={reviewId ? (ws.isPausedForInput || ws.status === "COMPLETED") : isPipelineDone}
+              isMock={Boolean(!reviewId)}
+              autoStart={!reviewId}
               onComplete={() => setIsPipelineDone(true)}
               onFindMore={handleFindMore}
               isFindingMore={isFindingMore}
