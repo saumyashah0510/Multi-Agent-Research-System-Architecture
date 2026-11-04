@@ -12,6 +12,8 @@ export interface PaperSummary {
   relevanceScore?: number;
   isSelected?: boolean;
   url?: string;
+  rationale?: string;
+  screeningRationale?: string;
 }
 
 export interface PaperSummaryCardProps {
@@ -91,15 +93,15 @@ export default function PaperSummaryCard({
             {paper.authors} · {paper.year} · {paper.venue}
           </p>
 
-          {/* Summary / Abstract Text: Hidden on mobile, shown on tablet/desktop */}
+          {/* Summary / Abstract / Screening Rationale Text: Hidden on mobile, shown on tablet/desktop */}
           <p className="hidden sm:block text-xs sm:text-sm text-neutral-700 leading-relaxed font-sans-ui pt-1 font-normal">
-            {paper.abstract}
+            {paper.screeningRationale || paper.rationale || paper.abstract}
           </p>
 
-          {/* Bottom Row: Only Relevance Score Badge positioned at the bottom left */}
+          {/* Bottom Row: Relevance Score Badge positioned at the bottom left */}
           <div className="pt-2 sm:pt-3 flex items-center justify-start">
             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10.5px] sm:text-[11px] font-semibold bg-[var(--color-success-light)] text-[var(--color-success-dark)] border border-[var(--color-success)]/30 shrink-0">
-              {relevance}% Relevance
+              {relevance}% Relevant
             </span>
           </div>
         </div>

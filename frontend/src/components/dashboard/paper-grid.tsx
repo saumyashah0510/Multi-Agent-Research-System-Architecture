@@ -7,7 +7,9 @@ export interface PaperGridProps {
   selectedPaperIds: string[];
   onToggleSelect: (id: string) => void;
   onProceed: () => void;
+  onFindMore?: () => void;
   isProceeding?: boolean;
+  isFindingMore?: boolean;
   errorMessage?: string | null;
   successMessage?: string | null;
   className?: string;
@@ -18,7 +20,9 @@ export default function PaperGrid({
   selectedPaperIds,
   onToggleSelect,
   onProceed,
+  onFindMore,
   isProceeding = false,
+  isFindingMore = false,
   errorMessage = null,
   successMessage = null,
   className = "",
@@ -45,13 +49,37 @@ export default function PaperGrid({
           </div>
         </div>
 
-        {/* Error Alert Banner */}
+        {/* Warning / Error Alert Banner */}
         {errorMessage && (
-          <div className="p-3.5 sm:p-4 rounded-xl bg-red-50 border border-red-200/80 text-red-800 text-xs sm:text-sm flex items-start gap-2.5 animate-in fade-in duration-200">
-            <span className="text-red-600 font-bold shrink-0">✕</span>
+          <div
+            className={cn(
+              "p-3.5 sm:p-4 rounded-xl text-xs sm:text-sm flex items-start gap-2.5 animate-in fade-in duration-200",
+              errorMessage.toLowerCase().includes("select")
+                ? "bg-amber-50 border border-amber-200/80 text-amber-900"
+                : "bg-red-50 border border-red-200/80 text-red-800"
+            )}
+            role="alert"
+          >
+            <span
+              className={cn(
+                "font-bold shrink-0",
+                errorMessage.toLowerCase().includes("select") ? "text-amber-600" : "text-red-600"
+              )}
+            >
+              {errorMessage.toLowerCase().includes("select") ? "⚠️" : "✕"}
+            </span>
             <div className="flex-1">
-              <p className="font-semibold">Approval Error</p>
-              <p className="text-red-700/90 text-xs mt-0.5">{errorMessage}</p>
+              <p className="font-semibold">
+                {errorMessage.toLowerCase().includes("select") ? "Selection Required" : "Approval Error"}
+              </p>
+              <p
+                className={cn(
+                  "text-xs mt-0.5",
+                  errorMessage.toLowerCase().includes("select") ? "text-amber-800/90" : "text-red-700/90"
+                )}
+              >
+                {errorMessage}
+              </p>
             </div>
           </div>
         )}
@@ -90,29 +118,59 @@ export default function PaperGrid({
             {selectedCount} {selectedCount === 1 ? "paper" : "papers"} ready for automated literature synthesis &amp; citation analysis.
           </span>
 
-          <button
-            type="button"
-            disabled={selectedCount === 0 || isProceeding}
-            onClick={onProceed}
-            className={cn(
-              "px-6 py-2.5 rounded-lg text-sm font-semibold tracking-compact transition-all shadow-sm flex items-center justify-center gap-2",
-              selectedCount > 0 && !isProceeding
-                ? "bg-neutral-900 hover:bg-black text-white hover:shadow-md cursor-pointer active:scale-95"
-                : "bg-neutral-200 text-neutral-400 cursor-not-allowed"
+          <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
+            {onFindMore && (
+              <button
+                type="button"
+                onClick={onFindMore}
+                disabled={isFindingMore || isProceeding}
+                className={cn(
+                  "px-4 py-2.5 rounded-lg text-sm font-semibold tracking-compact border border-neutral-200 transition-all shadow-xs flex items-center justify-center gap-2",
+                  isFindingMore || isProceeding
+                    ? "bg-neutral-100 text-neutral-400 cursor-not-allowed"
+                    : "text-neutral-700 bg-white hover:bg-neutral-50 hover:text-neutral-900 cursor-pointer active:scale-95"
+                )}
+              >
+                {isFindingMore ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4 text-neutral-600" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                    </svg>
+                    <span>Searching...</span>
+                  </>
+                ) : (
+                  <span>Find More Papers</span>
+                )}
+              </button>
             )}
-          >
-            {isProceeding ? (
-              <>
-                <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-                </svg>
-                <span>Submitting Approval...</span>
-              </>
-            ) : (
-              <span>Proceed with Selected Papers ({selectedCount}) →</span>
-            )}
-          </button>
+
+            <button
+              type="button"
+              disabled={isProceeding}
+              onClick={onProceed}
+              className={cn(
+                "px-6 py-2.5 rounded-lg text-sm font-semibold tracking-compact transition-all shadow-sm flex items-center justify-center gap-2",
+                isProceeding
+                  ? "bg-neutral-200 text-neutral-400 cursor-not-allowed"
+                  : selectedCount > 0
+                  ? "bg-neutral-900 hover:bg-black text-white hover:shadow-md cursor-pointer active:scale-95"
+                  : "bg-neutral-800 hover:bg-neutral-900 text-white cursor-pointer active:scale-95"
+              )}
+            >
+              {isProceeding ? (
+                <>
+                  <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                  </svg>
+                  <span>Submitting Approval...</span>
+                </>
+              ) : (
+                <span>Proceed with Selected Papers ({selectedCount}) →</span>
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </div>

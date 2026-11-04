@@ -7,7 +7,7 @@ import { createReviewTask, submitHumanDecision } from "../lib/api";
 import ResearchProgress from "../components/pipeline/ResearchProgress";
 import useReviewWebSocket from "../hooks/useReviewWebSocket";
 
-// Single example summary card per user specification
+// Candidate screened papers from Agent 03 with scores and rationales
 const defaultPapers: PaperSummary[] = [
   {
     id: "paper-1",
@@ -18,9 +18,41 @@ const defaultPapers: PaperSummary[] = [
     url: "https://arxiv.org/abs/2303.08774",
     abstract:
       "A systematic evaluation of generative AI adoption across 142 university courses demonstrates notable gains in conceptual synthesis and computational problem solving, alongside critical pedagogical considerations regarding cognitive offloading and assessment validity.",
+    rationale:
+      "Direct empirical alignment with generative AI pedagogy, robust sample size (142 courses), and high relevance score.",
     tags: [],
     relevanceScore: 98,
     isSelected: true,
+  },
+  {
+    id: "paper-2",
+    title: "Multi-Agent Systems for Automated Academic Literature Reviews",
+    authors: "Vanderbilt, R. & Patel, S.",
+    year: 2025,
+    venue: "ACM Computing Surveys",
+    url: "https://arxiv.org/abs/2401.03412",
+    abstract:
+      "This survey categorizes multi-agent LLM architectures applied to autonomous academic literature retrieval, relevance filtering, and cross-document synthesis, identifying open challenges in citation verification.",
+    rationale:
+      "Comprehensive architectural review directly covering multi-agent retrieval and screening methodologies.",
+    tags: [],
+    relevanceScore: 94,
+    isSelected: true,
+  },
+  {
+    id: "paper-3",
+    title: "Hallucination Mitigation in Large Language Models via Graph-Based Verification",
+    authors: "Morales, D. et al.",
+    year: 2024,
+    venue: "NeurIPS 2024",
+    url: "https://arxiv.org/abs/2402.05190",
+    abstract:
+      "We introduce an attribution graph verification framework that anchors LLM generation against ground-truth academic corpora, cutting non-factual citation claims by over 78%.",
+    rationale:
+      "Provides verified reference checking techniques relevant to downstream citation verification checkpoints.",
+    tags: [],
+    relevanceScore: 91,
+    isSelected: false,
   },
 ];
 
@@ -83,24 +115,28 @@ export default function Dashboard() {
         setReviewId(res.review_id);
       } else if (params.review_id) {
         setReviewId(params.review_id);
+      } else {
+        setReviewId(`review-${Date.now().toString(36)}`);
       }
     } catch (err) {
       console.warn("Could not initiate backend review task, fallback to params/offline:", err);
       if (params.review_id) {
         setReviewId(params.review_id);
       } else {
-        setReviewId(null);
+        setReviewId(`review-${Date.now().toString(36)}`);
       }
     }
   };
 
   const togglePaperSelection = (id: string) => {
+    setApprovalError(null);
     setSelectedPaperIds((prev) =>
       prev.includes(id) ? prev.filter((pId) => pId !== id) : [...prev, id]
     );
   };
 
   const handleProceed = async () => {
+    // Require at least 1 paper selected; if none selected, show an inline warning alert
     if (selectedPaperIds.length === 0) {
       setApprovalError("Please select at least one paper before proceeding.");
       return;
@@ -110,18 +146,14 @@ export default function Dashboard() {
     setApprovalError(null);
     setApprovalSuccess(null);
 
+    const activeReviewId = reviewId || "demo-review";
     try {
-      if (reviewId) {
-        await submitHumanDecision(reviewId, selectedPaperIds, "continue");
-        // TODO (Assignee - FE-06): Redirect user to /review/:reviewId for downstream stages
-        navigate(`/review/${reviewId}`);
-      } else {
-        setApprovalSuccess(
-          `Selection approved successfully! (${selectedPaperIds.length} paper${
-            selectedPaperIds.length > 1 ? "s" : ""
-          } submitted for synthesis matrix)`
-        );
-      }
+      // Dispatch submitHumanDecision(reviewId, selectedPaperIds, "continue")
+      await submitHumanDecision(activeReviewId, selectedPaperIds, "continue");
+
+      // On HTTP 200 response from approval endpoint, clear local error states and redirect
+      setApprovalError(null);
+      navigate(`/review/${activeReviewId}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to submit paper approvals";
       setApprovalError(message);
@@ -136,16 +168,15 @@ export default function Dashboard() {
     setApprovalError(null);
     setApprovalSuccess(null);
 
+    const activeReviewId = reviewId || "demo-review";
     try {
-      if (reviewId) {
-        await submitHumanDecision(reviewId, [], "find_more");
-      }
+      await submitHumanDecision(activeReviewId, [], "find_more");
       // Re-trigger pipeline discovery to find additional literature
       setPipelineSession((prev) => prev + 1);
       setIsPipelineDone(false);
       setApprovalSuccess("Searching academic repositories for additional papers...");
     } catch (err) {
-      // In mock/frontend mode, smoothly re-run pipeline discovery
+      // In mock/frontend mode, smoothly re-run pipeline discovery without redirecting
       setPipelineSession((prev) => prev + 1);
       setIsPipelineDone(false);
     } finally {
@@ -228,7 +259,9 @@ export default function Dashboard() {
                 selectedPaperIds={selectedPaperIds}
                 onToggleSelect={togglePaperSelection}
                 onProceed={handleProceed}
+                onFindMore={handleFindMore}
                 isProceeding={isProceeding}
+                isFindingMore={isFindingMore}
                 errorMessage={approvalError}
                 successMessage={approvalSuccess}
               />

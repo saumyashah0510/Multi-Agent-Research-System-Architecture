@@ -104,6 +104,7 @@ export function normalizePaper(raw: any, index: number): PaperSummary {
   }
 
   const tags = Array.isArray(raw.tags) ? raw.tags : [];
+  const rationale = raw.screening_rationale || raw.rationale || raw.reasoning;
 
   return {
     id: String(rawId),
@@ -116,6 +117,8 @@ export function normalizePaper(raw: any, index: number): PaperSummary {
     relevanceScore,
     isSelected: raw.isSelected !== undefined ? Boolean(raw.isSelected) : true,
     url,
+    rationale: rationale ? String(rationale) : undefined,
+    screeningRationale: raw.screening_rationale ? String(raw.screening_rationale) : undefined,
   };
 }
 
