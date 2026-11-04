@@ -7,55 +7,6 @@ import { createReviewTask, submitHumanDecision } from "../lib/api";
 import ResearchProgress from "../components/pipeline/ResearchProgress";
 import useReviewWebSocket from "../hooks/useReviewWebSocket";
 
-// Candidate screened papers from Agent 03 with scores and rationales
-const defaultPapers: PaperSummary[] = [
-  {
-    id: "paper-1",
-    title: "Generative AI in Higher Education: A Systematic Review of Learning Outcomes",
-    authors: "Chen, K. et al.",
-    year: 2025,
-    venue: "Journal of Educational Technology",
-    url: "https://arxiv.org/abs/2303.08774",
-    abstract:
-      "A systematic evaluation of generative AI adoption across 142 university courses demonstrates notable gains in conceptual synthesis and computational problem solving, alongside critical pedagogical considerations regarding cognitive offloading and assessment validity.",
-    rationale:
-      "Direct empirical alignment with generative AI pedagogy, robust sample size (142 courses), and high relevance score.",
-    tags: [],
-    relevanceScore: 98,
-    isSelected: true,
-  },
-  {
-    id: "paper-2",
-    title: "Multi-Agent Systems for Automated Academic Literature Reviews",
-    authors: "Vanderbilt, R. & Patel, S.",
-    year: 2025,
-    venue: "ACM Computing Surveys",
-    url: "https://arxiv.org/abs/2401.03412",
-    abstract:
-      "This survey categorizes multi-agent LLM architectures applied to autonomous academic literature retrieval, relevance filtering, and cross-document synthesis, identifying open challenges in citation verification.",
-    rationale:
-      "Comprehensive architectural review directly covering multi-agent retrieval and screening methodologies.",
-    tags: [],
-    relevanceScore: 94,
-    isSelected: true,
-  },
-  {
-    id: "paper-3",
-    title: "Hallucination Mitigation in Large Language Models via Graph-Based Verification",
-    authors: "Morales, D. et al.",
-    year: 2024,
-    venue: "NeurIPS 2024",
-    url: "https://arxiv.org/abs/2402.05190",
-    abstract:
-      "We introduce an attribution graph verification framework that anchors LLM generation against ground-truth academic corpora, cutting non-factual citation claims by over 78%.",
-    rationale:
-      "Provides verified reference checking techniques relevant to downstream citation verification checkpoints.",
-    tags: [],
-    relevanceScore: 91,
-    isSelected: false,
-  },
-];
-
 export default function Dashboard() {
   const navigate = useNavigate();
   const [activeQuery, setActiveQuery] = useState<string>(
@@ -64,28 +15,29 @@ export default function Dashboard() {
   const [hasSearched, setHasSearched] = useState(false);
   const [isPipelineDone, setIsPipelineDone] = useState(false);
   const [pipelineSession, setPipelineSession] = useState(0);
-  const [papers, setPapers] = useState<PaperSummary[]>(defaultPapers);
 
-  // Review session state
+  // Screened candidate papers list (initialized empty to prevent stale demo data)
+  const [papers, setPapers] = useState<PaperSummary[]>([]);
+
+  // Review session state (must be established by backend; no temporary fallback IDs)
   const [reviewId, setReviewId] = useState<string | null>(null);
 
   // Connect useReviewWebSocket(reviewId) to stream live events
   const ws = useReviewWebSocket(reviewId);
 
   // Single source of truth for selected paper IDs
-  const [selectedPaperIds, setSelectedPaperIds] = useState<string[]>(
-    defaultPapers.filter((p) => p.isSelected).map((p) => p.id)
-  );
+  const [selectedPaperIds, setSelectedPaperIds] = useState<string[]>([]);
 
-  // Synchronize screened papers from WebSocket when available
+  // Synchronize actual screened papers from WebSocket when available for active review session
   useEffect(() => {
-    if (ws.screenedPapers && ws.screenedPapers.length > 0) {
-      setPapers(ws.screenedPapers);
+    if (reviewId) {
+      const candidateList = ws.screenedPapers || [];
+      setPapers(candidateList);
       setSelectedPaperIds(
-        ws.screenedPapers.filter((p) => p.isSelected !== false).map((p) => p.id)
+        candidateList.filter((p) => p.isSelected !== false).map((p) => p.id)
       );
     }
-  }, [ws.screenedPapers]);
+  }, [reviewId, ws.screenedPapers]);
 
   // Synchronize pipeline completion / pause state
   useEffect(() => {
@@ -105,6 +57,10 @@ export default function Dashboard() {
     setHasSearched(true);
     setIsPipelineDone(false);
     setPipelineSession((prev) => prev + 1);
+
+    // Reset candidates and selection when starting a new search
+    setPapers([]);
+    setSelectedPaperIds([]);
     setApprovalError(null);
     setApprovalSuccess(null);
 
@@ -116,14 +72,18 @@ export default function Dashboard() {
       } else if (params.review_id) {
         setReviewId(params.review_id);
       } else {
-        setReviewId(`review-${Date.now().toString(36)}`);
+        setReviewId(null);
+        setApprovalError("Failed to initialize review session. Please try searching again.");
       }
     } catch (err) {
-      console.warn("Could not initiate backend review task, fallback to params/offline:", err);
+      console.warn("Could not initiate backend review task:", err);
       if (params.review_id) {
         setReviewId(params.review_id);
       } else {
-        setReviewId(`review-${Date.now().toString(36)}`);
+        // Keep review ID null when creation fails and show an error
+        setReviewId(null);
+        const message = err instanceof Error ? err.message : "Failed to initiate backend review task";
+        setApprovalError(`Could not establish review session: ${message}. Approval is prevented until a session exists.`);
       }
     }
   };
@@ -136,6 +96,12 @@ export default function Dashboard() {
   };
 
   const handleProceed = async () => {
+    // Prevent approval until a valid review session exists
+    if (!reviewId) {
+      setApprovalError("No confirmed review session found. Please start a valid research search first.");
+      return;
+    }
+
     // Require at least 1 paper selected; if none selected, show an inline warning alert
     if (selectedPaperIds.length === 0) {
       setApprovalError("Please select at least one paper before proceeding.");
@@ -146,14 +112,13 @@ export default function Dashboard() {
     setApprovalError(null);
     setApprovalSuccess(null);
 
-    const activeReviewId = reviewId || "demo-review";
     try {
       // Dispatch submitHumanDecision(reviewId, selectedPaperIds, "continue")
-      await submitHumanDecision(activeReviewId, selectedPaperIds, "continue");
+      await submitHumanDecision(reviewId, selectedPaperIds, "continue");
 
       // On HTTP 200 response from approval endpoint, clear local error states and redirect
       setApprovalError(null);
-      navigate(`/review/${activeReviewId}`);
+      navigate(`/review/${reviewId}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to submit paper approvals";
       setApprovalError(message);
@@ -164,21 +129,29 @@ export default function Dashboard() {
 
   // Unified Find More Papers action
   const handleFindMore = async () => {
+    // Prevent find more until a valid review session exists
+    if (!reviewId) {
+      setApprovalError("Cannot search for additional papers without a confirmed review session.");
+      return;
+    }
+
     setIsFindingMore(true);
     setApprovalError(null);
     setApprovalSuccess(null);
 
-    const activeReviewId = reviewId || "demo-review";
     try {
-      await submitHumanDecision(activeReviewId, [], "find_more");
-      // Re-trigger pipeline discovery to find additional literature
+      await submitHumanDecision(reviewId, [], "find_more");
+
+      // Reset pipeline and candidates only after a successful submission
       setPipelineSession((prev) => prev + 1);
       setIsPipelineDone(false);
+      setPapers([]);
+      setSelectedPaperIds([]);
       setApprovalSuccess("Searching academic repositories for additional papers...");
     } catch (err) {
-      // In mock/frontend mode, smoothly re-run pipeline discovery without redirecting
-      setPipelineSession((prev) => prev + 1);
-      setIsPipelineDone(false);
+      // Display the error and do NOT reset the pipeline display on failure
+      const message = err instanceof Error ? err.message : "Failed to request additional papers";
+      setApprovalError(`Failed to request more papers: ${message}`);
     } finally {
       setIsFindingMore(false);
     }

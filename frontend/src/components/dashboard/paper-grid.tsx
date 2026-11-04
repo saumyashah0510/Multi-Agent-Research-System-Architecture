@@ -97,19 +97,28 @@ export default function PaperGrid({
 
         {/* Reusable Paper Summary Cards List */}
         <div className="space-y-4">
-          {papers.map((paper) => {
-            const isSelected = selectedPaperIds.includes(paper.id);
-            return (
-              <PaperSummaryCard
-                key={paper.id}
-                paper={{
-                  ...paper,
-                  isSelected,
-                }}
-                onToggleSelect={onToggleSelect}
-              />
-            );
-          })}
+          {papers.length === 0 ? (
+            <div className="p-8 text-center border border-dashed border-neutral-200 rounded-2xl bg-neutral-50/50">
+              <p className="text-sm font-medium text-neutral-600">No candidate papers found</p>
+              <p className="text-xs text-neutral-400 mt-1">
+                Click &quot;Find More Papers&quot; above or refine your search query to discover candidate literature.
+              </p>
+            </div>
+          ) : (
+            papers.map((paper) => {
+              const isSelected = selectedPaperIds.includes(paper.id);
+              return (
+                <PaperSummaryCard
+                  key={paper.id}
+                  paper={{
+                    ...paper,
+                    isSelected,
+                  }}
+                  onToggleSelect={onToggleSelect}
+                />
+              );
+            })
+          )}
         </div>
 
         {/* Action Footer for Selected Papers */}

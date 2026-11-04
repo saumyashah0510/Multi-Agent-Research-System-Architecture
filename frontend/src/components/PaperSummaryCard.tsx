@@ -45,14 +45,16 @@ export default function PaperSummaryCard({
       )}
     >
       <div className="flex items-start gap-3 sm:gap-3.5">
-        {/* Selection Indicator Checkbox */}
+        {/* Accessible Selection Indicator Checkbox */}
         <button
           type="button"
+          role="checkbox"
+          aria-checked={isSelected}
+          aria-label={isSelected ? `Deselect paper: ${paper.title}` : `Select paper: ${paper.title}`}
           onClick={(e) => {
             e.stopPropagation();
             onToggleSelect?.(paper.id);
           }}
-          aria-label={isSelected ? "Deselect paper" : "Select paper"}
           className="mt-0.5 shrink-0 cursor-pointer focus:outline-none"
         >
           {isSelected ? (
