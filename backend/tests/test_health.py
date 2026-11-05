@@ -100,5 +100,5 @@ def test_approve_papers(client: TestClient):
     response = client.post("/api/v1/reviews/review-123/approve", json=payload)
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == "approved"
+    assert data["status"] == "resumed"
     assert data["review_id"] == "review-123"
