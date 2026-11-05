@@ -1,13 +1,6 @@
-"""Pydantic schemas for RAG Literature Review Chat endpoint.
+"""Pydantic schemas for RAG Literature Review Chat endpoint."""
 
-Assignee Task (Issue BE-10):
-- Define ChatMessage schema for conversation history
-- Define ChatRequest schema with question and optional history
-- Define CitationSource schema for retrieved paper chunks
-- Define ChatResponse schema with answer and citations list
-"""
-
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -15,8 +8,8 @@ from pydantic import BaseModel, Field
 class ChatMessage(BaseModel):
     """Single chat turn in conversation history."""
 
-    role: str = Field(..., description="Role: 'user' or 'assistant'")
-    content: str = Field(..., description="Text content of message")
+    role: Literal["user", "assistant"]
+    content: str = Field(..., min_length=1)
 
 
 class CitationSource(BaseModel):

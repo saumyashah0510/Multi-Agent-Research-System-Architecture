@@ -9,10 +9,17 @@ Assignee Task (Issue BE-01 / BE-03):
 import uuid
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.guardrails import enforce_query_guardrail
+from app.db.session import get_db
+from app.models.review import LiteratureReview
+from app.schemas.chat import ChatRequest, ChatResponse
+from app.services.chat_service import generate_rag_chat_response
+from app.services.vector_service import similarity_search
 
 router = APIRouter()
 
@@ -60,7 +67,7 @@ async def approve_papers(
     review_id: str,
     request: ReviewApprovalRequest | None = None,
 ) -> dict[str, Any]:
-    """Endpoint for receiving human-selected papers and resuming LangGraph execution.
+    """Endpoint for receiving human-selected approved papers and resuming LangGraph execution.
 
     TODO (Assignee - AI-05):
     1. Update review status from 'awaiting_user_input' in Neon DB
@@ -71,12 +78,43 @@ async def approve_papers(
     return {"status": "approved", "review_id": review_id}
 
 
-# TODO (Assignee - BE-10): Implement RAG Chat endpoint with conversation history:
-# @router.post("/{review_id}/chat", response_model=ChatResponse, summary="Chat with literature review using RAG")
-# async def chat_with_review(review_id: int, request: ChatRequest, db: AsyncSession = Depends(get_db)):
-#     """Perform pgvector similarity search on review chunks, pass question + history to chat_service."""
-#     # 1. Verify literature review exists in DB (or raise HTTPException 404)
-#     # 2. Retrieve top-4 relevant chunks: chunks = await similarity_search(db, request.question, review_id, top_k=4)
-#     # 3. Call chat_service: result = await generate_rag_chat_response(request.question, chunks, [h.model_dump() for h in request.history])
-#     # 4. Return ChatResponse(answer=result["answer"], citations=result["citations"])
-#     pass
+@router.post(
+    "/{review_id}/chat",
+    response_model=ChatResponse,
+    summary="Chat with literature review using RAG",
+)
+async def chat_with_review(
+    review_id: int,
+    request: ChatRequest,
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+) -> ChatResponse:
+    """Perform pgvector similarity search and generate a grounded chat response."""
+
+    review_result = await db.execute(
+        select(LiteratureReview).where(LiteratureReview.id == review_id)
+    )
+    review = review_result.scalar_one_or_none()
+
+    if review is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Literature review not found",
+        )
+
+    chunks = await similarity_search(
+        db,
+        query_text=request.question,
+        review_id=review_id,
+        top_k=4,
+    )
+
+    result = await generate_rag_chat_response(
+        request.question,
+        chunks,
+        [message.model_dump() for message in request.history],
+    )
+
+    return ChatResponse(
+        answer=result["answer"],
+        citations=result["citations"],
+    )
