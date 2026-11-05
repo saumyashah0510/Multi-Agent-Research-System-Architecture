@@ -1,6 +1,6 @@
 """Pydantic schemas for structured LLM agent outputs."""
 
-from typing import List
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -8,6 +8,14 @@ from pydantic import BaseModel, Field
 class QueryExpansionOutput(BaseModel):
     """Structured output schema for Agent 01 Query Expansion."""
 
+    is_valid_academic_topic: bool = Field(
+        default=True,
+        description="Whether the user prompt is a legitimate academic, scientific, or scholarly research inquiry.",
+    )
+    safety_violation_reason: Optional[str] = Field(
+        default=None,
+        description="Reason if the topic is rejected (e.g., off-topic, casual conversation, dangerous, prompt manipulation).",
+    )
     target_domains: List[str] = Field(
         default_factory=list, description="Academic domain classifications (e.g. cs.AI, q-bio)"
     )
