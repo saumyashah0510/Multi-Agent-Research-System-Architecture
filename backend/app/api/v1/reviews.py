@@ -1,7 +1,7 @@
 """Literature review task orchestration API routes.
 
 Assignee Task (Issue BE-01 / BE-03):
-- POST /: Submit new research prompt and launch pipeline.
+- POST /: Submit new research prompt and launch pipeline with input guardrails.
 - GET /{review_id}: Fetch current review status and structured report.
 - POST /{review_id}/approve: Submit human user approved paper selections.
 """
@@ -11,6 +11,8 @@ from typing import Any
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
+
+from app.core.guardrails import enforce_query_guardrail
 
 router = APIRouter()
 
@@ -35,7 +37,10 @@ class ReviewApprovalRequest(BaseModel):
 async def create_review_task(
     request: ReviewCreateRequest | None = None,
 ) -> dict[str, Any]:
-    """Endpoint for triggering literature review pipeline."""
+    """Endpoint for triggering literature review pipeline with input guardrails."""
+    if request is not None and request.query:
+        enforce_query_guardrail(request.query)
+
     review_id = f"review-{uuid.uuid4().hex[:8]}"
     return {"status": "accepted", "review_id": review_id}
 
