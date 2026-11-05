@@ -45,7 +45,19 @@ export async function submitHumanDecision(
     }),
   });
   if (!res.ok) {
-    throw new Error(`Failed to submit human approval: ${res.statusText}`);
+    let errorDetail = res.statusText;
+    try {
+      const errorJson = await res.json();
+      if (errorJson && errorJson.detail) {
+        errorDetail =
+          typeof errorJson.detail === "string"
+            ? errorJson.detail
+            : JSON.stringify(errorJson.detail);
+      }
+    } catch {
+      // ignore
+    }
+    throw new Error(`Failed to submit human approval: ${errorDetail}`);
   }
   return res.json();
 }

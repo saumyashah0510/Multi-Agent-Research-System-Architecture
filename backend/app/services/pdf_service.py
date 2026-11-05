@@ -1,11 +1,16 @@
-"""Async PDF downloading and text extraction service."""
+"""Async PDF downloading and text extraction service with SSRF defense."""
 
 import io
+import logging
 import re
 from typing import Any, Dict
 
 import httpx
 from pypdf import PdfReader
+
+from app.core.guardrails import enforce_pdf_url_safety
+
+logger = logging.getLogger(__name__)
 
 REQUEST_TIMEOUT = 10.0
 
@@ -159,13 +164,14 @@ def _extract_pdf_text(pdf_bytes: bytes) -> str:
 
 
 async def _download_pdf(pdf_url: str) -> bytes:
-    """Download PDF bytes asynchronously."""
+    """Download PDF bytes asynchronously after enforcing SSRF URL safety."""
+    safe_url = enforce_pdf_url_safety(pdf_url)
 
     async with httpx.AsyncClient(
         timeout=REQUEST_TIMEOUT,
         follow_redirects=True,
     ) as client:
-        response = await client.get(pdf_url)
+        response = await client.get(safe_url)
         response.raise_for_status()
 
         content_type = response.headers.get(
@@ -194,7 +200,9 @@ async def download_and_extract_pdf(
         }
 
     try:
-        pdf_bytes = await _download_pdf(pdf_url)
+        # Enforce SSRF protection before downloading
+        safe_url = enforce_pdf_url_safety(pdf_url)
+        pdf_bytes = await _download_pdf(safe_url)
 
         if not pdf_bytes:
             return {
@@ -221,7 +229,8 @@ async def download_and_extract_pdf(
         httpx.HTTPError,
         OSError,
         ValueError,
-    ):
+    ) as exc:
+        logger.warning("PDF download or extraction failed for '%s': %s", pdf_url, exc)
         return {
             "raw_text": "",
             "sections": {},

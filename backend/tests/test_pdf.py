@@ -178,3 +178,15 @@ async def test_download_failure(
         "raw_text": "",
         "sections": {},
     }
+
+
+@pytest.mark.asyncio
+async def test_download_and_extract_pdf_blocks_ssrf_url() -> None:
+    """Test that SSRF / internal URLs are blocked and return empty payload safely."""
+    # Attempting to fetch cloud metadata or internal IP must fail gracefully
+    result = await download_and_extract_pdf("http://169.254.169.254/latest/meta-data/")
+
+    assert result == {
+        "raw_text": "",
+        "sections": {},
+    }

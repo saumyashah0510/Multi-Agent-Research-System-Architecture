@@ -38,12 +38,16 @@ export const ResearchProgress: React.FC<ResearchProgressProps> = ({
   onFindMore,
   isFindingMore = false,
 }) => {
-  const mock = useMockPipeline({ autoStart, query, onComplete });
+  const isMock = customIsMock ?? true;
+  const mock = useMockPipeline({
+    autoStart: customIsMock === false ? false : autoStart,
+    query,
+    onComplete: customIsMock === false ? undefined : onComplete,
+  });
 
   const stages = customStages ?? mock.stages;
   const isRunning = customIsRunning ?? mock.isRunning;
   const isCompleted = customIsCompleted ?? mock.isCompleted;
-  const isMock = customIsMock ?? mock.isMock;
 
   const [isCollapsed, setIsCollapsed] = useState(false);
 
