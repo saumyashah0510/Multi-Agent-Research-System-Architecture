@@ -1,10 +1,7 @@
-"""Literature review task session ORM model.
-
-Assignee Task (Issue BE-03):
-- Define columns: id (Integer/UUID primary key), user_query (String), status (String), created_at (DateTime).
-"""
+"""Literature review task session ORM model."""
 
 from datetime import datetime
+from enum import Enum
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, func
@@ -13,8 +10,26 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
 if TYPE_CHECKING:
+    from app.models.log import ReviewLog
     from app.models.paper import Paper
     from app.models.user import User
+
+
+class ReviewStatus(str, Enum):
+    """Lifecycle statuses for the literature review pipeline."""
+
+    PENDING = "pending"
+    QUERY_EXPANSION = "query_expansion"
+    PAPER_DISCOVERY = "paper_discovery"
+    SCREENING = "screening"
+    AWAITING_USER_INPUT = "awaiting_user_input"
+    PDF_EXTRACTION = "pdf_extraction"
+    VECTOR_EMBEDDING = "vector_embedding"
+    GAP_ANALYSIS = "gap_analysis"
+    CITATION_VERIFICATION = "citation_verification"
+    REPORT_SYNTHESIS = "report_synthesis"
+    COMPLETED = "completed"
+    FAILED = "failed"
 
 
 class LiteratureReview(Base):
@@ -38,27 +53,12 @@ class LiteratureReview(Base):
     papers: Mapped[List["Paper"]] = relationship(
         "Paper", back_populates="review", cascade="all, delete-orphan"
     )
-
-    # TODO (Assignee - BE-08): Define ReviewStatus enum with 1-to-1 agent mapping (12 statuses):
-    # class ReviewStatus(str, Enum):
-
-    #     PENDING = "pending"
-    #     QUERY_EXPANSION = "query_expansion"            # Agent 01
-    #     PAPER_DISCOVERY = "paper_discovery"            # Agent 02
-    #     SCREENING = "screening"                        # Agent 03
-    #     AWAITING_USER_INPUT = "awaiting_user_input"    # Agent 04 (HITL)
-    #     PDF_EXTRACTION = "pdf_extraction"              # Agent 05
-    #     VECTOR_EMBEDDING = "vector_embedding"          # Agent 06
-    #     GAP_ANALYSIS = "gap_analysis"                  # Agent 07
-    #     CITATION_VERIFICATION = "citation_verification"# Agent 08
-    #     REPORT_SYNTHESIS = "report_synthesis"          # Agent 09
-    #     COMPLETED = "completed"
-    #     FAILED = "failed"
-    #
-    # And connect review_logs relationship in LiteratureReview:
-    # review_logs: Mapped[List["ReviewLog"]] = relationship(
-    #     "ReviewLog", back_populates="review", cascade="all, delete-orphan", order_by="ReviewLog.created_at"
-    # )
+    review_logs: Mapped[List["ReviewLog"]] = relationship(
+        "ReviewLog",
+        back_populates="review",
+        cascade="all, delete-orphan",
+        order_by="ReviewLog.created_at",
+    )
 
     def __repr__(self) -> str:
         return f"<LiteratureReview(id={self.id}, status='{self.status}')>"
