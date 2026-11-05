@@ -16,12 +16,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.orchestrator import build_literature_review_graph
+from app.core.guardrails import enforce_query_guardrail
 from app.db.session import get_db
 from app.models.review import LiteratureReview
 
 logger = logging.getLogger(__name__)
 
-from app.core.guardrails import enforce_query_guardrail
 
 router = APIRouter()
 
