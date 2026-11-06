@@ -6,15 +6,28 @@ Assignee Task (Issue BE-01 / BE-03):
 - POST /{review_id}/approve: Submit human user approved paper selections.
 """
 
+import logging
 import uuid
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from langgraph.types import Command
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.orchestrator import build_literature_review_graph
 from app.core.guardrails import enforce_query_guardrail
+from app.db.session import get_db
+from app.models.review import LiteratureReview
+
+logger = logging.getLogger(__name__)
+
 
 router = APIRouter()
+
+# The graph that was paused must be the same one that gets resumed,
+# because its in-memory checkpointer holds the saved state.
+graph = build_literature_review_graph()
 
 
 class ReviewCreateRequest(BaseModel):
@@ -55,20 +68,54 @@ async def get_review_status(review_id: str) -> dict[str, Any]:
     }
 
 
+async def _resume_graph(review_id: str, resume_value: dict[str, Any]) -> None:
+    """Resume the paused LangGraph thread belonging to this review."""
+    config = {"configurable": {"thread_id": review_id}}
+    try:
+        snapshot = await graph.aget_state(config)
+        if not snapshot.next:
+            logger.warning("No paused graph found for review %s; nothing to resume.", review_id)
+            return
+        await graph.ainvoke(Command(resume=resume_value), config=config)
+    except Exception as exc:
+        logger.error("Failed to resume graph for review %s: %s", review_id, exc)
+
+
 @router.post("/{review_id}/approve", summary="Human-in-the-loop paper approval")
 async def approve_papers(
     review_id: str,
-    request: ReviewApprovalRequest | None = None,
+    request: ReviewApprovalRequest,
+    background_tasks: BackgroundTasks,
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, Any]:
-    """Endpoint for receiving human-selected papers and resuming LangGraph execution.
+    """Endpoint for receiving human-selected papers and resuming LangGraph execution."""
+    if request.user_decision not in ("continue", "find_more"):
+        raise HTTPException(status_code=400, detail="Invalid user_decision.")
 
-    TODO (Assignee - AI-05):
-    1. Update review status from 'awaiting_user_input' in Neon DB
-    2. Resume the paused LangGraph workflow using Command(resume=...) or graph.update_state()
-    3. Pass user_decision ('continue' or 'find_more') and approved_paper_ids
-    4. Return status: 'resumed'
-    """
-    return {"status": "approved", "review_id": review_id}
+    # Rule: never proceed to PDF extraction without at least 1 approved paper.
+    if request.user_decision == "continue" and not request.approved_paper_ids:
+        raise HTTPException(status_code=400, detail="Approve at least 1 paper.")
+
+    # Move status on from 'awaiting_user_input' in the database.
+    try:
+        review = await db.get(LiteratureReview, int(review_id))
+        if review is not None:
+            review.status = (
+                "pdf_extraction" if request.user_decision == "continue" else "query_expansion"
+            )
+            await db.commit()
+    except Exception as exc:
+        logger.warning("Could not update status for review %s: %s", review_id, exc)
+
+    background_tasks.add_task(
+        _resume_graph,
+        review_id,
+        {
+            "user_decision": request.user_decision,
+            "approved_paper_ids": request.approved_paper_ids,
+        },
+    )
+    return {"status": "resumed", "review_id": review_id}
 
 
 # TODO (Assignee - BE-10): Implement RAG Chat endpoint with conversation history:
