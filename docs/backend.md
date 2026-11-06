@@ -262,6 +262,7 @@ erDiagram
 | **2** | User Login | `POST /api/v1/auth/login` | Verifies password hash against `users` table, returns JWT bearer token |
 | **3** | Request Authorization | `Authorization: Bearer <token>` | Client passes JWT in HTTP Authorization header |
 | **4** | Protected Route Access | `/api/v1/reviews/*` | Middleware decodes JWT, extracts `user_id`, and enforces row-level privacy |
+| **5** | Redis Rate Limiting | Rate Limit Middleware | Sliding-window limiter per `user_id` on LLM endpoints (`/reviews/`, `/reviews/{id}/chat`) preventing quota depletion |
 
 ---
 
