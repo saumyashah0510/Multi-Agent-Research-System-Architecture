@@ -179,7 +179,8 @@ flowchart LR
 7. Unify `ReviewStatus` Enum across database schema (`models/review.py`) and FastAPI endpoints (`api/v1/reviews.py`).
 
 ### **Sprint 3: Production Hardening & Advanced Features**
-1. **User Authentication & Privacy**: JWT / NextAuth login linking reviews to `user_id`.
-2. **Interactive D3.js Citation Knowledge Graph**: 3D visual network graph connecting papers by shared authors, themes, and methodologies.
-3. **In-App PDF Reader with Inline Citation Highlighting**: Clicking a reference opens the PDF side-by-side and highlights the exact cited passage.
-4. **One-Click Multi-Format Exporter**: Export report as **PDF**, **Markdown (`.md`)**, or **BibTeX (`.bib`)**.
+1. **User Authentication & Privacy**: JWT / NextAuth login linking reviews to `user_id` with row-level ownership enforcement.
+2. **Redis-Backed Per-User Rate Limiting**: Token-bucket sliding window rate limiting (via our existing Redis infrastructure) tied to authenticated `user_id` on expensive LLM endpoints (`/reviews/` and `/reviews/{id}/chat`) to prevent API quota exhaustion and denial-of-service.
+3. **Interactive D3.js Citation Knowledge Graph**: 3D visual network graph connecting papers by shared authors, themes, and methodologies.
+4. **In-App PDF Reader with Inline Citation Highlighting**: Clicking a reference opens the PDF side-by-side and highlights the exact cited passage.
+5. **One-Click Multi-Format Exporter**: Export report as **PDF**, **Markdown (`.md`)**, or **BibTeX (`.bib`)**.
