@@ -6,8 +6,100 @@ Assignee Task (Issue AI-06):
 - Test empty approved_papers list handling
 """
 
+from typing import Any, Dict, Optional
 
-def test_pdf_extractor_placeholder():
-    """Placeholder test for AI-06 to be implemented by assignee."""
-    # TODO (Assignee - AI-06): Write unit test for pdf_extractor_node
-    assert True
+import pytest
+from app.agents.nodes.pdf_extractor_node import pdf_extractor_node
+
+
+@pytest.mark.asyncio
+async def test_pdf_extractor_extracts_sections_for_approved_papers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Approved papers get their section dictionaries, keyed by arxiv_id."""
+
+    calls: list[Dict[str, Optional[str]]] = []
+
+    async def mock_download(
+        pdf_url: str,
+        cache_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        calls.append({"pdf_url": pdf_url, "cache_key": cache_key})
+        return {
+            "raw_text": "full text",
+            "sections": {
+                "abstract": "We present a VQE algorithm.",
+                "methods": "We construct a Hamiltonian.",
+                "results": "Achieved 94.2% accuracy.",
+                "limitations": "Decoherence limits scaling.",
+                "related_work": "Not a standard section, should be dropped.",
+            },
+        }
+
+    monkeypatch.setattr(
+        "app.agents.nodes.pdf_extractor_node.download_and_extract_pdf",
+        mock_download,
+    )
+
+    state = {
+        "approved_papers": [
+            {
+                "arxiv_id": "2301.12345",
+                "title": "VQE Paper",
+                "abstract": "Fallback abstract.",
+            }
+        ]
+    }
+
+    result = await pdf_extractor_node(state)
+
+    assert result["current_step"] == "pdf_extraction_completed"
+
+    sections = result["extracted_pdf_contents"]["2301.12345"]
+    assert sections["methods"] == "We construct a Hamiltonian."
+    assert sections["results"] == "Achieved 94.2% accuracy."
+    assert sections["limitations"] == "Decoherence limits scaling."
+    assert "related_work" not in sections
+
+    assert calls == [
+        {
+            "pdf_url": "https://arxiv.org/pdf/2301.12345.pdf",
+            "cache_key": "2301.12345",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_pdf_extractor_falls_back_to_abstract_on_invalid_url() -> None:
+    """An unsafe/invalid pdf_url falls back to the paper's abstract."""
+
+    state = {
+        "approved_papers": [
+            {
+                "arxiv_id": "9999.00000",
+                "title": "Paywalled Paper",
+                "abstract": "Only the abstract is available.",
+                "pdf_url": "http://169.254.169.254/latest/meta-data/",
+            }
+        ]
+    }
+
+    result = await pdf_extractor_node(state)
+
+    assert result["current_step"] == "pdf_extraction_completed"
+    assert result["extracted_pdf_contents"] == {
+        "9999.00000": {"abstract": "Only the abstract is available."}
+    }
+
+
+@pytest.mark.asyncio
+async def test_pdf_extractor_handles_empty_approved_papers() -> None:
+    """Empty or missing approved_papers returns an empty result without errors."""
+
+    for state in ({"approved_papers": []}, {}):
+        result = await pdf_extractor_node(state)
+
+        assert result == {
+            "extracted_pdf_contents": {},
+            "current_step": "pdf_extraction_completed",
+        }
