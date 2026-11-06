@@ -1,9 +1,11 @@
 """Async PDF downloading and text extraction service with SSRF defense."""
 
+import asyncio
 import io
 import logging
+import os
 import re
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import httpx
 from pypdf import PdfReader
@@ -13,6 +15,9 @@ from app.core.guardrails import enforce_pdf_url_safety
 logger = logging.getLogger(__name__)
 
 REQUEST_TIMEOUT = 10.0
+
+S3_BUCKET = "multi-agent-research-pdf-bucket"
+S3_PREFIX = "papers/"
 
 
 SECTION_ALIASES = {
@@ -188,8 +193,51 @@ async def _download_pdf(pdf_url: str) -> bytes:
         return response.content
 
 
+async def cache_pdf_to_s3(pdf_bytes: bytes, cache_key: str) -> Optional[str]:
+    """Cache a paper PDF to s3://multi-agent-research-pdf-bucket/papers/{cache_key}.pdf.
+
+    Returns the S3 URI on success. Returns None (never raises) if AWS keys are
+    not configured, boto3 is unavailable, or the upload fails, so the pipeline
+    simply continues with the PDF held in memory.
+    """
+
+    access_key = os.getenv("AWS_ACCESS_KEY_ID", "")
+    secret_key = os.getenv("AWS_SECRET_ACCESS_KEY", "")
+
+    if not access_key or not secret_key or not pdf_bytes:
+        return None
+
+    safe_key = re.sub(r"[^A-Za-z0-9._-]", "_", cache_key)
+    s3_key = f"{S3_PREFIX}{safe_key}.pdf"
+
+    def _upload() -> None:
+        import boto3
+
+        client = boto3.client(
+            "s3",
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            region_name=os.getenv("AWS_REGION", "us-east-1"),
+        )
+        client.put_object(
+            Bucket=S3_BUCKET,
+            Key=s3_key,
+            Body=pdf_bytes,
+            ContentType="application/pdf",
+        )
+
+    try:
+        await asyncio.to_thread(_upload)
+    except Exception as exc:  # noqa: BLE001 - caching must never break the pipeline
+        logger.warning("S3 caching failed for '%s': %s", cache_key, exc)
+        return None
+
+    return f"s3://{S3_BUCKET}/{s3_key}"
+
+
 async def download_and_extract_pdf(
     pdf_url: str,
+    cache_key: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Download a paper PDF and extract its text and key sections."""
 
@@ -209,6 +257,9 @@ async def download_and_extract_pdf(
                 "raw_text": "",
                 "sections": {},
             }
+
+        if cache_key:
+            await cache_pdf_to_s3(pdf_bytes, cache_key)
 
         raw_text = _extract_pdf_text(pdf_bytes)
 
@@ -235,9 +286,3 @@ async def download_and_extract_pdf(
             "raw_text": "",
             "sections": {},
         }
-
-
-# TODO (Assignee - AI-06): Optional AWS S3 caching for downloaded paper PDFs:
-# async def cache_pdf_to_s3(pdf_bytes: bytes, s3_key: str) -> Optional[str]:
-#     """Cache paper PDF to s3://multi-agent-research-pdf-bucket/papers/{arxiv_id}.pdf with safe local fallback."""
-#     pass
