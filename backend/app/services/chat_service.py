@@ -84,13 +84,15 @@ async def generate_rag_chat_response(
     formatted_contexts = []
 
     for index, chunk in enumerate(contexts, start=1):
-        formatted_contexts.append(f"""
+        formatted_contexts.append(
+            f"""
 [Citation Index: {index}]
 Paper ID: {chunk["paper_id"]}
 Section: {chunk["section_name"]}
 Chunk Index: {chunk["chunk_index"]}
 Excerpt: {chunk["content"]}
-""")
+"""
+        )
 
     context_text = "\n\n".join(formatted_contexts)
 
@@ -140,7 +142,7 @@ Follow the system instructions and provide citations using the citation indices.
 
     for model_name in candidate_models:
         try:
-            response = client.models.generate_content(
+            response = await client.aio.models.generate_content(
                 model=model_name,
                 contents=[
                     RAG_CHAT_SYSTEM_PROMPT,
