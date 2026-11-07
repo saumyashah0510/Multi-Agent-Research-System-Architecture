@@ -259,3 +259,54 @@ async def test_cache_pdf_to_s3_skips_when_credentials_missing(
 
     result = await cache_pdf_to_s3(b"%PDF-1.4 dummy", cache_key="2301.12345")
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_pdf_extractor_resolves_pubmed_paper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PubMed papers with pubmed_id resolve open-access PDF URL and extract sections."""
+    from unittest.mock import AsyncMock
+
+    mock_resolve = AsyncMock(return_value="https://journals.plos.org/sample.pdf")
+    mock_download = AsyncMock(
+        return_value={
+            "raw_text": "sample raw text",
+            "sections": {
+                "abstract": "PubMed abstract.",
+                "methods": "CRISPR-Cas9 gene editing assays.",
+                "results": "High efficiency cleavage observed.",
+            },
+        }
+    )
+
+    monkeypatch.setattr(
+        "app.agents.nodes.pdf_extractor_node.resolve_pubmed_pdf_url",
+        mock_resolve,
+    )
+    monkeypatch.setattr(
+        "app.agents.nodes.pdf_extractor_node.download_and_extract_pdf",
+        mock_download,
+    )
+
+    state = {
+        "approved_papers": [
+            {
+                "pubmed_id": "42818104",
+                "doi": "10.64898/2026.09.16.752223",
+                "title": "Auto-SMART repair platform",
+                "abstract": "Fallback abstract.",
+            }
+        ]
+    }
+
+    result = await pdf_extractor_node(state)
+    mock_resolve.assert_awaited_once_with("42818104", "10.64898/2026.09.16.752223")
+    mock_download.assert_awaited_once_with(
+        "https://journals.plos.org/sample.pdf",
+        cache_key="pmid_42818104",
+    )
+
+    sections = result["extracted_pdf_contents"]["pmid_42818104"]
+    assert sections["methods"] == "CRISPR-Cas9 gene editing assays."
+    assert sections["results"] == "High efficiency cleavage observed."

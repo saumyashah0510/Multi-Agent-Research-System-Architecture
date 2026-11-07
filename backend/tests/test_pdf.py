@@ -244,3 +244,65 @@ async def test_valid_cached_pdf_skips_download(
     }
     download.assert_not_awaited()
     upload.assert_not_awaited()
+
+
+def test_get_s3_key_formatting() -> None:
+    """Test S3 key generation for arXiv, PubMed, DOI, and titles."""
+    from app.services.pdf_service import _get_s3_key
+
+    assert _get_s3_key("2305.18290") == "papers/2305.18290.pdf"
+    assert _get_s3_key("pmid_42818104") == "papers/pubmed/pmid_42818104.pdf"
+    assert _get_s3_key("pubmed_42818104") == "papers/pubmed/pubmed_42818104.pdf"
+    assert _get_s3_key("doi_10.1038/s41586-021") == "papers/dois/10.1038_s41586-021.pdf"
+    assert "papers/titles/" in _get_s3_key("Sample Paper Title Without IDs")
+
+
+@pytest.mark.asyncio
+async def test_resolve_pubmed_pdf_url_openalex_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test successful PubMed PDF resolution via OpenAlex works API."""
+    from unittest.mock import MagicMock
+
+    from app.services.pdf_service import resolve_pubmed_pdf_url
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "best_oa_location": {"pdf_url": "https://www.nature.com/articles/sample.pdf"}
+    }
+
+    mock_client = AsyncMock()
+    mock_client.get = AsyncMock(return_value=mock_resp)
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.__aexit__.return_value = None
+
+    monkeypatch.setattr("httpx.AsyncClient", lambda **kwargs: mock_client)
+
+    url = await resolve_pubmed_pdf_url("34265844", doi="10.1038/sample")
+    assert url == "https://www.nature.com/articles/sample.pdf"
+
+
+@pytest.mark.asyncio
+async def test_resolve_pubmed_pdf_url_paywalled_returns_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that a paywalled PubMed paper with no open access returns None."""
+    from unittest.mock import MagicMock
+
+    from app.services.pdf_service import resolve_pubmed_pdf_url
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "best_oa_location": None,
+        "oa_locations": [],
+    }
+
+    mock_client = AsyncMock()
+    mock_client.get = AsyncMock(return_value=mock_resp)
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.__aexit__.return_value = None
+
+    monkeypatch.setattr("httpx.AsyncClient", lambda **kwargs: mock_client)
+
+    url = await resolve_pubmed_pdf_url("35000000", doi=None)
+    assert url is None

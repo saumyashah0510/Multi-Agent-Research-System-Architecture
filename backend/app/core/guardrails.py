@@ -68,6 +68,13 @@ TRUSTED_ACADEMIC_DOMAINS = {
     "plos.org",
     "mdpi.com",
     "pnas.org",
+    "europepmc.org",
+    "unpaywall.org",
+    "cell.com",
+    "wiley.com",
+    "tandfonline.com",
+    "oup.com",
+    "nih.gov",
 }
 
 # Blocked loopback / internal / private IP representations

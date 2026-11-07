@@ -197,11 +197,79 @@ def _get_s3_key(cache_key: str) -> str:
     """Return the deterministic S3 key for a given cache_key."""
     if re.match(r"^\d{4}\.\d{4,5}(v\d+)?$", cache_key):
         return f"{S3_PREFIX}{cache_key}.pdf"
+    if cache_key.startswith("pmid_") or cache_key.startswith("pubmed_"):
+        clean_pmid = re.sub(r"[^A-Za-z0-9._-]", "_", cache_key)
+        return f"{S3_PREFIX}pubmed/{clean_pmid}.pdf"
+    if cache_key.startswith("doi_"):
+        clean_doi = re.sub(r"[^A-Za-z0-9._-]", "_", cache_key[4:])
+        return f"{S3_PREFIX}dois/{clean_doi}.pdf"
     import hashlib
 
     title_hash = hashlib.sha256(cache_key.encode("utf-8")).hexdigest()[:12]
     clean_title = re.sub(r"[^A-Za-z0-9._-]", "_", cache_key)[:40].strip("_")
     return f"{S3_PREFIX}titles/{clean_title}_{title_hash}.pdf"
+
+
+async def resolve_pubmed_pdf_url(
+    pmid: str,
+    doi: Optional[str] = None,
+) -> Optional[str]:
+    """Resolve an open-access full-text PDF URL for a PubMed paper.
+
+    Queries OpenAlex works API by PMID, and Unpaywall API by DOI if available.
+    Returns a verified HTTPS URL or None if paywalled/unavailable.
+    """
+    if not pmid or not pmid.strip():
+        return None
+
+    clean_pmid = pmid.strip()
+    headers = {"User-Agent": "mailto:team_review@daiict.ac.in"}
+
+    async with httpx.AsyncClient(
+        timeout=REQUEST_TIMEOUT,
+        follow_redirects=True,
+    ) as client:
+        # 1. Query OpenAlex by PMID
+        try:
+            openalex_url = f"https://api.openalex.org/works/pmid:{clean_pmid}"
+            resp = await client.get(openalex_url, headers=headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                best_oa = data.get("best_oa_location") or {}
+                pdf_url = best_oa.get("pdf_url")
+                if pdf_url and isinstance(pdf_url, str) and pdf_url.startswith("https://"):
+                    return pdf_url
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("OpenAlex PMID resolution failed for %s: %s", clean_pmid, exc)
+
+        # 2. Query Unpaywall if DOI is available
+        if doi and doi.strip():
+            clean_doi = doi.strip()
+            try:
+                unpaywall_url = (
+                    f"https://api.unpaywall.org/v2/{clean_doi}?email=team_review@daiict.ac.in"
+                )
+                resp = await client.get(unpaywall_url)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    best_oa = data.get("best_oa_location") or {}
+                    pdf_url = best_oa.get("url_for_pdf")
+                    if pdf_url and isinstance(pdf_url, str) and pdf_url.startswith("https://"):
+                        return pdf_url
+
+                    # Check secondary repository locations
+                    for loc in data.get("oa_locations", []):
+                        repo_pdf = loc.get("url_for_pdf")
+                        if (
+                            repo_pdf
+                            and isinstance(repo_pdf, str)
+                            and repo_pdf.startswith("https://")
+                        ):
+                            return repo_pdf
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Unpaywall DOI resolution failed for %s: %s", clean_doi, exc)
+
+    return None
 
 
 async def get_pdf_from_s3(cache_key: str) -> Optional[bytes]:
