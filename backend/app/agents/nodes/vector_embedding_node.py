@@ -8,24 +8,346 @@ Assignee Task (Issue AI-07):
 - Return updated state dict with vector_embedding_completed
 """
 
-from typing import Any, Dict
+import logging
+import re
+from typing import Any, Dict, List, Optional, Tuple
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.state import AgentState
+from app.db.session import AsyncSessionLocal
+from app.models.paper import Paper
+from app.services.vector_service import is_embedding_model_available, store_paper_chunks
+
+logger = logging.getLogger(__name__)
 
 
-async def vector_embedding_node(state: AgentState) -> Dict[str, Any]:
-    """Segment paper sections, generate 384D embeddings, and persist to pgvector.
+def _normalize_identifier(val: Optional[str]) -> str:
+    """Normalize identifiers (arXiv IDs, DOIs, PubMed IDs) for robust lookup."""
+    if not val:
+        return ""
+    s = str(val).strip().lower()
+    for prefix in ("arxiv:", "doi:", "pmid:"):
+        if s.startswith(prefix):
+            s = s[len(prefix) :].strip()
+    return s
 
-    TODO (Assignee - AI-07):
-    1. Read extracted_pdf_contents and review_id from state
-    2. For each paper, call chunk_paper_sections() to create sliding window passages
-    3. Generate 384-dimensional embeddings using vector_service
-    4. Save chunks into paper_chunks table in Neon DB linked to paper_id
-    5. Return {"current_step": "vector_embedding_completed", "chunks_stored_count": total_chunks}
-    """
-    _extracted_pdf_contents = state.get("extracted_pdf_contents") or {}
-    # Placeholder return for AI-07 starter
+
+def _strip_version(val: str) -> str:
+    """Strip arXiv version suffix (e.g. '2301.12345v2' -> '2301.12345')."""
+    return re.sub(r"v\d+$", "", val)
+
+
+def _normalize_title(val: Optional[str]) -> str:
+    """Normalize paper title for clean matching (lowercase, alphanumeric + spaces only)."""
+    if not val:
+        return ""
+    cleaned = re.sub(r"[^\w\s]", "", str(val).lower())
+    return " ".join(cleaned.split())
+
+
+def _build_paper_index(
+    papers: List[Paper],
+) -> Tuple[
+    Dict[str, Paper],
+    Dict[str, Paper],
+    Dict[str, Paper],
+    Dict[str, Paper],
+    Dict[int, Paper],
+]:
+    """Index database papers by arxiv_id, doi, pubmed_id, normalized title, and id."""
+    arxiv_map: Dict[str, Paper] = {}
+    doi_map: Dict[str, Paper] = {}
+    pubmed_map: Dict[str, Paper] = {}
+    title_map: Dict[str, Paper] = {}
+    id_map: Dict[int, Paper] = {}
+
+    for p in papers:
+        id_map[p.id] = p
+        if p.arxiv_id:
+            norm_arx = _normalize_identifier(p.arxiv_id)
+            if norm_arx:
+                arxiv_map[norm_arx] = p
+                arxiv_map[_strip_version(norm_arx)] = p
+        if p.doi:
+            norm_doi = _normalize_identifier(p.doi)
+            if norm_doi:
+                doi_map[norm_doi] = p
+        if p.pubmed_id:
+            norm_pm = _normalize_identifier(p.pubmed_id)
+            if norm_pm:
+                pubmed_map[norm_pm] = p
+        if p.title:
+            norm_t = _normalize_title(p.title)
+            if norm_t:
+                title_map[norm_t] = p
+
+    return arxiv_map, doi_map, pubmed_map, title_map, id_map
+
+
+def _resolve_paper(
+    paper_key: Any,
+    content: Any,
+    approved_papers: List[Dict[str, Any]],
+    arxiv_map: Dict[str, Paper],
+    doi_map: Dict[str, Paper],
+    pubmed_map: Dict[str, Paper],
+    title_map: Dict[str, Paper],
+    id_map: Dict[int, Paper],
+) -> Optional[Paper]:
+    """Resolve an extracted paper key and its content dictionary to a database Paper record."""
+    key_str = str(paper_key).strip() if paper_key is not None else ""
+    norm_key = _normalize_identifier(key_str)
+
+    # 1. Match paper_key against arxiv_id
+    if norm_key in arxiv_map:
+        return arxiv_map[norm_key]
+    if _strip_version(norm_key) in arxiv_map:
+        return arxiv_map[_strip_version(norm_key)]
+
+    # 2. Match paper_key against doi
+    if norm_key in doi_map:
+        return doi_map[norm_key]
+
+    # 3. Match paper_key against pubmed_id
+    if norm_key in pubmed_map:
+        return pubmed_map[norm_key]
+
+    # 4. Match paper_key against title
+    norm_title = _normalize_title(key_str)
+    if norm_title and norm_title in title_map:
+        return title_map[norm_title]
+
+    # 5. Check content metadata if content is a dictionary
+    if isinstance(content, dict):
+        if content.get("arxiv_id"):
+            norm_c_arx = _normalize_identifier(str(content["arxiv_id"]))
+            if norm_c_arx in arxiv_map:
+                return arxiv_map[norm_c_arx]
+            if _strip_version(norm_c_arx) in arxiv_map:
+                return arxiv_map[_strip_version(norm_c_arx)]
+
+        if content.get("doi"):
+            norm_c_doi = _normalize_identifier(str(content["doi"]))
+            if norm_c_doi in doi_map:
+                return doi_map[norm_c_doi]
+
+        if content.get("title"):
+            norm_c_t = _normalize_title(str(content["title"]))
+            if norm_c_t and norm_c_t in title_map:
+                return title_map[norm_c_t]
+
+        if content.get("paper_id") and isinstance(content["paper_id"], int):
+            if content["paper_id"] in id_map:
+                return id_map[content["paper_id"]]
+
+    # 6. Cross-reference approved_papers list from state
+    for ap in approved_papers:
+        ap_title = str(ap.get("title") or "")
+        ap_arxiv = str(ap.get("arxiv_id") or "")
+        ap_doi = str(ap.get("doi") or "")
+
+        # Check if this approved_paper matches the current key
+        if (
+            norm_key
+            and (
+                norm_key == _normalize_identifier(ap_arxiv)
+                or _strip_version(norm_key) == _strip_version(_normalize_identifier(ap_arxiv))
+                or norm_key == _normalize_identifier(ap_doi)
+            )
+        ) or (norm_title and norm_title == _normalize_title(ap_title)):
+            # Found matching approved paper, lookup in database maps
+            if ap_arxiv:
+                norm_a = _normalize_identifier(ap_arxiv)
+                if norm_a in arxiv_map:
+                    return arxiv_map[norm_a]
+                if _strip_version(norm_a) in arxiv_map:
+                    return arxiv_map[_strip_version(norm_a)]
+            if ap_doi:
+                norm_d = _normalize_identifier(ap_doi)
+                if norm_d in doi_map:
+                    return doi_map[norm_d]
+            if ap_title:
+                norm_at = _normalize_title(ap_title)
+                if norm_at in title_map:
+                    return title_map[norm_at]
+            if ap.get("id") and isinstance(ap["id"], int) and ap["id"] in id_map:
+                return id_map[ap["id"]]
+
+    # 7. Check if paper_key is an explicit Paper.id existing within scoped review
+    if isinstance(paper_key, int) and paper_key in id_map:
+        return id_map[paper_key]
+    if key_str.isdigit() and int(key_str) in id_map:
+        return id_map[int(key_str)]
+
+    return None
+
+
+def _extract_paper_sections_and_text(
+    content: Any,
+    paper: Optional[Paper] = None,
+) -> Tuple[Dict[str, str], str]:
+    """Extract section dictionary and full-text from content, falling back to Paper model if empty."""
+    sections: Dict[str, str] = {}
+    full_text: str = ""
+
+    if isinstance(content, dict):
+        if "sections" in content and isinstance(content["sections"], dict):
+            sections = {str(k): str(v) for k, v in content["sections"].items() if v}
+            full_text = str(content.get("full_text") or content.get("text") or "")
+        else:
+            for k, v in content.items():
+                if k in ("full_text", "text") and isinstance(v, str):
+                    full_text = v
+                elif (
+                    isinstance(v, str)
+                    and v.strip()
+                    and k not in ("arxiv_id", "title", "doi", "paper_id", "url")
+                ):
+                    sections[str(k)] = v
+    elif isinstance(content, str):
+        full_text = content
+
+    # Fallback to Paper record attributes if content was empty
+    if not sections and not full_text and paper is not None:
+        if paper.sections and isinstance(paper.sections, dict):
+            sections = {str(k): str(v) for k, v in paper.sections.items() if v}
+        elif paper.abstract:
+            sections = {"Abstract": paper.abstract}
+
+    return sections, full_text
+
+
+async def _process_and_store_embeddings(
+    db: AsyncSession,
+    review_id: Optional[int],
+    extracted_pdf_contents: Dict[str, Any],
+    approved_papers: List[Dict[str, Any]],
+    commit_on_complete: bool = False,
+) -> Dict[str, Any]:
+    """Query scoped papers, resolve identities, chunk text, and persist PaperChunk records."""
+    stmt = select(Paper)
+    if review_id is not None:
+        stmt = stmt.where(Paper.review_id == review_id)
+    res = await db.execute(stmt)
+    db_papers = list(res.scalars().all())
+
+    arxiv_map, doi_map, pubmed_map, title_map, id_map = _build_paper_index(db_papers)
+
+    total_chunks_stored = 0
+
+    for paper_key, content in extracted_pdf_contents.items():
+        paper = _resolve_paper(
+            paper_key=paper_key,
+            content=content,
+            approved_papers=approved_papers,
+            arxiv_map=arxiv_map,
+            doi_map=doi_map,
+            pubmed_map=pubmed_map,
+            title_map=title_map,
+            id_map=id_map,
+        )
+
+        if not paper:
+            logger.warning(
+                "Could not resolve paper in database for extracted content key '%s' "
+                "(review_id=%s). Skipping chunk persistence for this entry.",
+                paper_key,
+                review_id,
+            )
+            continue
+
+        sections, full_text = _extract_paper_sections_and_text(content, paper=paper)
+
+        if not sections and not full_text:
+            logger.warning(
+                "No textual content or sections found for resolved paper id=%s ('%s'). Skipping.",
+                paper.id,
+                paper.title,
+            )
+            continue
+
+        stored = await store_paper_chunks(
+            db=db,
+            paper_id=paper.id,
+            full_text=full_text,
+            sections=sections,
+            chunk_size=500,
+            overlap=50,
+            allow_fallback=False,
+            replace_existing=True,
+        )
+        total_chunks_stored += len(stored)
+
+    if commit_on_complete:
+        await db.commit()
+    else:
+        await db.flush()
+
+    logger.info(
+        "Vector embedding completed: %d total chunks stored for review_id=%s.",
+        total_chunks_stored,
+        review_id,
+    )
+
     return {
         "current_step": "vector_embedding_completed",
-        "chunks_stored_count": 0,
+        "chunks_stored_count": total_chunks_stored,
     }
+
+
+async def vector_embedding_node(
+    state: AgentState,
+    db: Optional[AsyncSession] = None,
+) -> Dict[str, Any]:
+    """Segment paper sections, generate 384D embeddings, and persist to pgvector.
+
+    1. Read extracted_pdf_contents and review_id from state.
+    2. Validate extracted content; if empty, return early with 0 chunks stored.
+    3. Ensure sentence-transformers embedding model is available (all-MiniLM-L6-v2, 384D).
+    4. Query database for papers scoped to review_id (or all if review_id is None).
+    5. Resolve each extracted paper key to its actual Paper.id record.
+    6. Chunk sections into 500-char sliding windows with 50-char overlap.
+    7. Generate 384D semantic embeddings and store PaperChunk records linked to Paper.id.
+    8. Return {"current_step": "vector_embedding_completed", "chunks_stored_count": total_chunks}.
+    """
+    extracted_pdf_contents: Dict[str, Any] = state.get("extracted_pdf_contents") or {}
+    review_id: Optional[int] = state.get("review_id")
+    approved_papers: List[Dict[str, Any]] = state.get("approved_papers") or []
+
+    # Fast-return if no extracted contents provided
+    if not extracted_pdf_contents:
+        logger.info("No extracted_pdf_contents found in state. Skipping vector chunking.")
+        return {
+            "current_step": "vector_embedding_completed",
+            "chunks_stored_count": 0,
+        }
+
+    # Strict check: verify SentenceTransformers model is available
+    if not is_embedding_model_available():
+        error_msg = (
+            "SentenceTransformer model ('all-MiniLM-L6-v2') is unavailable. "
+            "Cannot generate 384D semantic vector embeddings."
+        )
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
+
+    # Use provided db session or manage a new AsyncSession
+    if db is not None:
+        return await _process_and_store_embeddings(
+            db=db,
+            review_id=review_id,
+            extracted_pdf_contents=extracted_pdf_contents,
+            approved_papers=approved_papers,
+            commit_on_complete=False,
+        )
+
+    async with AsyncSessionLocal() as session:
+        return await _process_and_store_embeddings(
+            db=session,
+            review_id=review_id,
+            extracted_pdf_contents=extracted_pdf_contents,
+            approved_papers=approved_papers,
+            commit_on_complete=True,
+        )

@@ -4,7 +4,7 @@ import hashlib
 import logging
 from typing import Any, Optional
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.chunk import PaperChunk
@@ -30,6 +30,12 @@ def _get_embedding_model():
             logger.warning(f"Could not load sentence-transformers model: {err}")
             _ST_MODEL = False
     return _ST_MODEL
+
+
+def is_embedding_model_available() -> bool:
+    """Check if the local sentence-transformers model is successfully loaded."""
+    model = _get_embedding_model()
+    return bool(model)
 
 
 def chunk_text(
@@ -112,8 +118,12 @@ def chunk_paper_sections(
     return all_chunks
 
 
-async def generate_embedding(text: str) -> list[float]:
-    """Generate 384-dimensional vector embedding using 100% free local sentence-transformers model."""
+async def generate_embedding(text: str, allow_fallback: bool = True) -> list[float]:
+    """Generate 384-dimensional vector embedding using 100% free local sentence-transformers model.
+
+    If allow_fallback is False, raises RuntimeError when SentenceTransformers is unavailable
+    rather than returning pseudo-embeddings.
+    """
     model = _get_embedding_model()
 
     if model:
@@ -122,6 +132,14 @@ async def generate_embedding(text: str) -> list[float]:
             return [round(float(x), 6) for x in vec]
         except Exception as err:
             logger.warning(f"SentenceTransformer encoding error: {err}")
+            if not allow_fallback:
+                raise RuntimeError(f"SentenceTransformer failed to encode text: {err}") from err
+
+    if not allow_fallback:
+        raise RuntimeError(
+            "SentenceTransformer ('all-MiniLM-L6-v2') is unavailable; "
+            "semantic embedding cannot be generated."
+        )
 
     # Fallback deterministic pseudo-embedding vector of 384 floats if sentence-transformers unavailable
     seed_hash = hashlib.sha256(text.encode("utf-8")).digest()
@@ -137,6 +155,34 @@ async def generate_embedding(text: str) -> list[float]:
     return vector
 
 
+async def generate_embeddings_batch(
+    texts: list[str],
+    allow_fallback: bool = False,
+) -> list[list[float]]:
+    """Generate 384-dimensional vector embeddings for a batch of texts using sentence-transformers."""
+    if not texts:
+        return []
+
+    model = _get_embedding_model()
+    if model:
+        try:
+            vecs = model.encode(texts, convert_to_numpy=True, show_progress_bar=False)
+            return [[round(float(x), 6) for x in vec] for vec in vecs]
+        except Exception as err:
+            logger.warning(f"SentenceTransformer batch encoding error: {err}")
+            if not allow_fallback:
+                raise RuntimeError(f"SentenceTransformer failed to encode batch: {err}") from err
+
+    if not allow_fallback:
+        raise RuntimeError(
+            "SentenceTransformer ('all-MiniLM-L6-v2') is unavailable; "
+            "semantic embedding cannot be generated."
+        )
+
+    # Fallback deterministic pseudo-embedding
+    return [await generate_embedding(t, allow_fallback=True) for t in texts]
+
+
 async def store_paper_chunks(
     db: AsyncSession,
     paper_id: int,
@@ -144,8 +190,13 @@ async def store_paper_chunks(
     sections: Optional[dict[str, str]] = None,
     chunk_size: int = 500,
     overlap: int = 50,
+    allow_fallback: bool = False,
+    replace_existing: bool = False,
 ) -> list[PaperChunk]:
     """Chunk paper text, generate embeddings, and insert PaperChunk records into PostgreSQL."""
+    if replace_existing:
+        await db.execute(delete(PaperChunk).where(PaperChunk.paper_id == paper_id))
+
     chunks_meta = chunk_paper_sections(
         sections=sections or {},
         full_text=full_text or "",
@@ -157,10 +208,16 @@ async def store_paper_chunks(
         logger.warning(f"No text or sections provided for paper_id={paper_id}")
         return []
 
+    texts = [c["content"] for c in chunks_meta]
+    embeddings = await generate_embeddings_batch(texts, allow_fallback=allow_fallback)
+
     db_chunks: list[PaperChunk] = []
 
-    for c in chunks_meta:
-        emb = await generate_embedding(c["content"])
+    for c, emb in zip(chunks_meta, embeddings, strict=True):
+        if len(emb) != EMBEDDING_DIMENSION:
+            raise ValueError(
+                f"Embedding dimension mismatch: expected {EMBEDDING_DIMENSION}, got {len(emb)}"
+            )
         chunk_obj = PaperChunk(
             paper_id=paper_id,
             chunk_index=c["chunk_index"],
