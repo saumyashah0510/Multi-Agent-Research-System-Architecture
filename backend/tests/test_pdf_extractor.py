@@ -103,3 +103,71 @@ async def test_pdf_extractor_handles_empty_approved_papers() -> None:
             "extracted_pdf_contents": {},
             "current_step": "pdf_extraction_completed",
         }
+
+
+@pytest.mark.asyncio
+async def test_pdf_extractor_preserves_full_sections_on_duplicate_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If a duplicate paper key fell back to abstract, keep the full-text sections."""
+
+    call_count = 0
+
+    async def mock_download(
+        pdf_url: str,
+        cache_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return {
+                "raw_text": "full text",
+                "sections": {
+                    "abstract": "Full abstract.",
+                    "methods": "Detailed methods.",
+                },
+            }
+        # Second call fails
+        return {"raw_text": "", "sections": {}}
+
+    monkeypatch.setattr(
+        "app.agents.nodes.pdf_extractor_node.download_and_extract_pdf",
+        mock_download,
+    )
+
+    state = {
+        "approved_papers": [
+            {
+                "arxiv_id": "2301.11111",
+                "title": "Quantum Paper",
+                "abstract": "Fallback abstract.",
+            },
+            {
+                "arxiv_id": "2301.11111",
+                "title": "Quantum Paper Copy",
+                "abstract": "Fallback abstract.",
+            },
+        ]
+    }
+
+    result = await pdf_extractor_node(state)
+    sections = result["extracted_pdf_contents"]["2301.11111"]
+    assert "methods" in sections
+    assert sections["methods"] == "Detailed methods."
+
+
+@pytest.mark.asyncio
+async def test_download_and_extract_pdf_rejects_html_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If a publisher returns HTML instead of PDF, reject and return empty sections."""
+    from app.services.pdf_service import download_and_extract_pdf
+
+    async def mock_download_pdf(url: str) -> bytes:
+        return b"<!DOCTYPE html><html><body>Error or Landing Page</body></html>"
+
+    monkeypatch.setattr("app.services.pdf_service._download_pdf", mock_download_pdf)
+
+    res = await download_and_extract_pdf("https://example.com/paper.pdf", cache_key="1234.5678")
+    assert res["raw_text"] == ""
+    assert res["sections"] == {}

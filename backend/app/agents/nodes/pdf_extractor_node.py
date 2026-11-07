@@ -83,9 +83,18 @@ async def pdf_extractor_node(state: AgentState) -> Dict[str, Any]:
 
     results = await asyncio.gather(*(_extract_single_paper(paper) for paper in approved_papers))
 
-    extracted_sections: Dict[str, Any] = {
-        paper_key: sections for paper_key, sections in results if paper_key
-    }
+    extracted_sections: Dict[str, Any] = {}
+    for paper_key, sections in results:
+        if not paper_key:
+            continue
+        # Preserve full-text sections if a duplicate paper key fell back to abstract
+        if (
+            paper_key in extracted_sections
+            and len(sections) <= 1
+            and len(extracted_sections[paper_key]) > 1
+        ):
+            continue
+        extracted_sections[paper_key] = sections
 
     return {
         "extracted_pdf_contents": extracted_sections,

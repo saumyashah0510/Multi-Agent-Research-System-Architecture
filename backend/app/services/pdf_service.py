@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 REQUEST_TIMEOUT = 10.0
 
-S3_BUCKET = "multi-agent-research-pdf-bucket"
+S3_BUCKET = os.getenv("AWS_S3_BUCKET", "multi-agent-research-pdf-bucket")
 S3_PREFIX = "papers/"
 
 
@@ -194,7 +194,7 @@ async def _download_pdf(pdf_url: str) -> bytes:
 
 
 async def cache_pdf_to_s3(pdf_bytes: bytes, cache_key: str) -> Optional[str]:
-    """Cache a paper PDF to s3://multi-agent-research-pdf-bucket/papers/{cache_key}.pdf.
+    """Cache a paper PDF to s3://{S3_BUCKET}/papers/{cache_key}.pdf.
 
     Returns the S3 URI on success. Returns None (never raises) if AWS keys are
     not configured, boto3 is unavailable, or the upload fails, so the pipeline
@@ -203,24 +203,48 @@ async def cache_pdf_to_s3(pdf_bytes: bytes, cache_key: str) -> Optional[str]:
 
     access_key = os.getenv("AWS_ACCESS_KEY_ID", "")
     secret_key = os.getenv("AWS_SECRET_ACCESS_KEY", "")
+    session_token = os.getenv("AWS_SESSION_TOKEN", "")
+    region = os.getenv("AWS_REGION", "ap-south-1")
+    bucket = os.getenv("AWS_S3_BUCKET", S3_BUCKET)
 
-    if not access_key or not secret_key or not pdf_bytes:
+    if not pdf_bytes or not cache_key:
         return None
 
-    safe_key = re.sub(r"[^A-Za-z0-9._-]", "_", cache_key)
-    s3_key = f"{S3_PREFIX}{safe_key}.pdf"
+    # Preserve exact arXiv ID format (e.g. papers/2301.12345.pdf).
+    # For non-arXiv paper titles, use a short hash to prevent collisions and long key errors.
+    if re.match(r"^\d{4}\.\d{4,5}(v\d+)?$", cache_key):
+        s3_key = f"{S3_PREFIX}{cache_key}.pdf"
+    else:
+        import hashlib
+
+        title_hash = hashlib.sha256(cache_key.encode("utf-8")).hexdigest()[:12]
+        clean_title = re.sub(r"[^A-Za-z0-9._-]", "_", cache_key)[:40].strip("_")
+        s3_key = f"{S3_PREFIX}titles/{clean_title}_{title_hash}.pdf"
 
     def _upload() -> None:
         import boto3
+        from botocore.config import Config
 
-        client = boto3.client(
-            "s3",
-            aws_access_key_id=access_key,
-            aws_secret_access_key=secret_key,
-            region_name=os.getenv("AWS_REGION", "us-east-1"),
+        s3_config = Config(
+            connect_timeout=3,
+            read_timeout=5,
+            retries={"max_attempts": 1},
         )
+
+        client_kwargs: Dict[str, Any] = {
+            "region_name": region,
+            "config": s3_config,
+        }
+
+        if access_key and secret_key:
+            client_kwargs["aws_access_key_id"] = access_key
+            client_kwargs["aws_secret_access_key"] = secret_key
+            if session_token:
+                client_kwargs["aws_session_token"] = session_token
+
+        client = boto3.client("s3", **client_kwargs)
         client.put_object(
-            Bucket=S3_BUCKET,
+            Bucket=bucket,
             Key=s3_key,
             Body=pdf_bytes,
             ContentType="application/pdf",
@@ -232,7 +256,7 @@ async def cache_pdf_to_s3(pdf_bytes: bytes, cache_key: str) -> Optional[str]:
         logger.warning("S3 caching failed for '%s': %s", cache_key, exc)
         return None
 
-    return f"s3://{S3_BUCKET}/{s3_key}"
+    return f"s3://{bucket}/{s3_key}"
 
 
 async def download_and_extract_pdf(
@@ -252,7 +276,13 @@ async def download_and_extract_pdf(
         safe_url = enforce_pdf_url_safety(pdf_url)
         pdf_bytes = await _download_pdf(safe_url)
 
-        if not pdf_bytes:
+        if not pdf_bytes or not pdf_bytes.startswith(b"%PDF"):
+            if pdf_bytes and not pdf_bytes.startswith(b"%PDF"):
+                logger.warning(
+                    "Downloaded content for '%s' is not a valid PDF (header: %s).",
+                    pdf_url,
+                    pdf_bytes[:16],
+                )
             return {
                 "raw_text": "",
                 "sections": {},
