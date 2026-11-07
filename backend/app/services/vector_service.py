@@ -38,6 +38,31 @@ def is_embedding_model_available() -> bool:
     return bool(model)
 
 
+def format_section_name(name: str) -> str:
+    """Format section heading while preserving scientific acronyms, hyphens, and mixed case.
+
+    Examples:
+    - 'abstract' -> 'Abstract'
+    - 'methods and materials' -> 'Methods And Materials'
+    - 'LLM Evaluation' -> 'LLM Evaluation' (acronym preserved)
+    - 'RNA-Seq Analysis' -> 'RNA-Seq Analysis' (hyphen and acronym preserved)
+    - 'CNN vs ViT Performance' -> 'CNN vs ViT Performance' (mixed acronyms preserved)
+    """
+    if not name or not name.strip():
+        return "Full Text"
+
+    cleaned = name.strip()
+
+    # If the heading is purely lowercase (e.g. 'methods', 'abstract' from automated extractors),
+    # capitalize word initials
+    if cleaned.islower():
+        words = cleaned.split()
+        return " ".join(w.capitalize() for w in words)
+
+    # If heading contains mixed case or uppercase acronyms, preserve exact author/scientific casing
+    return cleaned
+
+
 def chunk_text(
     text: str,
     section_name: str = "Full Text",
@@ -97,7 +122,7 @@ def chunk_paper_sections(
                 continue
             sec_chunks = chunk_text(
                 text=sec_text,
-                section_name=sec_name.title(),
+                section_name=format_section_name(sec_name),
                 chunk_size=chunk_size,
                 overlap=overlap,
             )
@@ -193,8 +218,14 @@ async def store_paper_chunks(
     allow_fallback: bool = False,
     replace_existing: bool = False,
 ) -> list[PaperChunk]:
-    """Chunk paper text, generate embeddings, and insert PaperChunk records into PostgreSQL."""
+    """Chunk paper text, generate embeddings, and insert PaperChunk records into PostgreSQL.
+
+    When replace_existing=True, acquires a row-level lock on the Paper record before deleting
+    and re-inserting chunks to ensure concurrent serialization and prevent race conditions.
+    """
     if replace_existing:
+        # Acquire row-level lock on Paper to serialize concurrent reprocessing for the same paper
+        await db.execute(select(Paper.id).where(Paper.id == paper_id).with_for_update())
         await db.execute(delete(PaperChunk).where(PaperChunk.paper_id == paper_id))
 
     chunks_meta = chunk_paper_sections(

@@ -10,7 +10,7 @@ Assignee Task (Issue AI-07):
 
 import logging
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,13 +55,19 @@ def _build_paper_index(
     Dict[str, Paper],
     Dict[str, Paper],
     Dict[int, Paper],
+    Set[str],
 ]:
-    """Index database papers by arxiv_id, doi, pubmed_id, normalized title, and id."""
+    """Index database papers by arxiv_id, doi, pubmed_id, normalized title, and id.
+
+    Tracks duplicate normalized titles within the scoped review to prevent ambiguous
+    misattribution.
+    """
     arxiv_map: Dict[str, Paper] = {}
     doi_map: Dict[str, Paper] = {}
     pubmed_map: Dict[str, Paper] = {}
     title_map: Dict[str, Paper] = {}
     id_map: Dict[int, Paper] = {}
+    ambiguous_titles: Set[str] = set()
 
     for p in papers:
         id_map[p.id] = p
@@ -81,9 +87,25 @@ def _build_paper_index(
         if p.title:
             norm_t = _normalize_title(p.title)
             if norm_t:
-                title_map[norm_t] = p
+                if norm_t in ambiguous_titles:
+                    # Title was already detected as duplicate
+                    pass
+                elif norm_t in title_map:
+                    # Duplicate title detected within this review; mark ambiguous and remove from unique map
+                    prior_paper = title_map[norm_t]
+                    logger.warning(
+                        "Ambiguous paper title detected in review: '%s' matches multiple papers "
+                        "(id=%s and id=%s). Title-only resolution will be rejected.",
+                        p.title,
+                        prior_paper.id,
+                        p.id,
+                    )
+                    del title_map[norm_t]
+                    ambiguous_titles.add(norm_t)
+                else:
+                    title_map[norm_t] = p
 
-    return arxiv_map, doi_map, pubmed_map, title_map, id_map
+    return arxiv_map, doi_map, pubmed_map, title_map, id_map, ambiguous_titles
 
 
 def _resolve_paper(
@@ -95,12 +117,19 @@ def _resolve_paper(
     pubmed_map: Dict[str, Paper],
     title_map: Dict[str, Paper],
     id_map: Dict[int, Paper],
+    ambiguous_titles: Set[str],
+    review_id: Optional[int] = None,
 ) -> Optional[Paper]:
-    """Resolve an extracted paper key and its content dictionary to a database Paper record."""
+    """Resolve an extracted paper key and its content dictionary to a database Paper record.
+
+    Prioritizes strong, unique identifiers (arXiv ID, DOI, PubMed ID).
+    Rejects ambiguous title-only matches rather than arbitrarily selecting a paper.
+    Never assumes arbitrary numeric dictionary keys represent database IDs.
+    """
     key_str = str(paper_key).strip() if paper_key is not None else ""
     norm_key = _normalize_identifier(key_str)
 
-    # 1. Match paper_key against arxiv_id
+    # 1. Match paper_key against strongest unique identifiers: arxiv_id
     if norm_key in arxiv_map:
         return arxiv_map[norm_key]
     if _strip_version(norm_key) in arxiv_map:
@@ -114,13 +143,21 @@ def _resolve_paper(
     if norm_key in pubmed_map:
         return pubmed_map[norm_key]
 
-    # 4. Match paper_key against title
+    # 4. Match paper_key against title (with ambiguity detection)
     norm_title = _normalize_title(key_str)
-    if norm_title and norm_title in title_map:
+    if norm_title in ambiguous_titles:
+        logger.warning(
+            "Paper key '%s' matches ambiguous title shared by multiple papers in review_id=%s. "
+            "Title-only resolution rejected; seeking stronger metadata.",
+            key_str,
+            review_id,
+        )
+    elif norm_title and norm_title in title_map:
         return title_map[norm_title]
 
     # 5. Check content metadata if content is a dictionary
     if isinstance(content, dict):
+        # 5a. Strong identifier: arxiv_id in content
         if content.get("arxiv_id"):
             norm_c_arx = _normalize_identifier(str(content["arxiv_id"]))
             if norm_c_arx in arxiv_map:
@@ -128,19 +165,44 @@ def _resolve_paper(
             if _strip_version(norm_c_arx) in arxiv_map:
                 return arxiv_map[_strip_version(norm_c_arx)]
 
+        # 5b. Strong identifier: doi in content
         if content.get("doi"):
             norm_c_doi = _normalize_identifier(str(content["doi"]))
             if norm_c_doi in doi_map:
                 return doi_map[norm_c_doi]
 
+        # 5c. Strong identifier: pubmed_id in content
+        if content.get("pubmed_id"):
+            norm_c_pm = _normalize_identifier(str(content["pubmed_id"]))
+            if norm_c_pm in pubmed_map:
+                return pubmed_map[norm_c_pm]
+
+        # 5d. Explicit paper_id in content (must be valid integer belonging to scoped review)
+        if content.get("paper_id") is not None:
+            raw_id = content["paper_id"]
+            try:
+                parsed_id = int(raw_id)
+                if parsed_id in id_map:
+                    return id_map[parsed_id]
+                logger.warning(
+                    "Explicit paper_id=%s in content does not belong to review_id=%s. Rejected.",
+                    raw_id,
+                    review_id,
+                )
+            except (ValueError, TypeError):
+                logger.warning("Invalid non-integer paper_id=%r in content. Ignored.", raw_id)
+
+        # 5e. Title in content (must not be ambiguous)
         if content.get("title"):
             norm_c_t = _normalize_title(str(content["title"]))
-            if norm_c_t and norm_c_t in title_map:
+            if norm_c_t in ambiguous_titles:
+                logger.warning(
+                    "Content title '%s' is ambiguous in review_id=%s. Rejected.",
+                    content["title"],
+                    review_id,
+                )
+            elif norm_c_t and norm_c_t in title_map:
                 return title_map[norm_c_t]
-
-        if content.get("paper_id") and isinstance(content["paper_id"], int):
-            if content["paper_id"] in id_map:
-                return id_map[content["paper_id"]]
 
     # 6. Cross-reference approved_papers list from state
     for ap in approved_papers:
@@ -148,16 +210,20 @@ def _resolve_paper(
         ap_arxiv = str(ap.get("arxiv_id") or "")
         ap_doi = str(ap.get("doi") or "")
 
-        # Check if this approved_paper matches the current key
-        if (
-            norm_key
-            and (
-                norm_key == _normalize_identifier(ap_arxiv)
-                or _strip_version(norm_key) == _strip_version(_normalize_identifier(ap_arxiv))
+        # Check if approved_paper matches the current key
+        matches_ap = False
+        if norm_key:
+            norm_ap_arx = _normalize_identifier(ap_arxiv)
+            if (
+                norm_key == norm_ap_arx
+                or _strip_version(norm_key) == _strip_version(norm_ap_arx)
                 or norm_key == _normalize_identifier(ap_doi)
-            )
-        ) or (norm_title and norm_title == _normalize_title(ap_title)):
-            # Found matching approved paper, lookup in database maps
+            ):
+                matches_ap = True
+        if not matches_ap and norm_title and norm_title == _normalize_title(ap_title):
+            matches_ap = True
+
+        if matches_ap:
             if ap_arxiv:
                 norm_a = _normalize_identifier(ap_arxiv)
                 if norm_a in arxiv_map:
@@ -170,16 +236,15 @@ def _resolve_paper(
                     return doi_map[norm_d]
             if ap_title:
                 norm_at = _normalize_title(ap_title)
-                if norm_at in title_map:
+                if norm_at not in ambiguous_titles and norm_at in title_map:
                     return title_map[norm_at]
-            if ap.get("id") and isinstance(ap["id"], int) and ap["id"] in id_map:
-                return id_map[ap["id"]]
-
-    # 7. Check if paper_key is an explicit Paper.id existing within scoped review
-    if isinstance(paper_key, int) and paper_key in id_map:
-        return id_map[paper_key]
-    if key_str.isdigit() and int(key_str) in id_map:
-        return id_map[int(key_str)]
+            if ap.get("id") is not None:
+                try:
+                    ap_id = int(ap["id"])
+                    if ap_id in id_map:
+                        return id_map[ap_id]
+                except (ValueError, TypeError):
+                    pass
 
     return None
 
@@ -203,7 +268,7 @@ def _extract_paper_sections_and_text(
                 elif (
                     isinstance(v, str)
                     and v.strip()
-                    and k not in ("arxiv_id", "title", "doi", "paper_id", "url")
+                    and k not in ("arxiv_id", "title", "doi", "pubmed_id", "paper_id", "url")
                 ):
                     sections[str(k)] = v
     elif isinstance(content, str):
@@ -230,10 +295,14 @@ async def _process_and_store_embeddings(
     stmt = select(Paper)
     if review_id is not None:
         stmt = stmt.where(Paper.review_id == review_id)
+    # Order by Paper.id deterministically to prevent locking deadlocks across concurrent runs
+    stmt = stmt.order_by(Paper.id)
     res = await db.execute(stmt)
     db_papers = list(res.scalars().all())
 
-    arxiv_map, doi_map, pubmed_map, title_map, id_map = _build_paper_index(db_papers)
+    arxiv_map, doi_map, pubmed_map, title_map, id_map, ambiguous_titles = _build_paper_index(
+        db_papers
+    )
 
     total_chunks_stored = 0
 
@@ -247,6 +316,8 @@ async def _process_and_store_embeddings(
             pubmed_map=pubmed_map,
             title_map=title_map,
             id_map=id_map,
+            ambiguous_titles=ambiguous_titles,
+            review_id=review_id,
         )
 
         if not paper:
