@@ -12,7 +12,13 @@ import logging
 from typing import Any, Dict, Optional, Tuple
 
 from app.agents.state import AgentState
-from app.services.pdf_service import download_and_extract_pdf
+from app.services.pdf_service import (
+    _is_safe_pdf_url,
+    download_and_extract_pdf,
+    resolve_biorxiv_pdf_url,
+    resolve_pubmed_pdf_url,
+    resolve_unpaywall_pdf_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,19 +34,46 @@ STANDARD_SECTIONS = (
 
 
 def _get_paper_key(paper: Dict[str, Any]) -> Optional[str]:
-    """Return the dictionary key for a paper: arxiv_id, falling back to title."""
-    return paper.get("arxiv_id") or paper.get("title")
+    """Return the deterministic cache key for a paper."""
+    if paper.get("arxiv_id"):
+        return str(paper["arxiv_id"]).strip()
+    if paper.get("pubmed_id"):
+        return f"pmid_{str(paper['pubmed_id']).strip()}"
+    if paper.get("doi"):
+        return f"doi_{str(paper['doi']).strip()}"
+    return paper.get("title")
 
 
-def _get_pdf_url(paper: Dict[str, Any]) -> str:
-    """Return the PDF URL for a paper, building an arXiv URL from arxiv_id if needed."""
+async def _get_pdf_url(paper: Dict[str, Any]) -> str:
+    """Return the PDF URL for a paper, resolving multi-source URLs if needed."""
     pdf_url = paper.get("pdf_url")
-    if pdf_url:
-        return pdf_url
+    if pdf_url and isinstance(pdf_url, str) and pdf_url.strip():
+        cand = pdf_url.strip()
+        if _is_safe_pdf_url(cand):
+            return cand
 
     arxiv_id = paper.get("arxiv_id")
     if arxiv_id:
         return f"https://arxiv.org/pdf/{arxiv_id}.pdf"
+
+    doi = paper.get("doi")
+    source = (paper.get("source") or "").lower()
+
+    if doi and (source in ("biorxiv", "medrxiv") or str(doi).strip().startswith("10.1101/")):
+        resolved_biorxiv = await resolve_biorxiv_pdf_url(str(doi))
+        if resolved_biorxiv:
+            return resolved_biorxiv
+
+    pubmed_id = paper.get("pubmed_id")
+    if pubmed_id:
+        resolved = await resolve_pubmed_pdf_url(str(pubmed_id), doi)
+        if resolved:
+            return resolved
+
+    if doi:
+        resolved_doi = await resolve_unpaywall_pdf_url(str(doi))
+        if resolved_doi:
+            return resolved_doi
 
     return ""
 
@@ -59,7 +92,7 @@ async def _extract_single_paper(
     if not paper_key:
         return None, fallback_sections
 
-    pdf_url = _get_pdf_url(paper)
+    pdf_url = await _get_pdf_url(paper)
 
     try:
         data = await download_and_extract_pdf(pdf_url, cache_key=paper_key)

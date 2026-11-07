@@ -259,3 +259,158 @@ async def test_cache_pdf_to_s3_skips_when_credentials_missing(
 
     result = await cache_pdf_to_s3(b"%PDF-1.4 dummy", cache_key="2301.12345")
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_pdf_extractor_resolves_pubmed_paper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PubMed papers with pubmed_id resolve open-access PDF URL and extract sections."""
+    from unittest.mock import AsyncMock
+
+    mock_resolve = AsyncMock(return_value="https://journals.plos.org/sample.pdf")
+    mock_download = AsyncMock(
+        return_value={
+            "raw_text": "sample raw text",
+            "sections": {
+                "abstract": "PubMed abstract.",
+                "methods": "CRISPR-Cas9 gene editing assays.",
+                "results": "High efficiency cleavage observed.",
+            },
+        }
+    )
+
+    monkeypatch.setattr(
+        "app.agents.nodes.pdf_extractor_node.resolve_pubmed_pdf_url",
+        mock_resolve,
+    )
+    monkeypatch.setattr(
+        "app.agents.nodes.pdf_extractor_node.download_and_extract_pdf",
+        mock_download,
+    )
+
+    state = {
+        "approved_papers": [
+            {
+                "pubmed_id": "42818104",
+                "doi": "10.64898/2026.09.16.752223",
+                "title": "Auto-SMART repair platform",
+                "abstract": "Fallback abstract.",
+            }
+        ]
+    }
+
+    result = await pdf_extractor_node(state)
+    mock_resolve.assert_awaited_once_with("42818104", "10.64898/2026.09.16.752223")
+    mock_download.assert_awaited_once_with(
+        "https://journals.plos.org/sample.pdf",
+        cache_key="pmid_42818104",
+    )
+
+    sections = result["extracted_pdf_contents"]["pmid_42818104"]
+    assert sections["methods"] == "CRISPR-Cas9 gene editing assays."
+    assert sections["results"] == "High efficiency cleavage observed."
+
+
+@pytest.mark.asyncio
+async def test_pdf_extractor_resolves_biorxiv_paper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """bioRxiv papers with 10.1101 DOI resolve bioRxiv stream and extract sections."""
+    from unittest.mock import AsyncMock
+
+    mock_resolve = AsyncMock(
+        return_value="https://www.biorxiv.org/content/10.1101/2020.01.31.929042.full.pdf"
+    )
+    mock_download = AsyncMock(
+        return_value={
+            "raw_text": "sample raw text",
+            "sections": {
+                "abstract": "bioRxiv preprint abstract.",
+                "methods": "Cryo-EM structure determination methods.",
+                "results": "Structure resolved at 2.8 Angstrom.",
+            },
+        }
+    )
+
+    monkeypatch.setattr(
+        "app.agents.nodes.pdf_extractor_node.resolve_biorxiv_pdf_url",
+        mock_resolve,
+    )
+    monkeypatch.setattr(
+        "app.agents.nodes.pdf_extractor_node.download_and_extract_pdf",
+        mock_download,
+    )
+
+    state = {
+        "approved_papers": [
+            {
+                "doi": "10.1101/2020.01.31.929042",
+                "source": "biorxiv",
+                "title": "Cryo-EM Structure of Spike",
+                "abstract": "Fallback abstract.",
+            }
+        ]
+    }
+
+    result = await pdf_extractor_node(state)
+    mock_resolve.assert_awaited_once_with("10.1101/2020.01.31.929042")
+    mock_download.assert_awaited_once_with(
+        "https://www.biorxiv.org/content/10.1101/2020.01.31.929042.full.pdf",
+        cache_key="doi_10.1101/2020.01.31.929042",
+    )
+
+    sections = result["extracted_pdf_contents"]["doi_10.1101/2020.01.31.929042"]
+    assert sections["methods"] == "Cryo-EM structure determination methods."
+    assert sections["results"] == "Structure resolved at 2.8 Angstrom."
+
+
+@pytest.mark.asyncio
+async def test_pdf_extractor_resolves_crossref_doi_paper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Crossref or Semantic Scholar papers with DOI resolve via Unpaywall."""
+    from unittest.mock import AsyncMock
+
+    mock_resolve = AsyncMock(return_value="https://journals.plos.org/sample.pdf")
+    mock_download = AsyncMock(
+        return_value={
+            "raw_text": "sample raw text",
+            "sections": {
+                "abstract": "Crossref PLOS abstract.",
+                "methods": "Functional connectivity analysis.",
+                "results": "Neurotraits correlated with chronic pain.",
+            },
+        }
+    )
+
+    monkeypatch.setattr(
+        "app.agents.nodes.pdf_extractor_node.resolve_unpaywall_pdf_url",
+        mock_resolve,
+    )
+    monkeypatch.setattr(
+        "app.agents.nodes.pdf_extractor_node.download_and_extract_pdf",
+        mock_download,
+    )
+
+    state = {
+        "approved_papers": [
+            {
+                "doi": "10.1371/journal.pbio.3000349",
+                "source": "crossref",
+                "title": "Neurotraits of Chronic Pain",
+                "abstract": "Fallback abstract.",
+            }
+        ]
+    }
+
+    result = await pdf_extractor_node(state)
+    mock_resolve.assert_awaited_once_with("10.1371/journal.pbio.3000349")
+    mock_download.assert_awaited_once_with(
+        "https://journals.plos.org/sample.pdf",
+        cache_key="doi_10.1371/journal.pbio.3000349",
+    )
+
+    sections = result["extracted_pdf_contents"]["doi_10.1371/journal.pbio.3000349"]
+    assert sections["methods"] == "Functional connectivity analysis."
+    assert sections["results"] == "Neurotraits correlated with chronic pain."
