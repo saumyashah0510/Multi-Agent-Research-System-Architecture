@@ -1,4 +1,4 @@
-"""Unit tests for Redis caching service (Issue BE-04)."""
+"""Unit tests for Redis caching service (Issue BE-04, BE-09)."""
 
 from unittest.mock import AsyncMock, MagicMock
 
@@ -124,3 +124,39 @@ async def test_close_redis_client(monkeypatch: pytest.MonkeyPatch):
     await redis_service.close_redis_client()
     mock_client.close.assert_called_once()
     assert redis_service.redis_client is None
+
+
+@pytest.mark.asyncio
+async def test_publish_review_event_success(monkeypatch: pytest.MonkeyPatch):
+    """Verify publish_review_event serializes data and publishes to the correct review channel."""
+    mock_client = AsyncMock()
+    mock_client.publish.return_value = 2
+    monkeypatch.setattr(redis_service, "get_redis_client", lambda: mock_client)
+
+    event_data = {"event": "node_progress", "node": "discovery", "progress": 45}
+    subscribers = await redis_service.publish_review_event(101, event_data)
+
+    assert subscribers == 2
+    mock_client.publish.assert_called_once_with(
+        "review:101:events",
+        '{"event": "node_progress", "node": "discovery", "progress": 45}',
+    )
+
+
+@pytest.mark.asyncio
+async def test_publish_review_event_serialization_error():
+    """Verify publish_review_event raises TypeError when data is not JSON serializable."""
+    non_serializable_data = {"invalid": {1, 2, 3}}
+    with pytest.raises(TypeError):
+        await redis_service.publish_review_event(101, non_serializable_data)
+
+
+@pytest.mark.asyncio
+async def test_publish_review_event_redis_error(monkeypatch: pytest.MonkeyPatch):
+    """Verify publish_review_event does not swallow Redis failures."""
+    mock_client = AsyncMock()
+    mock_client.publish.side_effect = ConnectionError("Redis server unavailable")
+    monkeypatch.setattr(redis_service, "get_redis_client", lambda: mock_client)
+
+    with pytest.raises(ConnectionError, match="Redis server unavailable"):
+        await redis_service.publish_review_event(101, {"event": "test"})
