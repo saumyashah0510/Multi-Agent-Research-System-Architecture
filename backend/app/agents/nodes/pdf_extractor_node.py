@@ -76,12 +76,22 @@ async def _extract_single_paper(
     return paper_key, sections
 
 
+MAX_CONCURRENT_PAPER_EXTRACTIONS = 5
+
+
 async def pdf_extractor_node(state: AgentState) -> Dict[str, Any]:
     """Download approved papers and extract section text into dictionary."""
 
     approved_papers = state.get("approved_papers") or []
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT_PAPER_EXTRACTIONS)
 
-    results = await asyncio.gather(*(_extract_single_paper(paper) for paper in approved_papers))
+    async def _bounded_extract(
+        paper: Dict[str, Any],
+    ) -> Tuple[Optional[str], Dict[str, str]]:
+        async with semaphore:
+            return await _extract_single_paper(paper)
+
+    results = await asyncio.gather(*(_bounded_extract(paper) for paper in approved_papers))
 
     extracted_sections: Dict[str, Any] = {}
     for paper_key, sections in results:

@@ -361,9 +361,6 @@ async def download_and_extract_pdf(
                 "sections": {},
             }
 
-        if cache_key:
-            await cache_pdf_to_s3(pdf_bytes, cache_key)
-
         raw_text = _extract_pdf_text(pdf_bytes)
 
         if not raw_text:
@@ -371,6 +368,9 @@ async def download_and_extract_pdf(
                 "raw_text": "",
                 "sections": {},
             }
+
+        if cache_key:
+            await cache_pdf_to_s3(pdf_bytes, cache_key)
 
         sections = _extract_sections(raw_text)
 
