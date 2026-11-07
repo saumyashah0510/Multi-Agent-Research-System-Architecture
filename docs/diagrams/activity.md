@@ -90,15 +90,19 @@ flowchart TD
     SaveDiscovered --> LLMScore["Evaluate query vs abstract relevance with Gemini LLM"]:::process
 
     LLMScore --> ScoreCheck{"Relevance Score >= 0.6?"}:::decision
-    ScoreCheck -->|Yes| Retain["Keep paper & attach score + reasoning"]:::process
+    ScoreCheck -->|Yes| FullTextCheck{"Full-Text Available?<br>arXiv / bioRxiv / PMC / Unpaywall"}:::decision
     ScoreCheck -->|No| Discard["Filter out off-topic paper"]:::process
 
+    FullTextCheck -->|Yes: Open PDF/HTML| Retain["Mark has_full_text = true & retain paper"]:::process
+    FullTextCheck -->|No: Paywalled Abstract Only| DiscardPaywalled["Filter out paywalled abstract<br>(Full-text strictly required)"]:::process
+
     Retain --> SortScreened["Sort screened_papers descending by relevance"]:::store
-    Discard --> CheckDone{"All candidate papers scored?"}:::decision
+    Discard --> CheckDone{"All candidate papers scored & checked?"}:::decision
+    DiscardPaywalled --> CheckDone
     SortScreened --> CheckDone
 
     CheckDone -->|No| LLMScore
-    CheckDone -->|Yes| PauseNode["Emit Checkpoint 3 & Pause Graph"]:::store
+    CheckDone -->|Yes| PauseNode["Emit Checkpoint 3 & Pause Graph at Human Checkpoint"]:::store
 ```
 
 | Element | Meaning | Code Reference |
@@ -149,7 +153,7 @@ flowchart TD
 
 ## 4. PDF Extraction & Vector RAG Indexing Activity
 
-Activity diagram covering Agent 5 (PDF download & section regex extraction), Agent 6 (500-token chunking & 384D embedding generation into `pgvector`), and Agent 7 (Gap Analysis).
+Activity diagram covering Agent 5 (multi-source PDF resolution, S3 caching & section extraction), Agent 6 (500-token chunking & 384D embedding generation into `pgvector`), and Agent 7 (Gap Analysis).
 
 ```mermaid
 flowchart TD
@@ -157,11 +161,33 @@ flowchart TD
     classDef decision fill:#4f46e5,color:#fff,stroke:#4338ca,stroke-width:2px;
     classDef db fill:#059669,color:#fff,stroke:#047857,stroke-width:2px;
 
-    Start([Agent 5 Started]) --> FetchApproved["Fetch list of approved papers"]:::db
-    FetchApproved --> DownloadPDF["Download open-access PDF binary via httpx"]:::process
-    DownloadPDF --> ParseText["Extract text pages via PyPDF"]:::process
-    ParseText --> ExtractSections["Regex match section headers: Intro, Methods, Results, Discussion"]:::process
-    ExtractSections --> SaveSections["Store section dictionary in DB paper.sections"]:::db
+    Start([Agent 5 Started]) --> FetchApproved["Fetch list of approved papers (concurrency semaphore = 5)"]:::db
+    FetchApproved --> CheckS3{"Check AWS S3 Cache for paper key?"}:::decision
+
+    CheckS3 -->|Hit: Valid Cached PDF| ExtractText["Extract text pages via PyPDF"]:::process
+    CheckS3 -->|Miss / Uncached| MultiSourceResolver{"Resolve Paper Source & Open Access URL"}:::decision
+
+    MultiSourceResolver -->|arXiv / bioRxiv| DirectStream["Construct direct preprint stream<br>arxiv.org or biorxiv.org"]:::process
+    MultiSourceResolver -->|PubMed (PMID)| PMCResolver["NCBI ID Converter: PMID -> PMCID<br>Fetch PMC open PDF stream"]:::process
+    MultiSourceResolver -->|Crossref / Semantic Scholar (DOI)| UnpaywallResolver["Query Unpaywall API<br>Locate legal open PDF repository"]:::process
+
+    DirectStream --> DownloadPDF["Download binary via httpx (SSRF Protected)"]:::process
+    PMCResolver --> DownloadPDF
+    UnpaywallResolver --> DownloadPDF
+
+    DownloadPDF --> ValidateHeader{"Valid PDF magic bytes header?"}:::decision
+    ValidateHeader -->|Yes: Valid PDF stream| ExtractText
+    ValidateHeader -->|No: Publisher HTML page| HTMLExtractor["Extract article body via HTML parser<br>Trafilatura or BeautifulSoup"]:::process
+
+    ExtractText --> ExtractSections["Regex match sections: Intro, Methods, Results, Discussion, Limitations"]:::process
+    HTMLExtractor --> ExtractSections
+
+    ExtractSections --> CheckValidExtraction{"Extraction non-empty?"}:::decision
+    CheckValidExtraction -->|Yes| CacheS3["Upload verified PDF stream to AWS S3 Cache"]:::db
+    CheckValidExtraction -->|No: Parse failure| AbstractFallback["Safe fallback to abstract"]:::process
+
+    CacheS3 --> SaveSections["Store section dictionary in DB paper.sections & state"]:::db
+    AbstractFallback --> SaveSections
 
     SaveSections --> Agent6(["Agent 6: Vector RAG Indexer"]):::process
     Agent6 --> ChunkText["Segment paper text into 500-token passages (50 overlap)"]:::process

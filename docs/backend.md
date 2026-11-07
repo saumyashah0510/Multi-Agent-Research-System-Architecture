@@ -67,15 +67,16 @@ backend/
 | Service Module | Source File | Purpose & Responsibilities | Key Functions |
 | :--- | :--- | :--- | :--- |
 | **Redis Cache & Pub/Sub** | [redis_service.py](../backend/app/services/redis_service.py) | Global async Redis client management, search query result caching with TTL (`3600s`/`86400s`), JSON serialization, and health ping checks. | `get_redis_client()`, `get_cached_query()`, `set_cached_query()`, `check_redis_connection()` |
-| **Async PDF Extractor** | [pdf_service.py](../backend/app/services/pdf_service.py) | Asynchronous HTTP PDF binary download via `httpx`, multi-page text extraction via `PyPDF`, regex normalization, and section parsing (`Abstract`, `Methods`, `Results`, `Limitations`). | `download_and_extract_pdf()`, `_download_pdf()`, `_extract_pdf_text()`, `_extract_sections()` |
+| **Async PDF Extractor & Multi-Source Resolver** | [pdf_service.py](../backend/app/services/pdf_service.py) | Multi-source open-access PDF resolution (arXiv, bioRxiv, PubMed Central, Unpaywall, and HTML fallback), AWS S3 read-caching & write-caching, magic bytes validation, section parsing (`Abstract`, `Methods`, `Results`, `Limitations`), and SSRF protection. | `download_and_extract_pdf()`, `get_pdf_from_s3()`, `cache_pdf_to_s3()`, `_download_pdf()`, `_extract_pdf_text()`, `_extract_sections()` |
 | **Multi-Source Academic Search** | [search_service.py](../backend/app/services/search_service.py) | Concurrent paper discovery across ArXiv, PubMed, Semantic Scholar, and Crossref with exponential backoff retry for 429 rate limits and XML parsing. | `search_academic_papers()`, `_search_arxiv()`, `_search_pubmed()`, `_search_semantic_scholar()`, `_search_crossref()` |
 | **Vector RAG & Embeddings** | [vector_service.py](../backend/app/services/vector_service.py) | Text passage chunking (500 tokens, 50 overlap), local 384D embedding generation (`all-MiniLM-L6-v2`), `paper_chunks` storage, and `pgvector` similarity search. | `generate_embedding()`, `chunk_text()`, `store_paper_chunks()`, `similarity_search()` |
 
 ### Service Architecture Details
 
 - **Redis Caching**: Caches raw API queries using SHA keys with a default TTL of 3600 seconds to prevent redundant academic API requests.
-- **HTTP PDF Parser**: Fetches open-access PDF streams, parses text into section buffers, and normalizes headings using regex alias matching.
-- **Search Aggregator**: Executes parallel `asyncio.gather` requests across 4 academic APIs and caches consolidated responses in Redis.
+- **Universal Multi-Source PDF Resolver**: Resolves full-text streams via PMC ID conversion (PubMed), Unpaywall API (Crossref, Semantic Scholar), and direct preprint URLs (arXiv, bioRxiv), with HTML article body fallback.
+- **Two-Way AWS S3 PDF Caching**: Checks AWS S3 (`papers/{key}.pdf`) before issuing network downloads to conserve bandwidth and prevent rate limiting, and uploads valid PDFs post-extraction.
+- **Search Aggregator**: Executes parallel `asyncio.gather` requests across academic APIs and caches consolidated responses in Redis.
 - **Vector Store**: Handles passage chunking, embedding calculation, and executing SQL `cosine_distance` queries over `paper_chunks`.
 
 ---

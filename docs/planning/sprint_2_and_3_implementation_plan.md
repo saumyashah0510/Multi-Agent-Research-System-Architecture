@@ -36,32 +36,34 @@ flowchart TD
         Deduplicate --> SearchState[Update state: discovered_papers]:::dbNode
     end
 
-    subgraph Agent_03 ["🤖 Agent 3: Screening & Relevance Filter Agent"]
+    subgraph Agent_03 ["🤖 Agent 3: Screening & Full-Text Gatekeeper Agent"]
         SearchState --> EvaluateAbstracts[Evaluate query vs abstract relevance with Gemini LLM]:::agentNode
         EvaluateAbstracts --> ScreenFilter{Relevance Score >= 0.6?}:::decisionNode
-        ScreenFilter -->|Yes| RetainPaper[Keep paper & attach relevance score + reasoning]:::agentNode
+        ScreenFilter -->|Yes| VerifyFullText{Full-Text Available?<br>arXiv/bioRxiv/PMC/Unpaywall}:::decisionNode
         ScreenFilter -->|No| DiscardPaper[Filter out off-topic paper]:::agentNode
+        VerifyFullText -->|Yes: Open Access| RetainPaper[Retain paper with guaranteed full text]:::agentNode
+        VerifyFullText -->|No: Paywalled Only| DiscardPaywalled[Filter out paywalled abstract]:::agentNode
         RetainPaper --> ScreenState[Update state: screened_papers sorted by score]:::dbNode
     end
 
     ScreenState --> HumanPause
 
     subgraph Agent_04 ["👤 Agent 4: Human-in-the-Loop Approval Interrupt Node"]
-        HumanPause[PAUSE PIPELINE: Display Screened Papers Grid on /research]:::humanNode --> UserReview[User inspects abstracts & selects approved papers]:::humanNode
-        UserReview --> UserDecision{User UI Action?}:::decisionNode
+        HumanPause["PAUSE PIPELINE: Display Screened Papers Grid on /research"]:::humanNode --> UserReview["User inspects abstracts & selects approved papers"]:::humanNode
+        UserReview --> UserDecision{"User UI Action?"}:::decisionNode
     end
 
-    UserDecision -->|Clicks 'Find More Papers'| RouteMore[Set state user_decision = 'find_more']:::dbNode
+    UserDecision -->|Clicks 'Find More Papers'| RouteMore["Set state user_decision = 'find_more'"]:::dbNode
     RouteMore -->|Conditional Edge Loop Back| ClassifyDomain
 
-    UserDecision -->|Clicks 'Approve & Continue'| RouteApprove[Set state user_decision = 'continue' & approved_papers]:::dbNode
-    RouteApprove --> RedirectReview[POST /api/v1/reviews/approve -> Instant Redirect to /reviews/id]:::startEnd
+    UserDecision -->|Clicks 'Approve & Continue'| RouteApprove["Set state user_decision = 'continue' & approved_papers"]:::dbNode
+    RouteApprove --> RedirectReview["POST /api/v1/reviews/approve -> Instant Redirect to /reviews/id"]:::startEnd
 
     RedirectReview --> PDFDownload
 
-    subgraph Agent_05 ["🤖 Agent 5: Full-Text PDF Downloader & Extractor"]
-        PDFDownload[Download open-access PDFs to AWS S3 bucket]:::agentNode --> ExtractSections[Parse PDF text into sections: Intro, Methods, Results, Discussion, Limitations]:::agentNode
-        ExtractSections --> PDFState[Update state: extracted_pdf_contents & DB paper.sections]:::dbNode
+    subgraph Agent_05 ["🤖 Agent 5: Multi-Source PDF & Full-Text Extractor"]
+        PDFDownload["Multi-source resolution via arXiv, bioRxiv, PMC, Unpaywall & S3 cache"]:::agentNode --> ExtractSections["Parse PDF/HTML into sections: Intro, Methods, Results, Discussion, Limitations"]:::agentNode
+        ExtractSections --> PDFState["Upload verified PDF to S3 & update state: extracted_pdf_contents"]:::dbNode
     end
 
     subgraph Agent_06 ["🤖 Agent 6: Vector Chunking & pgvector RAG Embedding Agent"]

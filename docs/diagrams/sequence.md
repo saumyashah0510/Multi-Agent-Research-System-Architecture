@@ -102,10 +102,11 @@ sequenceDiagram
     end
     AG->>Redis: Publish review:101:events (Checkpoint 2)
     AG->>AG: Agent 3: Score abstracts with Gemini LLM (score >= 0.6)
+    AG->>AG: Agent 3: Verify full-text availability (filter paywalled abstracts)
     AG->>DB: INSERT into review_logs (Checkpoint 3 completed)
     AG->>Redis: Publish review:101:events (Checkpoint 3)
     AG->>AG: Pause graph at Checkpoint 4 (Human Interrupt)
-    FE-->>User: Render Paper Approval Grid with screened papers
+    FE-->>User: Render Paper Approval Grid with guaranteed full-text candidate papers
     deactivate FE
 ```
 
@@ -188,7 +189,8 @@ sequenceDiagram
     activate Redis
     WS-->>FE: Connection Established (TCP Stream Active)
 
-    AG->>AG: Agent 5: Download PDFs & parse sections
+    AG->>AG: Agent 5: S3 read check / Multi-source PDF resolution (arXiv, PMC, bioRxiv, Unpaywall)
+    AG->>AG: Agent 5: Parse sections & cache valid PDF stream to AWS S3
     AG->>Redis: PUBLISH review:101:events {event: "checkpoint_update", step: 5}
     Redis-->>WS: Push real-time event frame
     WS-->>FE: WS Message frame (Step 5 PDF Extractor Completed)
@@ -261,7 +263,7 @@ sequenceDiagram
     activate DB
     DB-->>API: Approved paper section dictionary JSON
     deactivate DB
-    API-->>FE: HTTP 200 OK {sections: {Methods: "...", Results: "...", Limitations: "..."}}
+    API-->>FE: HTTP 200 OK with parsed sections payload (Methods, Results, Limitations)
     deactivate API
     FE-->>User: Open PDF Sections Modal with collapsible section tabs
     deactivate FE
@@ -308,7 +310,7 @@ sequenceDiagram
     activate DB
     DB-->>API: Full literature review record with synthesized_review JSON
     deactivate DB
-    API-->>FE: HTTP 200 OK {id: 101, user_query: "...", synthesized_review: {...}}
+    API-->>FE: HTTP 200 OK with review payload and synthesized_review JSON
     deactivate API
     FE-->>User: Render Detailed Review Dashboard on /reviews/101
     deactivate FE
