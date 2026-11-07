@@ -1,6 +1,8 @@
 """Tests for the PDF downloader and text extraction service."""
 
 import io
+import logging
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -190,3 +192,55 @@ async def test_download_and_extract_pdf_blocks_ssrf_url() -> None:
         "raw_text": "",
         "sections": {},
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cached_bytes", [b"%PDF-1.4 corrupt", b"", None])
+async def test_unusable_cached_pdf_falls_back_to_download(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    cached_bytes: bytes | None,
+) -> None:
+    """A corrupt or missing cached PDF is replaced by a downloaded PDF."""
+    pdf_bytes = create_test_pdf()
+    download = AsyncMock(return_value=pdf_bytes)
+    upload = AsyncMock(return_value=None)
+    monkeypatch.setattr(
+        "app.services.pdf_service.get_pdf_from_s3", AsyncMock(return_value=cached_bytes)
+    )
+    monkeypatch.setattr("app.services.pdf_service._download_pdf", download)
+    monkeypatch.setattr("app.services.pdf_service.cache_pdf_to_s3", upload)
+
+    with caplog.at_level(logging.INFO, logger="app.services.pdf_service"):
+        result = await download_and_extract_pdf("https://example.com/paper.pdf", cache_key="paper")
+
+    download.assert_awaited_once_with("https://example.com/paper.pdf")
+    upload.assert_awaited_once_with(pdf_bytes, "paper")
+    assert result["sections"]["abstract"] == "This is the abstract of the paper."
+    assert "Skipping network download" not in caplog.text
+    if cached_bytes:
+        assert "Cached PDF extraction failed for 'paper'" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_valid_cached_pdf_skips_download(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Successful cached extraction preserves the cache hit result."""
+    pdf_bytes = create_test_pdf()
+    download = AsyncMock()
+    upload = AsyncMock()
+    monkeypatch.setattr(
+        "app.services.pdf_service.get_pdf_from_s3", AsyncMock(return_value=pdf_bytes)
+    )
+    monkeypatch.setattr("app.services.pdf_service._download_pdf", download)
+    monkeypatch.setattr("app.services.pdf_service.cache_pdf_to_s3", upload)
+
+    result = await download_and_extract_pdf("https://example.com/paper.pdf", cache_key="paper")
+
+    assert result == {
+        "raw_text": _extract_pdf_text(pdf_bytes),
+        "sections": _extract_sections(_extract_pdf_text(pdf_bytes)),
+    }
+    download.assert_not_awaited()
+    upload.assert_not_awaited()

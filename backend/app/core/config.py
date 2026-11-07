@@ -40,6 +40,13 @@ class Settings(BaseSettings):
     LANGCHAIN_PROJECT: str = os.getenv("LANGCHAIN_PROJECT", "multi-agent-literature-review")
     LANGCHAIN_ENDPOINT: str = os.getenv("LANGCHAIN_ENDPOINT", "https://api.smith.langchain.com")
 
+    # AWS S3 PDF Storage
+    AWS_ACCESS_KEY_ID: str = os.getenv("AWS_ACCESS_KEY_ID", "")
+    AWS_SECRET_ACCESS_KEY: str = os.getenv("AWS_SECRET_ACCESS_KEY", "")
+    AWS_SESSION_TOKEN: str = os.getenv("AWS_SESSION_TOKEN", "")
+    AWS_REGION: str = os.getenv("AWS_REGION", "ap-south-1")
+    AWS_S3_BUCKET: str = os.getenv("AWS_S3_BUCKET", "multi-agent-research-pdf-bucket")
+
     @property
     def gemini_model_candidates(self) -> list[str]:
         """Return ordered list of Gemini models: primary first, followed by fallbacks."""
