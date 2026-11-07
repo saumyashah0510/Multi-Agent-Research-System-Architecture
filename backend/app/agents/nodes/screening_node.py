@@ -9,6 +9,7 @@ from app.agents.state import AgentState
 from app.core.config import settings
 from app.schemas.agent_outputs import ScreeningOutput
 from app.services.pdf_service import (
+    _is_safe_pdf_url,
     resolve_biorxiv_pdf_url,
     resolve_pubmed_pdf_url,
     resolve_unpaywall_pdf_url,
@@ -41,7 +42,7 @@ async def verify_paper_full_text(paper: Dict[str, Any]) -> Optional[str]:
     pdf_url = paper.get("pdf_url")
     if pdf_url and isinstance(pdf_url, str) and pdf_url.strip():
         url = pdf_url.strip()
-        if "pmc.ncbi.nlm.nih.gov" not in url:
+        if _is_safe_pdf_url(url):
             return url
 
     arxiv_id = paper.get("arxiv_id")

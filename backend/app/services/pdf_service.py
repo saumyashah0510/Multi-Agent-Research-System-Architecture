@@ -290,23 +290,33 @@ def _is_safe_pdf_url(url: Optional[str]) -> bool:
 
 
 async def _download_pdf(pdf_url: str) -> bytes:
-    """Download PDF bytes asynchronously after enforcing SSRF URL safety."""
-    safe_url = enforce_pdf_url_safety(pdf_url)
+    """Download PDF bytes asynchronously after enforcing SSRF URL safety on every redirect hop."""
+    current_url = enforce_pdf_url_safety(pdf_url)
+    max_hops = 5
 
-    async with httpx.AsyncClient(
-        timeout=REQUEST_TIMEOUT,
-        follow_redirects=True,
-    ) as client:
-        response = await client.get(safe_url, headers=DEFAULT_BROWSER_HEADERS)
-        response.raise_for_status()
-
-        return response.content
+    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+        for _ in range(max_hops):
+            response = await client.get(
+                current_url,
+                headers=DEFAULT_BROWSER_HEADERS,
+                follow_redirects=False,
+            )
+            if response.is_redirect:
+                location = response.headers.get("Location")
+                if not location:
+                    response.raise_for_status()
+                next_url = str(response.url.join(location))
+                current_url = enforce_pdf_url_safety(next_url)
+                continue
+            response.raise_for_status()
+            return response.content
+        raise ValueError(f"Too many redirects downloading PDF from {pdf_url}")
 
 
 def _get_s3_key(cache_key: str) -> str:
     """Return the deterministic S3 key for a given cache_key."""
     if re.match(r"^\d{4}\.\d{4,5}(v\d+)?$", cache_key):
-        return f"{S3_PREFIX}{cache_key}.pdf"
+        return f"{S3_PREFIX}arxiv/{cache_key}.pdf"
     if cache_key.startswith("pmid_") or cache_key.startswith("pubmed_"):
         clean_pmid = re.sub(r"[^A-Za-z0-9._-]", "_", cache_key)
         return f"{S3_PREFIX}pubmed/{clean_pmid}.pdf"
@@ -497,7 +507,10 @@ async def get_pdf_from_s3(cache_key: str) -> Optional[bytes]:
     if not cache_key or not access_key or not secret_key:
         return None
 
-    s3_key = _get_s3_key(cache_key)
+    primary_key = _get_s3_key(cache_key)
+    legacy_key = (
+        f"{S3_PREFIX}{cache_key}.pdf" if re.match(r"^\d{4}\.\d{4,5}(v\d+)?$", cache_key) else None
+    )
 
     def _fetch() -> Optional[bytes]:
         import boto3
@@ -519,19 +532,25 @@ async def get_pdf_from_s3(cache_key: str) -> Optional[bytes]:
             client_kwargs["aws_session_token"] = settings.AWS_SESSION_TOKEN
 
         client = boto3.client("s3", **client_kwargs)
-        try:
-            response = client.get_object(
-                Bucket=settings.AWS_S3_BUCKET,
-                Key=s3_key,
-            )
-            body = response["Body"].read()
-            if body and body.startswith(b"%PDF"):
-                return body
-        except ClientError:
-            return None
-        except Exception as exc:  # noqa: BLE001 - cache read failure falls back to download
-            logger.debug("S3 fetch failed for key '%s': %s", s3_key, exc)
-            return None
+
+        keys_to_try = [primary_key]
+        if legacy_key:
+            keys_to_try.append(legacy_key)
+
+        for s3_key in keys_to_try:
+            try:
+                response = client.get_object(
+                    Bucket=settings.AWS_S3_BUCKET,
+                    Key=s3_key,
+                )
+                body = response["Body"].read()
+                if body and body.startswith(b"%PDF"):
+                    return body
+            except ClientError:
+                continue
+            except Exception as exc:  # noqa: BLE001 - cache read failure falls back to download
+                logger.debug("S3 fetch failed for key '%s': %s", s3_key, exc)
+                continue
         return None
 
     try:

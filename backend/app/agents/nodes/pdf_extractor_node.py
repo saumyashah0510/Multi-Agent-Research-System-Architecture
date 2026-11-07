@@ -13,6 +13,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from app.agents.state import AgentState
 from app.services.pdf_service import (
+    _is_safe_pdf_url,
     download_and_extract_pdf,
     resolve_biorxiv_pdf_url,
     resolve_pubmed_pdf_url,
@@ -46,8 +47,10 @@ def _get_paper_key(paper: Dict[str, Any]) -> Optional[str]:
 async def _get_pdf_url(paper: Dict[str, Any]) -> str:
     """Return the PDF URL for a paper, resolving multi-source URLs if needed."""
     pdf_url = paper.get("pdf_url")
-    if pdf_url and "pmc.ncbi.nlm.nih.gov" not in pdf_url:
-        return pdf_url
+    if pdf_url and isinstance(pdf_url, str) and pdf_url.strip():
+        cand = pdf_url.strip()
+        if _is_safe_pdf_url(cand):
+            return cand
 
     arxiv_id = paper.get("arxiv_id")
     if arxiv_id:

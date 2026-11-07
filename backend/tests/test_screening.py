@@ -102,6 +102,21 @@ async def test_verify_paper_full_text_direct_pdf_url():
 
 
 @pytest.mark.asyncio
+async def test_verify_paper_full_text_unsafe_direct_pdf_url_rejected():
+    """Unsafe direct PDF URL (e.g. cloud metadata or PMC) should not pass verification."""
+    paper_ssrf = {"title": "SSRF Paper", "pdf_url": "http://169.254.169.254/latest/meta-data"}
+    url_ssrf = await verify_paper_full_text(paper_ssrf)
+    assert not url_ssrf
+
+    paper_pmc = {
+        "title": "PMC Paper",
+        "pdf_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC123/pdf/main.pdf",
+    }
+    url_pmc = await verify_paper_full_text(paper_pmc)
+    assert not url_pmc
+
+
+@pytest.mark.asyncio
 async def test_verify_paper_full_text_arxiv():
     """Paper with arxiv_id should construct arxiv PDF link."""
     paper = {"title": "ArXiv Paper", "arxiv_id": "2401.12345"}

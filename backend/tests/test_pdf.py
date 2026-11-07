@@ -268,7 +268,7 @@ def test_get_s3_key_formatting() -> None:
     """Test S3 key generation for arXiv, PubMed, DOI, and titles."""
     from app.services.pdf_service import _get_s3_key
 
-    assert _get_s3_key("2305.18290") == "papers/2305.18290.pdf"
+    assert _get_s3_key("2305.18290") == "papers/arxiv/2305.18290.pdf"
     assert _get_s3_key("pmid_42818104") == "papers/pubmed/pmid_42818104.pdf"
     assert _get_s3_key("pubmed_42818104") == "papers/pubmed/pubmed_42818104.pdf"
     assert _get_s3_key("doi_10.1038/s41586-021") == "papers/dois/10.1038_s41586-021.pdf"
@@ -494,6 +494,7 @@ async def test_download_and_extract_pdf_html_article_fallback(monkeypatch) -> No
     mock_resp.status_code = 200
     mock_resp.content = html_content
     mock_resp.headers = {"content-type": "text/html; charset=utf-8"}
+    mock_resp.is_redirect = False
     mock_resp.raise_for_status = MagicMock()
 
     mock_client = AsyncMock()
@@ -506,3 +507,26 @@ async def test_download_and_extract_pdf_html_article_fallback(monkeypatch) -> No
     result = await download_and_extract_pdf("https://example.org/article-html")
     assert result["sections"]["abstract"] == "HTML abstract content."
     assert result["sections"]["methods"] == "HTML methods content."
+
+
+@pytest.mark.asyncio
+async def test_download_pdf_redirect_ssrf_blocked(monkeypatch) -> None:
+    """Verify that a redirect hop pointing to a private/internal IP is blocked by SSRF check."""
+    from unittest.mock import MagicMock
+
+    from app.services.pdf_service import _download_pdf
+
+    redirect_resp = MagicMock()
+    redirect_resp.is_redirect = True
+    redirect_resp.headers = {"Location": "http://169.254.169.254/latest/meta-data/"}
+    redirect_resp.url = httpx.URL("https://open-journal.org/paper.pdf")
+
+    mock_client = AsyncMock()
+    mock_client.get.return_value = redirect_resp
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.__aexit__.return_value = None
+
+    monkeypatch.setattr("httpx.AsyncClient", lambda **kwargs: mock_client)
+
+    with pytest.raises(ValueError, match="SSRF Protection Error"):
+        await _download_pdf("https://open-journal.org/paper.pdf")
