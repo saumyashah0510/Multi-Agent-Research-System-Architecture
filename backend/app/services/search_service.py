@@ -375,7 +375,11 @@ async def search_academic_papers(
     if cached_results is not None:
         return cached_results
 
-    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=True) as client:
+    async with httpx.AsyncClient(
+        timeout=REQUEST_TIMEOUT,
+        follow_redirects=True,
+        max_redirects=5,
+    ) as client:
         tasks = []
 
         if "arxiv" in sources:

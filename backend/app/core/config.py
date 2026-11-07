@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     AWS_ACCESS_KEY_ID: str = os.getenv("AWS_ACCESS_KEY_ID", "")
     AWS_SECRET_ACCESS_KEY: str = os.getenv("AWS_SECRET_ACCESS_KEY", "")
     AWS_SESSION_TOKEN: str = os.getenv("AWS_SESSION_TOKEN", "")
-    AWS_REGION: str = os.getenv("AWS_REGION", "us-east-1")
+    AWS_REGION: str = os.getenv("AWS_REGION", "ap-south-1")
     AWS_S3_BUCKET: str = os.getenv("AWS_S3_BUCKET", "multi-agent-research-pdf-bucket")
 
     @property

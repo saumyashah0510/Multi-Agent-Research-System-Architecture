@@ -160,14 +160,102 @@ async def test_pdf_extractor_preserves_full_sections_on_duplicate_key(
 async def test_download_and_extract_pdf_rejects_html_content(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """If a publisher returns HTML instead of PDF, reject and return empty sections."""
+    """If a publisher returns HTML instead of PDF, reject, skip S3 cache, and return empty sections."""
     from app.services.pdf_service import download_and_extract_pdf
 
     async def mock_download_pdf(url: str) -> bytes:
         return b"<!DOCTYPE html><html><body>Error or Landing Page</body></html>"
 
+    cache_calls = []
+
+    async def mock_cache_to_s3(pdf_bytes: bytes, cache_key: str) -> Optional[str]:
+        cache_calls.append(cache_key)
+        return f"s3://bucket/{cache_key}"
+
     monkeypatch.setattr("app.services.pdf_service._download_pdf", mock_download_pdf)
+    monkeypatch.setattr("app.services.pdf_service.cache_pdf_to_s3", mock_cache_to_s3)
 
     res = await download_and_extract_pdf("https://example.com/paper.pdf", cache_key="1234.5678")
     assert res["raw_text"] == ""
     assert res["sections"] == {}
+    assert len(cache_calls) == 0  # S3 cache must never be called for HTML content
+
+
+@pytest.mark.asyncio
+async def test_download_and_extract_pdf_s3_cache_hit_skips_download(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If paper exists in S3, read from S3 and skip network download."""
+    from app.services.pdf_service import download_and_extract_pdf
+
+    download_called = False
+
+    async def mock_download_pdf(url: str) -> bytes:
+        nonlocal download_called
+        download_called = True
+        return b"%PDF-1.4 network content"
+
+    async def mock_get_from_s3(cache_key: str) -> Optional[bytes]:
+        return b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< >>\n%%EOF"
+
+    monkeypatch.setattr("app.services.pdf_service.get_pdf_from_s3", mock_get_from_s3)
+    monkeypatch.setattr("app.services.pdf_service._download_pdf", mock_download_pdf)
+    monkeypatch.setattr(
+        "app.services.pdf_service._extract_pdf_text",
+        lambda b: "Abstract\nCached abstract text in S3.",
+    )
+
+    res = await download_and_extract_pdf(
+        "https://arxiv.org/pdf/2301.12345.pdf", cache_key="2301.12345"
+    )
+    assert not download_called  # Network download was bypassed!
+    assert "abstract" in res["sections"]
+
+
+@pytest.mark.asyncio
+async def test_download_and_extract_pdf_s3_cache_miss_downloads_and_caches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If paper is not in S3, download via network and upload to S3."""
+    from app.services.pdf_service import download_and_extract_pdf
+
+    cached_keys = []
+
+    async def mock_get_from_s3(cache_key: str) -> Optional[bytes]:
+        return None  # Cache miss
+
+    async def mock_download_pdf(url: str) -> bytes:
+        return b"%PDF-1.4 raw binary pdf bytes"
+
+    async def mock_cache_to_s3(pdf_bytes: bytes, cache_key: str) -> Optional[str]:
+        cached_keys.append(cache_key)
+        return f"s3://bucket/papers/{cache_key}.pdf"
+
+    monkeypatch.setattr("app.services.pdf_service.get_pdf_from_s3", mock_get_from_s3)
+    monkeypatch.setattr("app.services.pdf_service._download_pdf", mock_download_pdf)
+    monkeypatch.setattr("app.services.pdf_service.cache_pdf_to_s3", mock_cache_to_s3)
+    monkeypatch.setattr(
+        "app.services.pdf_service._extract_pdf_text",
+        lambda b: "Methods\nExtracted methods content.",
+    )
+
+    res = await download_and_extract_pdf(
+        "https://arxiv.org/pdf/2301.12345.pdf", cache_key="2301.12345"
+    )
+    assert "2301.12345" in cached_keys
+    assert "methods" in res["sections"]
+
+
+@pytest.mark.asyncio
+async def test_cache_pdf_to_s3_skips_when_credentials_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When AWS credentials are unset, cache_pdf_to_s3 returns None without errors."""
+    from app.core.config import settings
+    from app.services.pdf_service import cache_pdf_to_s3
+
+    monkeypatch.setattr(settings, "AWS_ACCESS_KEY_ID", "")
+    monkeypatch.setattr(settings, "AWS_SECRET_ACCESS_KEY", "")
+
+    result = await cache_pdf_to_s3(b"%PDF-1.4 dummy", cache_key="2301.12345")
+    assert result is None
