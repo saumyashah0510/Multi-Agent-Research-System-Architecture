@@ -95,16 +95,26 @@ def _normalize_heading(text: str) -> str:
     return text.strip().lower()
 
 
-def _detect_section_heading(line: str) -> str | None:
-    """Return the canonical section name for a recognized heading."""
+def _detect_section_heading(line: str) -> tuple[Optional[str], str]:
+    """Return (canonical_section_name, trailing_content) for a recognized heading.
 
+    Supports standalone headings (e.g. 'Methods') as well as inline headings
+    with a colon or dash (e.g. 'Abstract: The emergence of...').
+    """
     normalized = _normalize_heading(line)
 
     for section_name, aliases in SECTION_ALIASES.items():
         if normalized in aliases:
-            return section_name
+            return section_name, ""
 
-    return None
+    match = re.match(r"^(\d+(?:\.\d+)*[\s.)-]*)?([a-zA-Z &]{3,30})[:\-]\s*(.*)$", line)
+    if match:
+        norm_prefix = _normalize_heading(match.group(2))
+        for section_name, aliases in SECTION_ALIASES.items():
+            if norm_prefix in aliases:
+                return section_name, match.group(3).strip()
+
+    return None, ""
 
 
 def _extract_sections(raw_text: str) -> Dict[str, str]:
@@ -135,13 +145,13 @@ def _extract_sections(raw_text: str) -> Dict[str, str]:
                 current_lines.append("")
             continue
 
-        detected_section = _detect_section_heading(stripped_line)
+        detected_section, trailing_text = _detect_section_heading(stripped_line)
 
         if detected_section is not None:
             save_current_section()
 
             current_section = detected_section
-            current_lines = []
+            current_lines = [trailing_text] if trailing_text else []
             continue
 
         if current_section is not None:
@@ -268,6 +278,59 @@ async def resolve_pubmed_pdf_url(
                             return repo_pdf
             except Exception as exc:  # noqa: BLE001
                 logger.debug("Unpaywall DOI resolution failed for %s: %s", clean_doi, exc)
+
+    return None
+
+
+async def resolve_biorxiv_pdf_url(doi: str) -> Optional[str]:
+    """Resolve an open-access full-text PDF URL for a bioRxiv preprint.
+
+    Tries the direct Cold Spring Harbor canonical stream first, then falls back
+    to OpenAlex and Unpaywall repository locations if direct access is restricted.
+    """
+    if not doi or not doi.strip():
+        return None
+
+    clean_doi = doi.strip()
+    if clean_doi.startswith("https://doi.org/"):
+        clean_doi = clean_doi.replace("https://doi.org/", "")
+    elif clean_doi.startswith("http://doi.org/"):
+        clean_doi = clean_doi.replace("http://doi.org/", "")
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)"
+        )
+    }
+
+    # 1. Direct bioRxiv preprint stream
+    direct_url = f"https://www.biorxiv.org/content/{clean_doi}.full.pdf"
+    try:
+        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=True) as client:
+            resp = await client.head(direct_url, headers=headers)
+            content_type = resp.headers.get("content-type", "").lower()
+            if resp.status_code == 200 and (
+                "pdf" in content_type or resp.headers.get("content-length")
+            ):
+                return direct_url
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Direct bioRxiv HEAD check failed for %s: %s", clean_doi, exc)
+
+    # 2. Fallback to OpenAlex / Unpaywall repository mirror
+    try:
+        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=True) as client:
+            unpaywall_url = (
+                f"https://api.unpaywall.org/v2/{clean_doi}?email=team_review@daiict.ac.in"
+            )
+            resp = await client.get(unpaywall_url)
+            if resp.status_code == 200:
+                data = resp.json()
+                for loc in data.get("oa_locations", []):
+                    pdf_cand = loc.get("url_for_pdf")
+                    if pdf_cand and isinstance(pdf_cand, str) and pdf_cand.startswith("https://"):
+                        return pdf_cand
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("bioRxiv mirror fallback failed for %s: %s", clean_doi, exc)
 
     return None
 

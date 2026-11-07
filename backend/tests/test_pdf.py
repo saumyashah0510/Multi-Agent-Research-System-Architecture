@@ -104,6 +104,24 @@ def test_extract_sections_with_numbered_headings() -> None:
     assert sections["conclusion"] == "Conclusion content."
 
 
+def test_extract_sections_with_inline_headings() -> None:
+    """Test section detection with inline colon/dash headings."""
+    text = """
+    Abstract: The emergence of novel architectures in transformers.
+    Second line of abstract.
+
+    1. Introduction - Here we formulate the research question.
+    More intro text.
+
+    Methods: We executed benchmarks on GPU clusters.
+    """
+    sections = _extract_sections(text)
+
+    assert "The emergence of novel architectures" in sections["abstract"]
+    assert "Here we formulate the research question." in sections["introduction"]
+    assert "We executed benchmarks on GPU clusters." in sections["methods"]
+
+
 def test_extract_pdf_text() -> None:
     """Test PDF page text extraction."""
 
@@ -306,3 +324,36 @@ async def test_resolve_pubmed_pdf_url_paywalled_returns_none(
 
     url = await resolve_pubmed_pdf_url("35000000", doi=None)
     assert url is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_biorxiv_pdf_url_direct_stream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test successful bioRxiv resolution via direct HEAD check."""
+    from unittest.mock import MagicMock
+
+    from app.services.pdf_service import resolve_biorxiv_pdf_url
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.headers = {"content-type": "application/pdf"}
+
+    mock_client = AsyncMock()
+    mock_client.head = AsyncMock(return_value=mock_resp)
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.__aexit__.return_value = None
+
+    monkeypatch.setattr("httpx.AsyncClient", lambda **kwargs: mock_client)
+
+    url = await resolve_biorxiv_pdf_url("10.1101/2020.01.31.929042")
+    assert url == "https://www.biorxiv.org/content/10.1101/2020.01.31.929042.full.pdf"
+
+
+@pytest.mark.asyncio
+async def test_resolve_biorxiv_pdf_url_empty_returns_none() -> None:
+    """Empty or None DOI returns None immediately."""
+    from app.services.pdf_service import resolve_biorxiv_pdf_url
+
+    assert await resolve_biorxiv_pdf_url("") is None
+    assert await resolve_biorxiv_pdf_url("   ") is None

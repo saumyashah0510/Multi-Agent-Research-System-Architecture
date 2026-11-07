@@ -12,7 +12,11 @@ import logging
 from typing import Any, Dict, Optional, Tuple
 
 from app.agents.state import AgentState
-from app.services.pdf_service import download_and_extract_pdf, resolve_pubmed_pdf_url
+from app.services.pdf_service import (
+    download_and_extract_pdf,
+    resolve_biorxiv_pdf_url,
+    resolve_pubmed_pdf_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,9 +52,17 @@ async def _get_pdf_url(paper: Dict[str, Any]) -> str:
     if arxiv_id:
         return f"https://arxiv.org/pdf/{arxiv_id}.pdf"
 
+    doi = paper.get("doi")
+    source = (paper.get("source") or "").lower()
+
+    if doi and (source in ("biorxiv", "medrxiv") or str(doi).strip().startswith("10.1101/")):
+        resolved_biorxiv = await resolve_biorxiv_pdf_url(str(doi))
+        if resolved_biorxiv:
+            return resolved_biorxiv
+
     pubmed_id = paper.get("pubmed_id")
     if pubmed_id:
-        resolved = await resolve_pubmed_pdf_url(str(pubmed_id), paper.get("doi"))
+        resolved = await resolve_pubmed_pdf_url(str(pubmed_id), doi)
         if resolved:
             return resolved
 
