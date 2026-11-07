@@ -15,6 +15,7 @@ from sqlalchemy import text
 import app.models  # noqa: F401
 from app.api.v1.health import router as health_router
 from app.api.v1.reviews import router as reviews_router
+from app.api.v1.ws import router as ws_router
 from app.core.config import settings
 from app.db.base import Base
 from app.db.session import engine
@@ -53,7 +54,4 @@ app.add_middleware(
 
 app.include_router(health_router, prefix=settings.API_V1_STR, tags=["health"])
 app.include_router(reviews_router, prefix=f"{settings.API_V1_STR}/reviews", tags=["reviews"])
-
-# TODO (Assignee - BE-09): Mount WebSocket router for real-time progress streaming:
-# from app.api.v1.ws import router as ws_router
-# app.include_router(ws_router, prefix=f"{settings.API_V1_STR}/ws", tags=["websocket"])
+app.include_router(ws_router, prefix=f"{settings.API_V1_STR}/ws", tags=["websocket"])
