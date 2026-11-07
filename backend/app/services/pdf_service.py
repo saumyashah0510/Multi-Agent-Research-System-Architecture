@@ -4,6 +4,7 @@ import asyncio
 import io
 import logging
 import re
+from html.parser import HTMLParser
 from typing import Any, Dict, Optional
 
 import httpx
@@ -176,6 +177,74 @@ def _extract_pdf_text(pdf_bytes: bytes) -> str:
             page_texts.append(text.strip())
 
     return "\n\n".join(page_texts).strip()
+
+
+class _ArticleHTMLParser(HTMLParser):
+    """Secure, zero-dependency HTML parser for Open Access article bodies."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._pieces: list[str] = []
+        self._ignore_stack: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, Optional[str]]]) -> None:
+        tag_lower = tag.lower()
+        if tag_lower in ("script", "style", "nav", "header", "footer", "aside", "noscript"):
+            self._ignore_stack.append(tag_lower)
+        elif tag_lower in (
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+            "p",
+            "div",
+            "section",
+            "article",
+            "br",
+            "li",
+        ):
+            self._pieces.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        tag_lower = tag.lower()
+        if self._ignore_stack and self._ignore_stack[-1] == tag_lower:
+            self._ignore_stack.pop()
+        elif tag_lower in ("h1", "h2", "h3", "h4", "h5", "h6", "p", "div", "section", "article"):
+            self._pieces.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        if not self._ignore_stack:
+            self._pieces.append(data)
+
+    def get_text(self) -> str:
+        raw = "".join(self._pieces)
+        return re.sub(r"\n{3,}", "\n\n", raw).strip()
+
+
+def extract_html_article_text(html_content: str) -> Dict[str, Any]:
+    """Extract clean text and academic sections from an Open Access HTML article.
+
+    Provides a zero-dependency fallback when publishers return full HTML web pages
+    instead of raw PDF binaries.
+    """
+    if not html_content or not html_content.strip():
+        return {"raw_text": "", "sections": {}}
+
+    parser = _ArticleHTMLParser()
+    try:
+        parser.feed(html_content)
+        raw_text = parser.get_text()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("HTML article parsing failed: %s", exc)
+        return {"raw_text": "", "sections": {}}
+
+    if not raw_text:
+        return {"raw_text": "", "sections": {}}
+
+    sections = _extract_sections(raw_text)
+    return {"raw_text": raw_text, "sections": sections}
 
 
 async def _download_pdf(pdf_url: str) -> bytes:

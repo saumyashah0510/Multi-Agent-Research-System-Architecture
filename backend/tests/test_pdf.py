@@ -392,3 +392,47 @@ async def test_resolve_unpaywall_pdf_url_empty_returns_none() -> None:
 
     assert await resolve_unpaywall_pdf_url("") is None
     assert await resolve_unpaywall_pdf_url("  ") is None
+
+
+def test_extract_html_article_text_success() -> None:
+    """Test HTML article text and section extraction."""
+    from app.services.pdf_service import extract_html_article_text
+
+    html = """
+    <!DOCTYPE html>
+    <html>
+      <head><style>.ad { display: none; }</style><script>badCode();</script></head>
+      <body>
+        <nav>Navigation Bar</nav>
+        <article>
+          <h1>Abstract</h1>
+          <p>This is the HTML full-text abstract.</p>
+          <h2>Introduction</h2>
+          <p>Introductory background in HTML.</p>
+          <h2>Methods</h2>
+          <p>Experimental procedure in HTML.</p>
+          <h2>Results</h2>
+          <p>Key numerical findings.</p>
+          <h2>Discussion</h2>
+          <p>Discussion of results.</p>
+        </article>
+        <footer>Footer Notes</footer>
+      </body>
+    </html>
+    """
+    res = extract_html_article_text(html)
+    assert "badCode" not in res["raw_text"]
+    assert "Navigation Bar" not in res["raw_text"]
+    assert "Footer Notes" not in res["raw_text"]
+    assert res["sections"]["abstract"] == "This is the HTML full-text abstract."
+    assert res["sections"]["introduction"] == "Introductory background in HTML."
+    assert res["sections"]["methods"] == "Experimental procedure in HTML."
+    assert res["sections"]["results"] == "Key numerical findings."
+
+
+def test_extract_html_article_text_empty_input() -> None:
+    """Empty or whitespace-only HTML returns empty payload."""
+    from app.services.pdf_service import extract_html_article_text
+
+    assert extract_html_article_text("") == {"raw_text": "", "sections": {}}
+    assert extract_html_article_text("   \n\t  ") == {"raw_text": "", "sections": {}}
