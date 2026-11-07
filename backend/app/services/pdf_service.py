@@ -331,15 +331,19 @@ async def download_and_extract_pdf(
         if cache_key:
             cached_bytes = await get_pdf_from_s3(cache_key)
             if cached_bytes:
-                logger.info(
-                    "Found cached PDF in S3 for '%s'. Skipping network download.", cache_key
-                )
-                raw_text = _extract_pdf_text(cached_bytes)
-                if raw_text:
-                    return {
-                        "raw_text": raw_text,
-                        "sections": _extract_sections(raw_text),
-                    }
+                try:
+                    raw_text = _extract_pdf_text(cached_bytes)
+                except Exception as exc:  # noqa: BLE001 - corrupt cache falls back to download
+                    logger.warning("Cached PDF extraction failed for '%s': %s", cache_key, exc)
+                else:
+                    if raw_text:
+                        logger.info(
+                            "Found cached PDF in S3 for '%s'. Skipping network download.", cache_key
+                        )
+                        return {
+                            "raw_text": raw_text,
+                            "sections": _extract_sections(raw_text),
+                        }
 
         # Enforce SSRF protection before downloading
         safe_url = enforce_pdf_url_safety(pdf_url)
