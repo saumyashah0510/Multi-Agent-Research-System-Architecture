@@ -46,7 +46,7 @@ def _get_paper_key(paper: Dict[str, Any]) -> Optional[str]:
 async def _get_pdf_url(paper: Dict[str, Any]) -> str:
     """Return the PDF URL for a paper, resolving multi-source URLs if needed."""
     pdf_url = paper.get("pdf_url")
-    if pdf_url:
+    if pdf_url and "pmc.ncbi.nlm.nih.gov" not in pdf_url:
         return pdf_url
 
     arxiv_id = paper.get("arxiv_id")

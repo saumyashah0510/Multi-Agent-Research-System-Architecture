@@ -436,3 +436,73 @@ def test_extract_html_article_text_empty_input() -> None:
 
     assert extract_html_article_text("") == {"raw_text": "", "sections": {}}
     assert extract_html_article_text("   \n\t  ") == {"raw_text": "", "sections": {}}
+
+
+def test_detect_section_heading_hyphenated_compound_not_split() -> None:
+    """Narrow inline heading regex prevents false splits on hyphenated compound words."""
+    from app.services.pdf_service import _detect_section_heading
+
+    # Compound word whose first token is an alias should NOT be treated as a heading
+    sec, trailing = _detect_section_heading("Architecture-specific tuning was evaluated.")
+    assert sec is None
+    assert trailing == ""
+
+    # Heading with colon or whitespace-enclosed dash SHOULD be treated as a heading
+    sec, trailing = _detect_section_heading("Abstract: Key findings of our study.")
+    assert sec == "abstract"
+    assert trailing == "Key findings of our study."
+
+    sec, trailing = _detect_section_heading("Methods — We evaluated our pipeline on benchmarks.")
+    assert sec == "methods"
+    assert trailing == "We evaluated our pipeline on benchmarks."
+
+
+def test_normalize_doi_prefixes() -> None:
+    """Verify standard DOI URL prefixes are stripped cleanly."""
+    from app.services.pdf_service import _normalize_doi
+
+    assert _normalize_doi("https://doi.org/10.1016/j.cell.2023") == "10.1016/j.cell.2023"
+    assert _normalize_doi("http://dx.doi.org/10.1038/nature123") == "10.1038/nature123"
+    assert _normalize_doi("doi:10.1101/2020.01.01") == "10.1101/2020.01.01"
+    assert _normalize_doi("  10.1002/pro.123  ") == "10.1002/pro.123"
+    assert _normalize_doi("") == ""
+
+
+def test_is_safe_pdf_url_rejects_pmc_pow_domain() -> None:
+    """Verify PMC Proof-of-Work challenge domain is excluded in favor of repository mirrors."""
+    from app.services.pdf_service import _is_safe_pdf_url
+
+    assert not _is_safe_pdf_url(
+        "https://pmc.ncbi.nlm.nih.gov/articles/PMC13609510/pdf/molecules-31-03251.pdf"
+    )
+    assert _is_safe_pdf_url("https://arxiv.org/pdf/2401.12345.pdf")
+
+
+@pytest.mark.asyncio
+async def test_download_and_extract_pdf_html_article_fallback(monkeypatch) -> None:
+    """Verify open-access HTML articles are parsed when full PDF binary is unavailable."""
+    from unittest.mock import MagicMock
+
+    html_content = (
+        b"<!DOCTYPE html><html><body>"
+        b"<h1>Abstract</h1><p>HTML abstract content.</p>"
+        b"<h2>Methods</h2><p>HTML methods content.</p>"
+        b"</body></html>"
+    )
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.content = html_content
+    mock_resp.headers = {"content-type": "text/html; charset=utf-8"}
+    mock_resp.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get.return_value = mock_resp
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.__aexit__.return_value = None
+
+    monkeypatch.setattr("httpx.AsyncClient", lambda **kwargs: mock_client)
+
+    result = await download_and_extract_pdf("https://example.org/article-html")
+    assert result["sections"]["abstract"] == "HTML abstract content."
+    assert result["sections"]["methods"] == "HTML methods content."

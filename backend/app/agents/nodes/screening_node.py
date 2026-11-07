@@ -40,7 +40,9 @@ async def verify_paper_full_text(paper: Dict[str, Any]) -> Optional[str]:
     """
     pdf_url = paper.get("pdf_url")
     if pdf_url and isinstance(pdf_url, str) and pdf_url.strip():
-        return pdf_url.strip()
+        url = pdf_url.strip()
+        if "pmc.ncbi.nlm.nih.gov" not in url:
+            return url
 
     arxiv_id = paper.get("arxiv_id")
     if arxiv_id and str(arxiv_id).strip():
@@ -172,7 +174,7 @@ async def screening_node(state: AgentState) -> Dict[str, Any]:
                     p_copy["screening_reason"] = reason
                     if verified_url:
                         p_copy["pdf_url"] = verified_url
-                    p_copy["has_full_text"] = True
+                    p_copy["has_full_text"] = bool(verified_url)
                     screened_papers.append(p_copy)
                 else:
                     logger.info(
