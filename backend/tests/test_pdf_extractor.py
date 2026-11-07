@@ -363,3 +363,54 @@ async def test_pdf_extractor_resolves_biorxiv_paper(
     sections = result["extracted_pdf_contents"]["doi_10.1101/2020.01.31.929042"]
     assert sections["methods"] == "Cryo-EM structure determination methods."
     assert sections["results"] == "Structure resolved at 2.8 Angstrom."
+
+
+@pytest.mark.asyncio
+async def test_pdf_extractor_resolves_crossref_doi_paper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Crossref or Semantic Scholar papers with DOI resolve via Unpaywall."""
+    from unittest.mock import AsyncMock
+
+    mock_resolve = AsyncMock(return_value="https://journals.plos.org/sample.pdf")
+    mock_download = AsyncMock(
+        return_value={
+            "raw_text": "sample raw text",
+            "sections": {
+                "abstract": "Crossref PLOS abstract.",
+                "methods": "Functional connectivity analysis.",
+                "results": "Neurotraits correlated with chronic pain.",
+            },
+        }
+    )
+
+    monkeypatch.setattr(
+        "app.agents.nodes.pdf_extractor_node.resolve_unpaywall_pdf_url",
+        mock_resolve,
+    )
+    monkeypatch.setattr(
+        "app.agents.nodes.pdf_extractor_node.download_and_extract_pdf",
+        mock_download,
+    )
+
+    state = {
+        "approved_papers": [
+            {
+                "doi": "10.1371/journal.pbio.3000349",
+                "source": "crossref",
+                "title": "Neurotraits of Chronic Pain",
+                "abstract": "Fallback abstract.",
+            }
+        ]
+    }
+
+    result = await pdf_extractor_node(state)
+    mock_resolve.assert_awaited_once_with("10.1371/journal.pbio.3000349")
+    mock_download.assert_awaited_once_with(
+        "https://journals.plos.org/sample.pdf",
+        cache_key="doi_10.1371/journal.pbio.3000349",
+    )
+
+    sections = result["extracted_pdf_contents"]["doi_10.1371/journal.pbio.3000349"]
+    assert sections["methods"] == "Functional connectivity analysis."
+    assert sections["results"] == "Neurotraits correlated with chronic pain."

@@ -16,6 +16,7 @@ from app.services.pdf_service import (
     download_and_extract_pdf,
     resolve_biorxiv_pdf_url,
     resolve_pubmed_pdf_url,
+    resolve_unpaywall_pdf_url,
 )
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,11 @@ async def _get_pdf_url(paper: Dict[str, Any]) -> str:
         resolved = await resolve_pubmed_pdf_url(str(pubmed_id), doi)
         if resolved:
             return resolved
+
+    if doi:
+        resolved_doi = await resolve_unpaywall_pdf_url(str(doi))
+        if resolved_doi:
+            return resolved_doi
 
     return ""
 

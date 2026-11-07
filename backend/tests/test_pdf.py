@@ -357,3 +357,38 @@ async def test_resolve_biorxiv_pdf_url_empty_returns_none() -> None:
 
     assert await resolve_biorxiv_pdf_url("") is None
     assert await resolve_biorxiv_pdf_url("   ") is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_unpaywall_pdf_url_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test successful Unpaywall DOI resolution for Crossref paper."""
+    from unittest.mock import MagicMock
+
+    from app.services.pdf_service import resolve_unpaywall_pdf_url
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "best_oa_location": {"url_for_pdf": "https://journals.plos.org/sample.pdf"}
+    }
+
+    mock_client = AsyncMock()
+    mock_client.get = AsyncMock(return_value=mock_resp)
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.__aexit__.return_value = None
+
+    monkeypatch.setattr("httpx.AsyncClient", lambda **kwargs: mock_client)
+
+    url = await resolve_unpaywall_pdf_url("10.1371/journal.pbio.3000349")
+    assert url == "https://journals.plos.org/sample.pdf"
+
+
+@pytest.mark.asyncio
+async def test_resolve_unpaywall_pdf_url_empty_returns_none() -> None:
+    """Empty DOI returns None immediately."""
+    from app.services.pdf_service import resolve_unpaywall_pdf_url
+
+    assert await resolve_unpaywall_pdf_url("") is None
+    assert await resolve_unpaywall_pdf_url("  ") is None

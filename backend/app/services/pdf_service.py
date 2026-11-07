@@ -335,6 +335,61 @@ async def resolve_biorxiv_pdf_url(doi: str) -> Optional[str]:
     return None
 
 
+async def resolve_unpaywall_pdf_url(doi: str) -> Optional[str]:
+    """Resolve an open-access full-text PDF URL for a Crossref or Semantic Scholar DOI.
+
+    Queries Unpaywall API first, then falls back to OpenAlex DOI lookup.
+    Returns a verified HTTPS PDF URL or None if paywalled/restricted.
+    """
+    if not doi or not doi.strip():
+        return None
+
+    clean_doi = doi.strip()
+    if clean_doi.startswith("https://doi.org/"):
+        clean_doi = clean_doi.replace("https://doi.org/", "")
+    elif clean_doi.startswith("http://doi.org/"):
+        clean_doi = clean_doi.replace("http://doi.org/", "")
+
+    headers = {"User-Agent": "mailto:team_review@daiict.ac.in"}
+
+    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=True) as client:
+        # 1. Query Unpaywall API
+        try:
+            unpaywall_url = (
+                f"https://api.unpaywall.org/v2/{clean_doi}?email=team_review@daiict.ac.in"
+            )
+            resp = await client.get(unpaywall_url)
+            if resp.status_code == 200:
+                data = resp.json()
+                best_oa = data.get("best_oa_location") or {}
+                pdf_url = best_oa.get("url_for_pdf")
+                if pdf_url and isinstance(pdf_url, str) and pdf_url.startswith("https://"):
+                    return pdf_url
+
+                # Check secondary repository locations
+                for loc in data.get("oa_locations", []):
+                    cand = loc.get("url_for_pdf")
+                    if cand and isinstance(cand, str) and cand.startswith("https://"):
+                        return cand
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Unpaywall resolution failed for %s: %s", clean_doi, exc)
+
+        # 2. Fallback to OpenAlex by DOI
+        try:
+            openalex_url = f"https://api.openalex.org/works/doi:{clean_doi}"
+            resp = await client.get(openalex_url, headers=headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                best_oa = data.get("best_oa_location") or {}
+                pdf_url = best_oa.get("pdf_url")
+                if pdf_url and isinstance(pdf_url, str) and pdf_url.startswith("https://"):
+                    return pdf_url
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("OpenAlex DOI resolution failed for %s: %s", clean_doi, exc)
+
+    return None
+
+
 async def get_pdf_from_s3(cache_key: str) -> Optional[bytes]:
     """Retrieve a cached PDF from S3 if it exists and AWS credentials are configured.
 
