@@ -234,15 +234,24 @@ Class diagram illustrating backend infrastructure services including search clie
 ```mermaid
 classDiagram
     class SearchService {
-        +search_academic_papers(query, domains) List~dict~
-        +search_arxiv(query) List~dict~
-        +search_pubmed(query) List~dict~
-        +search_openalex(query) List~dict~
+        +search_academic_papers(query, sources, max_results) List~dict~
+        +_search_arxiv(client, query, limit) List~dict~
+        +_search_pubmed(client, query, limit) List~dict~
+        +_search_semantic_scholar(client, query, limit) List~dict~
+        +_search_crossref(client, query, limit) List~dict~
+        +_search_biorxiv(client, query, limit) List~dict~
     }
 
     class PDFService {
-        +download_and_extract_pdf(pdf_url) dict
-        +extract_sections_regex(text) dict
+        +download_and_extract_pdf(pdf_url, cache_key) dict
+        +get_pdf_from_s3(cache_key) Optional~bytes~
+        +cache_pdf_to_s3(pdf_bytes, cache_key) Optional~str~
+        +resolve_pmc_pdf_url(pmid) Optional~str~
+        +resolve_unpaywall_pdf_url(doi) Optional~str~
+        +resolve_biorxiv_pdf_url(doi) Optional~str~
+        +_extract_pdf_text(pdf_bytes) str
+        +_extract_html_text(html_str) str
+        +_extract_sections(text) dict
     }
 
     class VectorService {

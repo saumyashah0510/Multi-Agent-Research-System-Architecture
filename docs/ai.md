@@ -112,28 +112,28 @@ flowchart TD
     classDef decisionNode fill:#4f46e5,color:#fff,stroke:#4338ca,stroke-width:2px;
     classDef dbNode fill:#059669,color:#fff,stroke:#047857,stroke-width:2px;
 
-    Start([User Submit Query]) --> InitState[AgentState Memory Init]:::dbNode
+    Start([User Submit Query]) --> InitState["AgentState Memory Init"]:::dbNode
 
     subgraph Agent_Group_1 ["Stage 1: Search & Filtering"]
-        InitState --> A1[1. Query Expansion & Domain Classifier]:::agentNode
-        A1 --> A2[2. Smart Domain-Routed Search & Discovery]:::agentNode
-        A2 --> A3[3. Screening & Relevance Filter]:::agentNode
+        InitState --> A1["1. Query Expansion & Domain Classifier"]:::agentNode
+        A1 --> A2["2. Smart Domain-Routed Search & Discovery"]:::agentNode
+        A2 --> A3["3. Screening & Relevance Filter"]:::agentNode
     end
 
     A3 --> A4
 
     subgraph Agent_Group_2 ["Stage 2: Human Approval Interrupt"]
-        A4[4. Human-in-the-Loop Interrupt Node]:::humanNode --> UserDecision{User Decision?}:::decisionNode
+        A4["4. Human-in-the-Loop Interrupt Node"]:::humanNode --> UserDecision{"User Decision?"}:::decisionNode
     end
 
     UserDecision -->|'find_more'| A1
     UserDecision -->|'continue'| A5
 
     subgraph Agent_Group_3 ["Stage 3: RAG & Synthesis"]
-        A5[5. Full-Text PDF Downloader & Extractor]:::agentNode --> A6[6. Vector Chunking & pgvector RAG Embedding]:::agentNode
-        A6 --> A7[7. Methodology Matrix & Gap Analysis]:::agentNode
-        A7 --> A8[8. Anti-Hallucination Citation Verifier]:::agentNode
-        A8 --> A9[9. Synthesis & Structured JSON Report Agent]:::agentNode
+        A5["5. Full-Text PDF Downloader & Extractor"]:::agentNode --> A6["6. Vector Chunking & pgvector RAG Embedding"]:::agentNode
+        A6 --> A7["7. Methodology Matrix & Gap Analysis"]:::agentNode
+        A7 --> A8["8. Anti-Hallucination Citation Verifier"]:::agentNode
+        A8 --> A9["9. Synthesis & Structured JSON Report Agent"]:::agentNode
     end
 
     A9 --> Complete([Structured Review Dashboard Rendered]):::dbNode
@@ -146,10 +146,10 @@ flowchart TD
 | # | Agent Name | Input State | Output State | Checkpoint Description |
 | :---: | :--- | :--- | :--- | :--- |
 | **01** | **Query Expansion & Classifier** | `user_query` | `target_domains`, `search_queries` | Deconstructs topic into 3-5 domain sub-queries |
-| **02** | **Multi-Source Discovery** | `search_queries`, `target_domains` | `discovered_papers` | Fetches papers across ArXiv, PubMed, OpenAlex, Europe PMC |
-| **03** | **Screening & Relevance Filter** | `discovered_papers`, `user_query` | `screened_papers` | Scores abstracts ($\ge 0.6$) using Gemini LLM reasoning |
-| **04** | **Human Approval Interrupt** | `screened_papers` | `approved_papers`, `user_decision` | Pauses graph for user paper selection on frontend |
-| **05** | **PDF Extractor** | `approved_papers` | `extracted_pdf_contents` | Downloads open-access PDFs and parses section headers |
+| **02** | **Multi-Source Discovery** | `search_queries`, `target_domains` | `discovered_papers` | Fetches papers across ArXiv, PubMed, Semantic Scholar, Crossref, bioRxiv |
+| **03** | **Screening & Full-Text Gatekeeper**| `discovered_papers`, `user_query` | `screened_papers` | Scores abstracts ($\ge 0.6$) via Gemini LLM and filters out paywalled abstract-only papers |
+| **04** | **Human Approval Interrupt** | `screened_papers` | `approved_papers`, `user_decision` | Pauses graph for user paper selection on frontend (100% full-text guaranteed) |
+| **05** | **Multi-Source PDF Extractor** | `approved_papers` | `extracted_pdf_contents` | Resolves arXiv, PMC, bioRxiv, Unpaywall & OA HTML, caches to S3, parses sections |
 | **06** | **`pgvector` RAG Agent** | `extracted_pdf_contents` | `PaperChunk` DB records | Chunks passages (500 tokens) and generates 384D embeddings |
 | **07** | **Gap Analysis Agent** | `approved_papers`, `PaperChunk` | `methodology_matrix`, `gaps` | Maps experimental paradigms & isolates research gaps |
 | **08** | **Anti-Hallucination Verifier** | Generated citations | `verified_references` | Cross-checks references against real DOIs/PMIDs/ArXiv IDs |
@@ -181,12 +181,49 @@ Defined in [backend/app/agents/state.py](../backend/app/agents/state.py#L7-L21):
 
 ```mermaid
 flowchart LR
-    Screen[Agent 3 Screens Papers] --> Pause[Pause Node: LangGraph Interrupt]
-    Pause --> UI[UI Renders Grid on /research]
-    UI --> Choice{User UI Action}
-    Choice -->|Click 'Find More'| Loop[Set user_decision = 'find_more'] --> ReQuery[Loop Back to Agent 1]
-    Choice -->|Click 'Approve & Continue'| Resume[Set user_decision = 'continue'] --> Step5[Resume Agent 5 PDF Extractor]
+    Screen["Agent 3 Screens Papers & Verifies Full-Text"] --> Pause["Pause Node: LangGraph Interrupt"]
+    Pause --> UI["UI Renders Grid on /research with Full-Text Guarantee"]
+    UI --> Choice{"User UI Action"}
+    Choice -->|Click 'Find More'| Loop["Set user_decision = 'find_more'"] --> ReQuery["Loop Back to Agent 1"]
+    Choice -->|Click 'Approve & Continue'| Resume["Set user_decision = 'continue'"] --> Step5["Resume Agent 5 Multi-Source PDF Extractor"]
 ```
+
+### 8.1 Universal Multi-Source Full-Text Resolution & Full-Text Gatekeeper
+
+To ensure scientific reviews synthesize authentic benchmarks, sample sizes, and methodologies rather than superficial 200-word abstracts, the pipeline enforces a **Full-Text Availability Gatekeeper** at Agent 03 and a **Multi-Tiered Resolver** at Agent 05:
+
+```mermaid
+flowchart TD
+    Candidate["Candidate Paper (Title, DOI, PMID, arXiv ID)"] --> S3Check{"Cached in AWS S3?"}
+    S3Check -->|Hit| S3Stream["Load instantly from S3 (bypasses network)"]
+    S3Check -->|Miss| TierCheck{"Identify Source & Metadata"}
+
+    TierCheck -->|arXiv / bioRxiv| DirectPreprint["Direct Preprint PDF Stream<br>(arxiv.org / biorxiv.org)"]
+    TierCheck -->|PubMed (PMID)| PMCResolver["NCBI ID Converter: PMID -> PMCID<br>Fetch PubMed Central Open PDF"]
+    TierCheck -->|Crossref / Semantic Scholar (DOI)| UnpaywallResolver["Query Unpaywall API<br>Locate legal Open Access repository PDF"]
+
+    DirectPreprint --> Fetch["Download Binary via httpx (SSRF Protected)"]
+    PMCResolver --> Fetch
+    UnpaywallResolver --> Fetch
+
+    Fetch --> Validate{"Valid PDF header?"}
+    Validate -->|Yes| Parse["PyPDF Text & Section Extractor"]
+    Validate -->|No: HTML Page| HTMLExtract["Trafilatura / BeautifulSoup Article Body Parser"]
+
+    Parse --> Sections["Segment: Abstract, Intro, Methods, Results, Discussion, Limitations"]
+    HTMLExtract --> Sections
+
+    Sections --> S3Upload["Upload valid PDF stream to AWS S3 Cache"]
+```
+
+| Source | Resolution Mechanism | Fallback / Open Access Provider |
+| :--- | :--- | :--- |
+| **arXiv** | Direct CDN stream (`arxiv.org/pdf/{arxiv_id}.pdf`) | Native open access (100% available) |
+| **PubMed** | NCBI ID Converter API (`PMID -> PMCID`) | PubMed Central (PMC) open access PDF / XML |
+| **bioRxiv / medRxiv** | DOI-based direct PDF stream (`10.1101/...`) | Cold Spring Harbor Laboratory open preprint repository |
+| **Semantic Scholar** | `openAccessPdf` direct link | Unpaywall API DOI lookup / Europe PMC |
+| **Crossref** | DOI-based lookup | Unpaywall API (`api.unpaywall.org/v2/{doi}`) open repository finder |
+| **HTML Open Access** | When publisher returns HTML rather than raw PDF | `trafilatura` article body parser and section regex extractor |
 
 ---
 
