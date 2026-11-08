@@ -13,7 +13,17 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
-import { FileText, Layers, MessageSquare, Download, History, Loader2 } from "lucide-react";
+import {
+  FileText,
+  Layers,
+  MessageSquare,
+  Download,
+  History,
+  Loader2,
+  RefreshCw,
+  AlertCircle,
+} from "lucide-react";
+import { cn } from "../lib/utils";
 import DownstreamProgress from "../components/pipeline/DownstreamProgress";
 import SynthesisReportViewer from "../components/dashboard/SynthesisReportViewer";
 import MethodologyMatrix from "../components/dashboard/MethodologyMatrix";
@@ -131,6 +141,9 @@ const ReviewDetailInner: React.FC = () => {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [reviewTopic, setReviewTopic] = useState<string | null>(null);
   const [synthesizedReport, setSynthesizedReport] = useState<SynthesizedReview | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   // Load review status and synthesized report via GET /api/v1/reviews/{reviewId}
   const loadReviewData = useCallback(async () => {
@@ -145,6 +158,7 @@ const ReviewDetailInner: React.FC = () => {
         setIsCompleted(true);
         if (data?.synthesized_review) {
           setSynthesizedReport(data.synthesized_review);
+          setFetchError(null);
         }
       }
       return data;
@@ -161,6 +175,8 @@ const ReviewDetailInner: React.FC = () => {
     setReviewTopic(null);
     setSynthesizedReport(null);
     setIsCompleted(false);
+    setRetryCount(0);
+    setFetchError(null);
 
     let isMounted = true;
     loadReviewData().then((data) => {
@@ -174,8 +190,38 @@ const ReviewDetailInner: React.FC = () => {
 
   const handlePipelineComplete = useCallback(() => {
     setIsCompleted(true);
+    setRetryCount(0);
+    setFetchError(null);
     loadReviewData();
   }, [loadReviewData]);
+
+  // Auto-retry polling if pipeline completed but synthesized_review is not yet available
+  useEffect(() => {
+    if (!isCompleted || synthesizedReport || retryCount >= 5) return;
+
+    const timer = setTimeout(async () => {
+      setRetryCount((prev) => prev + 1);
+      const res = await loadReviewData();
+      if (!res?.synthesized_review && retryCount + 1 >= 5) {
+        setFetchError("Synthesis report is taking longer than expected to persist.");
+      }
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [isCompleted, synthesizedReport, retryCount, loadReviewData]);
+
+  const handleManualRetry = async () => {
+    setIsRetrying(true);
+    setFetchError(null);
+    try {
+      const res = await loadReviewData();
+      if (!res?.synthesized_review) {
+        setFetchError("Report not available yet. Please try again in a few moments.");
+      }
+    } finally {
+      setIsRetrying(false);
+    }
+  };
 
   // Show fabricated sample data only in explicit mock/dev mode, never as real results
   const activeReport: SynthesizedReview | null =
@@ -301,16 +347,36 @@ const ReviewDetailInner: React.FC = () => {
             </>
           ) : (
             (activeTab === "report" || activeTab === "matrix") && (
-              <div className="w-full bg-white rounded-2xl border border-neutral-200/90 shadow-xs p-8 text-center space-y-3">
+              <div className="w-full bg-white rounded-2xl border border-neutral-200/90 shadow-xs p-8 text-center space-y-4">
                 <div className="w-10 h-10 mx-auto rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600">
-                  <Loader2 className="w-5 h-5 animate-spin" />
+                  {fetchError && retryCount >= 5 ? (
+                    <AlertCircle className="w-5 h-5 text-amber-600" />
+                  ) : (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  )}
                 </div>
-                <h3 className="font-serif text-lg font-bold text-neutral-900">
-                  Finalizing Literature Synthesis...
-                </h3>
-                <p className="text-xs text-neutral-500 max-w-md mx-auto">
-                  Downstream agents completed analysis. The structured synthesis report and comparative matrix are currently being assembled.
-                </p>
+                <div>
+                  <h3 className="font-serif text-lg font-bold text-neutral-900">
+                    {fetchError && retryCount >= 5
+                      ? "Report Generation in Progress"
+                      : "Finalizing Literature Synthesis..."}
+                  </h3>
+                  <p className="text-xs text-neutral-500 max-w-md mx-auto mt-1">
+                    {fetchError ||
+                      "Downstream agents completed analysis. The structured synthesis report and comparative matrix are currently being assembled."}
+                  </p>
+                </div>
+                <div>
+                  <button
+                    type="button"
+                    onClick={handleManualRetry}
+                    disabled={isRetrying}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw className={cn("w-3.5 h-3.5", isRetrying && "animate-spin")} />
+                    <span>{isRetrying ? "Checking..." : "Refresh Report"}</span>
+                  </button>
+                </div>
               </div>
             )
           )}
