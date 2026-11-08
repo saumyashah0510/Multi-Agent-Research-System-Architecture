@@ -3,16 +3,17 @@
  *
  * Assignee Task (Issues FE-06 / FE-07 / FE-08):
  * - Extract reviewId from route params (useParams)
- * - Fetch synthesized review data from GET /api/v1/reviews/{reviewId}
+ * - Fetch initial review status via GET /api/v1/reviews/{reviewId}
+ * - Stream remaining stages 5 to 9 via WebSocket connection to /api/v1/ws/reviews/{reviewId}
  * - Display review topic header and session status
  * - Mount downstream pipeline progress tracker (Stages 5 to 9)
- * - Integrate tab switcher (Report | Matrix | RAG Chat) when isCompleted is true
+ * - Integrate accessible tab switcher (Report | Matrix | RAG Chat) when isCompleted is true
  * - Pass synthesized review to SynthesisReportViewer and methodology_matrix to MethodologyMatrix
  */
 
-import React, { useState, useEffect } from "react";
-import { useParams } from "react-router-dom";
-import { FileText, Layers, MessageSquare, Download, History } from "lucide-react";
+import React, { useState, useEffect, useCallback } from "react";
+import { useParams, useSearchParams } from "react-router-dom";
+import { FileText, Layers, MessageSquare, Download, History, Loader2 } from "lucide-react";
 import DownstreamProgress from "../components/pipeline/DownstreamProgress";
 import SynthesisReportViewer from "../components/dashboard/SynthesisReportViewer";
 import MethodologyMatrix from "../components/dashboard/MethodologyMatrix";
@@ -120,52 +121,73 @@ const SAMPLE_FALLBACK_REPORT: SynthesizedReview = {
   ],
 };
 
-export const ReviewDetail: React.FC = () => {
+const ReviewDetailInner: React.FC = () => {
   const { reviewId } = useParams<{ reviewId: string }>();
+  const [searchParams] = useSearchParams();
+  const isMockParam = searchParams.get("mock") === "true";
+
   const [isCompleted, setIsCompleted] = useState(false);
   const [activeTab, setActiveTab] = useState<"report" | "matrix" | "chat">("report");
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [reviewTopic, setReviewTopic] = useState<string | null>(null);
-  const [synthesizedReview, setSynthesizedReview] = useState<SynthesizedReview | null>(null);
+  const [synthesizedReport, setSynthesizedReport] = useState<SynthesizedReview | null>(null);
 
-  // Fetch initial review data from GET /api/v1/reviews/{reviewId}
+  // Load review status and synthesized report via GET /api/v1/reviews/{reviewId}
+  const loadReviewData = useCallback(async () => {
+    if (!reviewId) return null;
+    try {
+      const data = await getReviewStatus(reviewId);
+      if (data?.query || data?.user_query) {
+        setReviewTopic(data.query || data.user_query);
+      }
+      const normStatus = String(data?.status || "").toLowerCase();
+      if (normStatus === "completed" || normStatus === "synthesis_completed") {
+        setIsCompleted(true);
+        if (data?.synthesized_review) {
+          setSynthesizedReport(data.synthesized_review);
+        }
+      }
+      return data;
+    } catch (err) {
+      console.warn("Could not retrieve review status:", err);
+      return null;
+    }
+  }, [reviewId]);
+
   useEffect(() => {
     if (!reviewId) return;
 
+    // Reset review state on reviewId change to avoid displaying stale data
+    setReviewTopic(null);
+    setSynthesizedReport(null);
+    setIsCompleted(false);
+
     let isMounted = true;
-    getReviewStatus(reviewId)
-      .then((data) => {
-        if (!isMounted) return;
-
-        if (data?.query || data?.user_query) {
-          setReviewTopic(data.query || data.user_query);
-        }
-
-        const normStatus = String(data?.status || "").toLowerCase();
-        if (normStatus === "completed" || normStatus === "synthesis_completed") {
-          setIsCompleted(true);
-        }
-
-        if (data?.synthesized_review) {
-          setSynthesizedReview(data.synthesized_review);
-          setIsCompleted(true);
-        }
-      })
-      .catch((err) => {
-        console.warn("Could not retrieve review status:", err);
-      });
+    loadReviewData().then((data) => {
+      if (!isMounted || !data) return;
+    });
 
     return () => {
       isMounted = false;
     };
-  }, [reviewId]);
+  }, [reviewId, loadReviewData]);
 
-  const activeReport: SynthesizedReview = synthesizedReview || {
-    ...SAMPLE_FALLBACK_REPORT,
-    title: reviewTopic
-      ? `Comparative Literature Synthesis: ${reviewTopic}`
-      : SAMPLE_FALLBACK_REPORT.title,
-  };
+  const handlePipelineComplete = useCallback(() => {
+    setIsCompleted(true);
+    loadReviewData();
+  }, [loadReviewData]);
+
+  // Show fabricated sample data only in explicit mock/dev mode, never as real results
+  const activeReport: SynthesizedReview | null =
+    synthesizedReport ||
+    (isMockParam || import.meta.env.DEV
+      ? {
+          ...SAMPLE_FALLBACK_REPORT,
+          title: reviewTopic
+            ? `Comparative Literature Synthesis: ${reviewTopic}`
+            : SAMPLE_FALLBACK_REPORT.title,
+        }
+      : null);
 
   return (
     <div className="w-full max-w-5xl mx-auto px-4 py-8 space-y-6">
@@ -258,19 +280,39 @@ export const ReviewDetail: React.FC = () => {
 
       {/* Downstream Checkpoints Tracker (Stages 5 to 9) */}
       <DownstreamProgress
+        reviewId={reviewId}
         isCompleted={isCompleted}
-        onComplete={() => setIsCompleted(true)}
+        onComplete={handlePipelineComplete}
+        isMock={isMockParam}
       />
 
       {/* Synthesis Report, Methodology Matrix, and Interactive RAG Chat Views */}
       {isCompleted && (
         <div className="animate-in fade-in duration-300">
-          {activeTab === "report" && (
-            <SynthesisReportViewer report={activeReport} />
-          )}
+          {activeReport ? (
+            <>
+              {activeTab === "report" && (
+                <SynthesisReportViewer report={activeReport} />
+              )}
 
-          {activeTab === "matrix" && (
-            <MethodologyMatrix matrix={activeReport.methodology_matrix} />
+              {activeTab === "matrix" && (
+                <MethodologyMatrix matrix={activeReport.methodology_matrix} />
+              )}
+            </>
+          ) : (
+            (activeTab === "report" || activeTab === "matrix") && (
+              <div className="w-full bg-white rounded-2xl border border-neutral-200/90 shadow-xs p-8 text-center space-y-3">
+                <div className="w-10 h-10 mx-auto rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600">
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                </div>
+                <h3 className="font-serif text-lg font-bold text-neutral-900">
+                  Finalizing Literature Synthesis...
+                </h3>
+                <p className="text-xs text-neutral-500 max-w-md mx-auto">
+                  Downstream agents completed analysis. The structured synthesis report and comparative matrix are currently being assembled.
+                </p>
+              </div>
+            )
           )}
 
           {activeTab === "chat" && (
@@ -286,6 +328,11 @@ export const ReviewDetail: React.FC = () => {
       />
     </div>
   );
+};
+
+export const ReviewDetail: React.FC = () => {
+  const { reviewId } = useParams<{ reviewId: string }>();
+  return <ReviewDetailInner key={reviewId} />;
 };
 
 export default ReviewDetail;
