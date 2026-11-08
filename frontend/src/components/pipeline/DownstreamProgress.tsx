@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useEffect } from "react";
-import { Sparkles, CircleCheck, ChevronDown, ChevronUp } from "lucide-react";
+import { Sparkles, CircleCheck, AlertCircle, ChevronDown, ChevronUp } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { PipelineStage, DOWNSTREAM_PIPELINE_STAGES } from "./types";
 import { StageTimelineNode } from "./StageTimelineNode";
@@ -44,6 +44,7 @@ export const DownstreamProgress: React.FC<DownstreamProgressProps> = ({
   const stages = customStages ?? ws.stages ?? DOWNSTREAM_PIPELINE_STAGES;
   const isRunning = customIsRunning ?? ws.isRunning;
   const isCompleted = customIsCompleted || ws.isCompleted;
+  const isFailed = !isCompleted && (ws.status === "FAILED" || Boolean(ws.error));
 
   const [isCollapsed, setIsCollapsed] = useState(isCompleted);
 
@@ -76,6 +77,8 @@ export const DownstreamProgress: React.FC<DownstreamProgressProps> = ({
                   "inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold",
                   isCompleted
                     ? "bg-[var(--color-success-light)] text-[var(--color-success-dark)] border border-[var(--color-success)]/30"
+                    : isFailed
+                    ? "bg-red-50 text-red-700 border border-red-200"
                     : isRunning
                     ? "bg-blue-50 text-blue-700 border border-blue-200"
                     : "bg-neutral-100 text-neutral-600 border border-neutral-200"
@@ -85,6 +88,11 @@ export const DownstreamProgress: React.FC<DownstreamProgressProps> = ({
                   <>
                     <CircleCheck className="w-3 h-3 text-[var(--color-success)]" />
                     <span>Completed</span>
+                  </>
+                ) : isFailed ? (
+                  <>
+                    <AlertCircle className="w-3 h-3 text-red-600" />
+                    <span>Failed</span>
                   </>
                 ) : isRunning ? (
                   <>
@@ -99,6 +107,8 @@ export const DownstreamProgress: React.FC<DownstreamProgressProps> = ({
             <p className="text-xs text-neutral-500 mt-0.5">
               {isCompleted
                 ? "All 5 downstream agents finished · Synthesis report & methodology matrix ready"
+                : isFailed
+                ? ws.error || "Downstream analysis encountered an issue"
                 : "Extracting full-text PDFs, building vector indices, analyzing gaps, and synthesizing report"}
             </p>
           </div>

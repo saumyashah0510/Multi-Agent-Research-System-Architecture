@@ -10,7 +10,7 @@
  * - Gracefully reveal synthesis report, methodology matrix, and RAG chat once completed
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { FileText, Layers, MessageSquare, Download, History } from "lucide-react";
 import DownstreamProgress from "../components/pipeline/DownstreamProgress";
@@ -32,35 +32,45 @@ export const ReviewDetail: React.FC = () => {
   const [reviewTopic, setReviewTopic] = useState<string | null>(null);
   const [synthesizedReport, setSynthesizedReport] = useState<SynthesizedReview | null>(null);
 
-  // Check initial review status via GET /api/v1/reviews/{reviewId}
+  // Load review status and synthesized report via GET /api/v1/reviews/{reviewId}
+  const loadReviewData = useCallback(async () => {
+    if (!reviewId) return null;
+    try {
+      const data = await getReviewStatus(reviewId);
+      if (data?.query || data?.user_query) {
+        setReviewTopic(data.query || data.user_query);
+      }
+      const normStatus = String(data?.status || "").toLowerCase();
+      if (normStatus === "completed") {
+        setIsCompleted(true);
+        if (data?.synthesized_review) {
+          setSynthesizedReport(data.synthesized_review);
+        }
+      }
+      return data;
+    } catch (err) {
+      console.warn("Could not retrieve review status:", err);
+      return null;
+    }
+  }, [reviewId]);
+
   useEffect(() => {
+    let isMounted = true;
     if (!reviewId) return;
 
-    let isMounted = true;
-    getReviewStatus(reviewId)
-      .then((data) => {
-        if (!isMounted) return;
-
-        if (data?.query || data?.user_query) {
-          setReviewTopic(data.query || data.user_query);
-        }
-
-        const normStatus = String(data?.status || "").toLowerCase();
-        if (normStatus === "completed") {
-          setIsCompleted(true);
-          if (data?.synthesized_review) {
-            setSynthesizedReport(data.synthesized_review);
-          }
-        }
-      })
-      .catch((err) => {
-        console.warn("Could not retrieve initial review status:", err);
-      });
+    loadReviewData().then((data) => {
+      if (!isMounted || !data) return;
+    });
 
     return () => {
       isMounted = false;
     };
-  }, [reviewId]);
+  }, [reviewId, loadReviewData]);
+
+  const handlePipelineComplete = useCallback(() => {
+    setIsCompleted(true);
+    loadReviewData();
+  }, [loadReviewData]);
 
   const defaultReport: SynthesizedReview = {
     title: reviewTopic ? `Comparative Literature Synthesis: ${reviewTopic}` : "Comparative Literature Synthesis",
@@ -145,7 +155,7 @@ export const ReviewDetail: React.FC = () => {
       <DownstreamProgress
         reviewId={reviewId}
         isCompleted={isCompleted}
-        onComplete={() => setIsCompleted(true)}
+        onComplete={handlePipelineComplete}
         isMock={isMockParam}
       />
 

@@ -437,12 +437,14 @@ export function useDownstreamWebSocket(
       socketRef.current = ws;
 
       ws.onopen = () => {
+        if (socketRef.current !== ws) return;
         setIsConnected(true);
         setError(null);
         reconnectAttemptsRef.current = 0;
       };
 
       ws.onmessage = (event: MessageEvent) => {
+        if (socketRef.current !== ws) return;
         try {
           const payload: WebSocketStageUpdateEvent =
             typeof event.data === "string" ? JSON.parse(event.data) : event.data;
@@ -453,10 +455,12 @@ export function useDownstreamWebSocket(
       };
 
       ws.onerror = () => {
+        if (socketRef.current !== ws) return;
         setError("WebSocket connection encountered an error");
       };
 
       ws.onclose = () => {
+        if (socketRef.current !== ws) return;
         setIsConnected(false);
         if (isManualCloseRef.current || isCompletedRef.current) {
           return;
@@ -471,6 +475,10 @@ export function useDownstreamWebSocket(
           reconnectTimeoutRef.current = setTimeout(() => {
             connect();
           }, delay);
+        } else {
+          setIsRunning(false);
+          setStatus("FAILED");
+          setError("Lost connection to the progress stream");
         }
       };
     } catch (err) {
@@ -525,8 +533,13 @@ export function useDownstreamWebSocket(
         simulationIntervalRef.current = null;
       }
       if (socketRef.current) {
-        socketRef.current.close();
+        const s = socketRef.current;
         socketRef.current = null;
+        s.onopen = null;
+        s.onmessage = null;
+        s.onerror = null;
+        s.onclose = null;
+        s.close();
       }
     };
   }, [reviewId, isMock, initialCompleted, initialStatus, connect, simulatePipeline]);
