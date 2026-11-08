@@ -14,6 +14,7 @@ import { cn } from "../../lib/utils";
 import { PipelineStage, DOWNSTREAM_PIPELINE_STAGES } from "./types";
 import { StageTimelineNode } from "./StageTimelineNode";
 import { StageCard } from "./StageCard";
+import { useDownstreamWebSocket } from "../../hooks/useDownstreamWebSocket";
 
 export interface DownstreamProgressProps {
   stages?: PipelineStage[];
@@ -21,29 +22,39 @@ export interface DownstreamProgressProps {
   isCompleted?: boolean;
   onComplete?: () => void;
   className?: string;
+  reviewId?: string;
+  isMock?: boolean;
 }
 
 export const DownstreamProgress: React.FC<DownstreamProgressProps> = ({
-  stages = DOWNSTREAM_PIPELINE_STAGES,
-  isRunning = true,
-  isCompleted = false,
+  stages: customStages,
+  isRunning: customIsRunning,
+  isCompleted: customIsCompleted = false,
   onComplete,
   className = "",
+  reviewId,
+  isMock = false,
 }) => {
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const ws = useDownstreamWebSocket(reviewId, {
+    onComplete,
+    isMock,
+    initialCompleted: customIsCompleted,
+  });
+
+  const stages = customStages ?? ws.stages ?? DOWNSTREAM_PIPELINE_STAGES;
+  const isRunning = customIsRunning ?? ws.isRunning;
+  const isCompleted = customIsCompleted || ws.isCompleted;
+
+  const [isCollapsed, setIsCollapsed] = useState(isCompleted);
 
   useEffect(() => {
     if (isCompleted) {
       setIsCollapsed(true);
-      if (onComplete) onComplete();
+      if (onComplete) {
+        onComplete();
+      }
     }
   }, [isCompleted, onComplete]);
-
-  // TODO (Assignee - FE-07):
-  // 1. Listen for WebSocket messages from /api/v1/ws/reviews/{reviewId}
-  // 2. Transition stages: PDF_EXTRACTION -> VECTOR_EMBEDDING -> GAP_ANALYSIS -> CITATION_VERIFICATION -> REPORT_SYNTHESIS
-  // 3. Mark each stage "completed" and update the final result message
-  // 4. When REPORT_SYNTHESIS completes, set isCompleted to true
 
   return (
     <div
@@ -55,11 +66,11 @@ export const DownstreamProgress: React.FC<DownstreamProgressProps> = ({
       {/* Header Bar */}
       <div className="flex items-center justify-between pb-4 border-b border-neutral-100">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-full bg-[var(--color-accent)]/20 flex items-center justify-center text-[var(--color-accent-dark)]">
+          <div className="w-8 h-8 rounded-full bg-[var(--color-accent)]/20 flex items-center justify-center text-[var(--color-accent-dark)] shrink-0">
             <Sparkles className="w-4 h-4" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h2 className="font-serif text-lg sm:text-xl font-bold text-neutral-900 tracking-compact">
                 Synthesis & Deep Analysis
               </h2>
@@ -67,13 +78,15 @@ export const DownstreamProgress: React.FC<DownstreamProgressProps> = ({
                 className={cn(
                   "inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold",
                   isCompleted
-                    ? "bg-[var(--color-success-light)] text-[var(--color-success-dark)]"
-                    : "bg-blue-50 text-blue-700"
+                    ? "bg-[var(--color-success-light)] text-[var(--color-success-dark)] border border-[var(--color-success)]/30"
+                    : isRunning
+                    ? "bg-blue-50 text-blue-700 border border-blue-200"
+                    : "bg-neutral-100 text-neutral-600 border border-neutral-200"
                 )}
               >
                 {isCompleted ? (
                   <>
-                    <CircleCheck className="w-3 h-3" />
+                    <CircleCheck className="w-3 h-3 text-[var(--color-success)]" />
                     <span>Completed</span>
                   </>
                 ) : isRunning ? (
@@ -87,7 +100,9 @@ export const DownstreamProgress: React.FC<DownstreamProgressProps> = ({
               </span>
             </div>
             <p className="text-xs text-neutral-500 mt-0.5">
-              Extracting full-text PDFs, building vector indices, analyzing gaps, and synthesizing report
+              {isCompleted
+                ? "All 5 downstream agents finished · Synthesis report & methodology matrix ready"
+                : "Extracting full-text PDFs, building vector indices, analyzing gaps, and synthesizing report"}
             </p>
           </div>
         </div>
@@ -95,7 +110,8 @@ export const DownstreamProgress: React.FC<DownstreamProgressProps> = ({
         {/* Collapse Toggle */}
         <button
           onClick={() => setIsCollapsed(!isCollapsed)}
-          className="p-1.5 text-neutral-400 hover:text-neutral-700 hover:bg-neutral-100 rounded-lg transition-colors"
+          className="p-1.5 text-neutral-400 hover:text-neutral-700 hover:bg-neutral-100 rounded-lg transition-colors cursor-pointer shrink-0"
+          aria-expanded={!isCollapsed}
           aria-label={isCollapsed ? "Expand pipeline" : "Collapse pipeline"}
         >
           {isCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
