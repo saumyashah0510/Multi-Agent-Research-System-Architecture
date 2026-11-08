@@ -363,6 +363,19 @@ export function useDownstreamWebSocket(
       { stage: "PDF_EXTRACTION", status: "running", message: "Extracting methodology, results, and discussion sections..." },
       { stage: "PDF_EXTRACTION", status: "completed", message: "Full-text PDFs extracted and cached to AWS S3" },
       { stage: "VECTOR_EMBEDDING", status: "running", message: "Generating 384-dimensional dense semantic vectors..." },
+  const simulateIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const simulatePipeline = useCallback(() => {
+    if (simulateIntervalRef.current) clearInterval(simulateIntervalRef.current);
+    setIsRunning(true);
+    setIsCompleted(false);
+    isCompletedRef.current = false;
+    setStages(DOWNSTREAM_PIPELINE_STAGES.map((s) => ({ ...s })));
+
+    const steps = [
+      { stage: "PDF_EXTRACTION", status: "running", message: "Extracting methodology, results, and discussion sections..." },
+      { stage: "PDF_EXTRACTION", status: "completed", message: "Full-text PDFs extracted and cached to AWS S3" },
+      { stage: "VECTOR_EMBEDDING", status: "running", message: "Generating 384-dimensional dense semantic vectors..." },
       { stage: "VECTOR_EMBEDDING", status: "completed", message: "384D dense semantic vector embeddings indexed" },
       { stage: "GAP_ANALYSIS", status: "running", message: "Synthesizing cross-paper methodology matrix and 3-5 research gaps..." },
       { stage: "GAP_ANALYSIS", status: "completed", message: "Methodology matrix and research gaps synthesized" },
@@ -376,9 +389,6 @@ export function useDownstreamWebSocket(
     const interval = setInterval(() => {
       if (stepIndex >= steps.length) {
         clearInterval(interval);
-        if (simulationIntervalRef.current === interval) {
-          simulationIntervalRef.current = null;
-        }
         handleIncomingPayload({
           event: "completed",
           stage: "COMPLETED",
@@ -399,14 +409,8 @@ export function useDownstreamWebSocket(
       stepIndex++;
     }, 700);
 
-    simulationIntervalRef.current = interval;
-
-    return () => {
-      clearInterval(interval);
-      if (simulationIntervalRef.current === interval) {
-        simulationIntervalRef.current = null;
-      }
-    };
+    simulateIntervalRef.current = interval;
+    return () => clearInterval(interval);
   }, [handleIncomingPayload]);
 
   // Window dispatch helpers for manual/automated browser testing
