@@ -50,11 +50,8 @@ export const DownstreamProgress: React.FC<DownstreamProgressProps> = ({
   useEffect(() => {
     if (isCompleted) {
       setIsCollapsed(true);
-      if (onComplete) {
-        onComplete();
-      }
     }
-  }, [isCompleted, onComplete]);
+  }, [isCompleted]);
 
   return (
     <div

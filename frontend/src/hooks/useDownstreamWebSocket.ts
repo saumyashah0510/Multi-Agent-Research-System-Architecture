@@ -184,11 +184,15 @@ export function useDownstreamWebSocket(
 
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectAttemptsRef = useRef(0);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const simulationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isManualCloseRef = useRef(false);
   const isCompletedRef = useRef(initialCompleted);
   const onCompleteRef = useRef(onComplete);
-  onCompleteRef.current = onComplete;
+
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
 
   useEffect(() => {
     if (initialCompleted) {
@@ -345,6 +349,11 @@ export function useDownstreamWebSocket(
   }, []);
 
   const simulatePipeline = useCallback(() => {
+    if (simulationIntervalRef.current) {
+      clearInterval(simulationIntervalRef.current);
+      simulationIntervalRef.current = null;
+    }
+
     setIsRunning(true);
     setIsCompleted(false);
     isCompletedRef.current = false;
@@ -367,6 +376,9 @@ export function useDownstreamWebSocket(
     const interval = setInterval(() => {
       if (stepIndex >= steps.length) {
         clearInterval(interval);
+        if (simulationIntervalRef.current === interval) {
+          simulationIntervalRef.current = null;
+        }
         handleIncomingPayload({
           event: "completed",
           stage: "COMPLETED",
@@ -387,7 +399,14 @@ export function useDownstreamWebSocket(
       stepIndex++;
     }, 700);
 
-    return () => clearInterval(interval);
+    simulationIntervalRef.current = interval;
+
+    return () => {
+      clearInterval(interval);
+      if (simulationIntervalRef.current === interval) {
+        simulationIntervalRef.current = null;
+      }
+    };
   }, [handleIncomingPayload]);
 
   // Window dispatch helpers for manual/automated browser testing
@@ -457,7 +476,9 @@ export function useDownstreamWebSocket(
 
   useEffect(() => {
     if (isMock) {
-      simulatePipeline();
+      if (!initialCompleted) {
+        return simulatePipeline();
+      }
       return;
     }
 
@@ -467,6 +488,10 @@ export function useDownstreamWebSocket(
     reconnectAttemptsRef.current = 0;
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
+    }
+    if (simulationIntervalRef.current) {
+      clearInterval(simulationIntervalRef.current);
+      simulationIntervalRef.current = null;
     }
 
     // Set initial stage if passed (e.g. from GET /api/v1/reviews/{reviewId})
@@ -490,6 +515,10 @@ export function useDownstreamWebSocket(
       isManualCloseRef.current = true;
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
+      }
+      if (simulationIntervalRef.current) {
+        clearInterval(simulationIntervalRef.current);
+        simulationIntervalRef.current = null;
       }
       if (socketRef.current) {
         socketRef.current.close();
