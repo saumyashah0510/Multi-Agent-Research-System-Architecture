@@ -4,6 +4,33 @@ Assignee Task (Issue BE-09):
 - Implement WebSocket route at /reviews/{review_id}
 - Listen to Redis Pub/Sub channel f"review:{review_id}:events"
 - Broadcast agent progress events to connected clients
+
+SECURITY & AUTHENTICATION AUDIT NOTE:
+--------------------------------------
+This endpoint is currently UNAUTHENTICATED and suitable ONLY for controlled
+development environments and automated integration test suites.
+
+Authentication & Authorization Status:
+- User authentication, identity resolution, and review ownership enforcement
+  remain UNIMPLEMENTED across this service.
+- There is currently no JWT signing/verification infrastructure (no SECRET_KEY in Settings).
+- There is no user login/session store or token issuance endpoint.
+- LiteratureReview ORM records support an optional user_id, but current REST routes
+  create reviews anonymously (user_id=NULL) without user identity context.
+- Validating that review_id > 0 is route parameter format validation only;
+  it does NOT constitute authentication or access authorization.
+
+PRODUCTION REQUIREMENTS FOR AUTHENTICATION:
+Prior to production or multi-tenant deployment, the following authentication
+and authorization flow must be established:
+1. Authenticate the connecting client during the HTTP/WebSocket handshake
+   (e.g., verifying a cryptographically signed JWT or secure session cookie).
+2. Resolve the client's authenticated user identity from the verified credentials.
+3. Query the requested LiteratureReview from the database.
+4. Verify authorization: assert review.user_id == authenticated_user_id
+   (or verify authorized administrative access permissions).
+5. If unauthenticated or unauthorized, immediately reject the handshake with
+   WebSocket close code 1008 (Policy Violation) before calling websocket.accept().
 """
 
 import asyncio
@@ -28,9 +55,16 @@ async def websocket_review_stream(websocket: WebSocket, review_id: int):
 
     Subscribes to Redis Pub/Sub channel 'review:{review_id}:events' and
     forwards agent execution events as JSON frames to the connected client.
+
+    NOTE: This endpoint is unauthenticated and intended for controlled development.
+    Validating review_id > 0 enforces parameter format integrity only.
     """
-    # Authorization & input validation: reject non-positive review IDs
+    # Route input format validation: reject non-positive review IDs (code 1008 policy violation)
     if review_id <= 0:
+        logger.warning(
+            "WebSocket connection rejected: invalid non-positive review_id %s (closing with code 1008)",
+            review_id,
+        )
         await websocket.close(code=1008)
         return
 
@@ -56,8 +90,8 @@ async def websocket_review_stream(websocket: WebSocket, review_id: int):
                     res = pubsub.close()
                     if inspect.isawaitable(res):
                         await res
-            except Exception:
-                pass
+            except Exception as close_err:
+                logger.debug("Error closing pubsub on subscribe failure: %s", close_err)
         if websocket.client_state == WebSocketState.CONNECTED:
             await websocket.close(code=1011)
         return
@@ -149,8 +183,8 @@ async def websocket_review_stream(websocket: WebSocket, review_id: int):
                     await task
                 except asyncio.CancelledError:
                     pass
-                except Exception:
-                    pass
+                except Exception as cancel_err:
+                    logger.debug("Error awaiting cancelled task: %s", cancel_err)
 
         # Cleanup Redis pubsub subscription
         if pubsub is not None:
@@ -174,6 +208,6 @@ async def websocket_review_stream(websocket: WebSocket, review_id: int):
             try:
                 close_code = 1011 if has_error else 1000
                 await websocket.close(code=close_code)
-            except Exception:
-                pass
+            except Exception as ws_close_err:
+                logger.debug("Error closing WebSocket: %s", ws_close_err)
         logger.info(f"Cleaned up WebSocket connection and Redis pubsub for review {review_id}")

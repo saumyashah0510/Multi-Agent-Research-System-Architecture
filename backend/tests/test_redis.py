@@ -160,3 +160,54 @@ async def test_publish_review_event_redis_error(monkeypatch: pytest.MonkeyPatch)
 
     with pytest.raises(ConnectionError, match="Redis server unavailable"):
         await redis_service.publish_review_event(101, {"event": "test"})
+
+
+def is_live_redis_available() -> bool:
+    """Check if a live Redis daemon is reachable on localhost:6379."""
+    import socket
+
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(0.5)
+        result = sock.connect_ex(("127.0.0.1", 6379))
+        sock.close()
+        return result == 0
+    except Exception:
+        return False
+
+
+LIVE_REDIS_AVAILABLE = is_live_redis_available()
+
+
+@pytest.mark.skipif(
+    not LIVE_REDIS_AVAILABLE,
+    reason="Live Redis daemon is not reachable on localhost:6379",
+)
+@pytest.mark.asyncio
+async def test_live_redis_pubsub_integration():
+    """Live integration test: connect, subscribe, publish, and receive over live Redis."""
+    import asyncio
+    import json
+
+    review_id = 9977
+    channel = f"review:{review_id}:events"
+    client = redis_service.get_redis_client()
+    pubsub = client.pubsub()
+
+    try:
+        await pubsub.subscribe(channel)
+        event = {"event": "live_redis_test", "review_id": review_id}
+        subscribers = await redis_service.publish_review_event(review_id, event)
+        assert subscribers >= 1
+
+        async with asyncio.timeout(3.0):
+            while True:
+                msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+                if msg and msg.get("type") == "message" and msg.get("channel") == channel:
+                    data = msg.get("data")
+                    payload = json.loads(data) if isinstance(data, (str, bytes)) else data
+                    assert payload == event
+                    break
+    finally:
+        await pubsub.unsubscribe(channel)
+        await pubsub.aclose()

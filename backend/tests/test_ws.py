@@ -331,9 +331,47 @@ def test_malformed_json_skipped_and_bytes_handled(mock_redis: MockRedis):
 
 
 def test_websocket_invalid_review_id_rejected():
-    """Verify that a non-positive review_id is rejected with policy violation (code 1008)."""
+    """Verify that non-positive review_ids (-5, 0) are rejected with policy violation (code 1008)."""
     client = TestClient(app)
-    with pytest.raises(WebSocketDisconnect) as exc_info:
+    with pytest.raises(WebSocketDisconnect) as exc_info1:
         with client.websocket_connect("/api/v1/ws/reviews/-5"):
             pass
-    assert exc_info.value.code == 1008
+    assert exc_info1.value.code == 1008
+
+    with pytest.raises(WebSocketDisconnect) as exc_info2:
+        with client.websocket_connect("/api/v1/ws/reviews/0"):
+            pass
+    assert exc_info2.value.code == 1008
+
+
+def is_live_redis_available() -> bool:
+    """Check if a live Redis daemon is reachable on localhost:6379."""
+    import socket
+
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(0.5)
+        result = sock.connect_ex(("127.0.0.1", 6379))
+        sock.close()
+        return result == 0
+    except Exception:
+        return False
+
+
+LIVE_REDIS_AVAILABLE = is_live_redis_available()
+
+
+@pytest.mark.skipif(
+    not LIVE_REDIS_AVAILABLE,
+    reason="Live Redis daemon is not reachable on localhost:6379",
+)
+def test_live_redis_websocket_stream():
+    """Live integration test: publish event to live Redis and receive via WebSocket."""
+    review_id = 9988
+    client = TestClient(app)
+
+    with client.websocket_connect(f"/api/v1/ws/reviews/{review_id}") as ws:
+        event = {"event": "live_test", "review_id": review_id, "status": "ok"}
+        asyncio.run(redis_service.publish_review_event(review_id, event))
+        received = ws.receive_json()
+        assert received == event
