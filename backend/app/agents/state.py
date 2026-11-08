@@ -8,6 +8,8 @@ class AgentState(TypedDict, total=False):
     """Global state shared across all 9 agent nodes in the literature review pipeline."""
 
     review_id: int
+    run_id: str
+    pipeline_run_id: str
     user_query: str
     target_domains: List[str]
 

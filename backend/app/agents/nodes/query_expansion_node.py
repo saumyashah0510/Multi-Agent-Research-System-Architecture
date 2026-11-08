@@ -1,6 +1,7 @@
 """Agent 01: Query Expansion and Domain Classifier Node with AI Guardrails."""
 
 import logging
+import uuid
 from typing import Any, Dict
 
 from google import genai
@@ -116,7 +117,13 @@ async def query_expansion_node(state: AgentState) -> Dict[str, Any]:
         if not domains:
             domains = ["Computer Science"]
 
+        review_id = state.get("review_id")
+        run_id = state.get("run_id") or state.get("pipeline_run_id")
+        if not run_id:
+            run_id = f"run_{review_id or 'exec'}_{uuid.uuid4().hex[:12]}"
+
         return {
+            "run_id": run_id,
             "target_domains": domains,
             "search_queries": queries,
             "current_step": "query_expansion_completed",

@@ -10,7 +10,7 @@ Assignee Task (Issue AI-07):
 
 import logging
 import re
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents.state import AgentState
 from app.db.session import AsyncSessionLocal
 from app.models.paper import Paper
+from app.services.redis_service import publish_stage_event
 from app.services.vector_service import is_embedding_model_available, store_paper_chunks
 
 logger = logging.getLogger(__name__)
@@ -290,6 +291,7 @@ async def _process_and_store_embeddings(
     extracted_pdf_contents: Dict[str, Any],
     approved_papers: List[Dict[str, Any]],
     commit_on_complete: bool = False,
+    run_id: Optional[Union[str, int]] = None,
 ) -> Dict[str, Any]:
     """Query scoped papers, resolve identities, chunk text, and persist PaperChunk records."""
     stmt = select(Paper)
@@ -362,6 +364,36 @@ async def _process_and_store_embeddings(
         review_id,
     )
 
+    # STRICT TRANSACTION BOUNDARY & ATOMICITY GUARANTEE:
+    # A completion notification MUST ONLY be published if the transaction containing
+    # the chunk writes has successfully committed!
+    # If commit_on_complete is False, the transaction is uncommitted and owned by the outer caller.
+    # Publishing upon flush would create false notifications if the outer transaction rolls back.
+    if commit_on_complete and review_id is not None:
+        try:
+            numeric_review_id = int(review_id)
+            if numeric_review_id > 0:
+                await publish_stage_event(
+                    review_id=numeric_review_id,
+                    stage="VECTOR_EMBEDDING",
+                    status="completed",
+                    message=f"Vector embedding completed: {total_chunks_stored} chunks persisted.",
+                    data={
+                        "chunks_stored_count": total_chunks_stored,
+                        "chunks_count": total_chunks_stored,
+                    },
+                    step="vector_embedding_completed",
+                    run_id=run_id,
+                )
+        except Exception as pub_exc:
+            # Deliberate failure handling: DB persistence succeeded.
+            # Do NOT undo or fail the workflow node if Redis publishing fails.
+            logger.warning(
+                "Redis publication failed for review_id=%s after successful vector chunk persistence: %s",
+                review_id,
+                pub_exc,
+            )
+
     return {
         "current_step": "vector_embedding_completed",
         "chunks_stored_count": total_chunks_stored,
@@ -371,6 +403,7 @@ async def _process_and_store_embeddings(
 async def vector_embedding_node(
     state: AgentState,
     db: Optional[AsyncSession] = None,
+    commit_on_complete: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """Segment paper sections, generate 384D embeddings, and persist to pgvector.
 
@@ -404,21 +437,55 @@ async def vector_embedding_node(
         logger.error(error_msg)
         raise RuntimeError(error_msg)
 
+    run_id = state.get("run_id") or state.get("pipeline_run_id")
+
     # Use provided db session or manage a new AsyncSession
     if db is not None:
+        should_commit = commit_on_complete if commit_on_complete is not None else False
         return await _process_and_store_embeddings(
             db=db,
             review_id=review_id,
             extracted_pdf_contents=extracted_pdf_contents,
             approved_papers=approved_papers,
-            commit_on_complete=False,
+            commit_on_complete=should_commit,
+            run_id=run_id,
         )
 
     async with AsyncSessionLocal() as session:
+        should_commit = commit_on_complete if commit_on_complete is not None else True
         return await _process_and_store_embeddings(
             db=session,
             review_id=review_id,
             extracted_pdf_contents=extracted_pdf_contents,
             approved_papers=approved_papers,
-            commit_on_complete=True,
+            commit_on_complete=should_commit,
+            run_id=run_id,
         )
+
+
+async def publish_vector_embedding_completion(
+    review_id: int,
+    chunks_stored_count: int,
+    event_id: Optional[str] = None,
+    idempotency_key: Optional[str] = None,
+    run_id: Optional[Union[str, int]] = None,
+) -> int:
+    """Publish vector embedding completion event after an external transaction commits.
+
+    Use this helper when managing an outer transaction with `commit_on_complete=False`
+    once your outer `await session.commit()` has successfully succeeded.
+    """
+    return await publish_stage_event(
+        review_id=review_id,
+        stage="VECTOR_EMBEDDING",
+        status="completed",
+        message=f"Vector embedding completed: {chunks_stored_count} chunks persisted.",
+        data={
+            "chunks_stored_count": chunks_stored_count,
+            "chunks_count": chunks_stored_count,
+        },
+        step="vector_embedding_completed",
+        event_id=event_id,
+        idempotency_key=idempotency_key,
+        run_id=run_id,
+    )

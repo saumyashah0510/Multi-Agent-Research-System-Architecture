@@ -149,7 +149,11 @@ export interface ReviewHistoryItem {
 export interface WebSocketStageUpdateEvent {
   event: string;
   stage: ReviewStatus | string;
+  step?: string;
   status?: string;
+  review_id?: string | number;
+  event_id?: string;
+  idempotency_key?: string;
   message?: string;
   data?: {
     sub_queries?: string[];
@@ -161,9 +165,10 @@ export interface WebSocketStageUpdateEvent {
     screened_count?: number;
     total?: number;
     progress?: number;
+    chunks_stored_count?: number;
+    chunks_count?: number;
     [key: string]: any;
   };
-  review_id?: string;
   timestamp?: string;
   [key: string]: any;
 }

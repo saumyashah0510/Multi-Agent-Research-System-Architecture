@@ -1,5 +1,7 @@
 import json
 import logging
+import uuid
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Union
 
 import redis.asyncio as aioredis
@@ -104,3 +106,101 @@ async def publish_review_event(review_id: int, event_data: Dict[str, Any]) -> in
     except Exception as exc:
         logger.error(f"Failed to publish event to Redis channel '{channel}': {exc}")
         raise
+
+
+def create_stage_event(
+    review_id: int,
+    stage: str,
+    status: str = "completed",
+    message: Optional[str] = None,
+    data: Optional[Dict[str, Any]] = None,
+    step: Optional[str] = None,
+    event_id: Optional[str] = None,
+    idempotency_key: Optional[str] = None,
+    run_id: Optional[Union[str, int]] = None,
+) -> Dict[str, Any]:
+    """Construct a standardized stage update event payload matching frontend schema.
+
+    Generates a unique, collision-free event_id per delivery and a deterministic,
+    execution-scoped idempotency_key when not explicitly provided by the caller.
+
+    Deterministic idempotency strategy:
+    Constructed from logical execution identity:
+      - review ID
+      - pipeline execution/run ID (if available via run_id or data)
+      - stage (lowercased)
+      - step (resolved step name)
+    Does NOT use random UUIDs for idempotency keys, guaranteeing stable idempotency across retries.
+    Maintains independently unique event_id per event delivery.
+    """
+    resolved_step = step or f"{stage.lower()}_{status}"
+    resolved_eid = event_id or f"evt_{review_id}_{stage.lower()}_{uuid.uuid4().hex[:12]}"
+
+    if idempotency_key is not None:
+        resolved_key = idempotency_key
+    else:
+        # Resolve execution/run ID from parameter or event data payload
+        resolved_run_id = run_id
+        if resolved_run_id is None and data and isinstance(data, dict):
+            resolved_run_id = (
+                data.get("run_id") or data.get("pipeline_run_id") or data.get("execution_id")
+            )
+
+        if resolved_run_id is not None:
+            resolved_key = f"review:{review_id}:{resolved_run_id}:{stage.lower()}:{resolved_step}"
+        else:
+            resolved_key = f"review:{review_id}:{stage.lower()}:{resolved_step}"
+
+    return {
+        "event": "stage_update",
+        "stage": stage,
+        "step": resolved_step,
+        "status": status,
+        "review_id": review_id,
+        "event_id": resolved_eid,
+        "idempotency_key": resolved_key,
+        "message": message or f"Stage {stage} {status}.",
+        "data": data or {},
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+async def publish_stage_event(
+    review_id: int,
+    stage: str,
+    status: str = "completed",
+    message: Optional[str] = None,
+    data: Optional[Dict[str, Any]] = None,
+    step: Optional[str] = None,
+    event_id: Optional[str] = None,
+    idempotency_key: Optional[str] = None,
+    run_id: Optional[Union[str, int]] = None,
+) -> int:
+    """Publish a standardized stage update event through publish_review_event.
+
+    Args:
+        review_id: The ID of the review being processed.
+        stage: The pipeline stage name (e.g. 'VECTOR_EMBEDDING').
+        status: The execution status (default 'completed').
+        message: Optional human-readable progress message.
+        data: Optional dictionary containing stage metrics (e.g. chunk counts).
+        step: Optional specific step name.
+        event_id: Optional unique event ID for consumer deduplication.
+        idempotency_key: Optional idempotency key for distributed delivery.
+        run_id: Optional pipeline execution / run identifier.
+
+    Returns:
+        The number of Redis subscribers that received the message.
+    """
+    payload = create_stage_event(
+        review_id=review_id,
+        stage=stage,
+        status=status,
+        message=message,
+        data=data,
+        step=step,
+        event_id=event_id,
+        idempotency_key=idempotency_key,
+        run_id=run_id,
+    )
+    return await publish_review_event(review_id, payload)
