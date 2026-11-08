@@ -381,8 +381,16 @@ const ReviewDetailInner: React.FC = () => {
             )
           )}
 
-          {activeTab === "chat" && (
-            <ReviewChat reviewId={reviewId || "default"} />
+          {reviewId ? (
+            <div className={activeTab === "chat" ? "block" : "hidden"}>
+              <ReviewChat reviewId={reviewId} />
+            </div>
+          ) : (
+            activeTab === "chat" && (
+              <div className="w-full bg-white rounded-2xl border border-neutral-200/90 shadow-xs p-8 text-center text-neutral-500 text-xs sm:text-sm">
+                No literature review ID provided in the route.
+              </div>
+            )
           )}
         </div>
       )}

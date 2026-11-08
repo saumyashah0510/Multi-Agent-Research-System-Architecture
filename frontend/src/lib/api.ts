@@ -1,4 +1,6 @@
 // API Client Helper for Scholaris Multi-Agent Research System
+import { ChatHistoryMessage, ChatResponse } from "../types";
+
 const API_BASE_URL =
   (import.meta.env && import.meta.env.VITE_API_URL) ||
   "http://localhost:8000/api/v1";
@@ -64,17 +66,30 @@ export async function submitHumanDecision(
 
 export async function sendReviewChatMessage(
   reviewId: string,
-  query: string,
-  history: Array<{ role: string; content: string }> = [],
-  topK: number = 5
-) {
-  const res = await fetch(`${API_BASE_URL}/reviews/${reviewId}/chat`, {
+  question: string,
+  history: ChatHistoryMessage[] = [],
+  signal?: AbortSignal
+): Promise<ChatResponse> {
+  const res = await fetch(`${API_BASE_URL}/reviews/${encodeURIComponent(reviewId)}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query, history, top_k: topK }),
+    body: JSON.stringify({ question, history }),
+    signal,
   });
   if (!res.ok) {
-    throw new Error(`Failed to send chat message: ${res.statusText}`);
+    let errorDetail = res.statusText || `HTTP ${res.status}`;
+    try {
+      const errorJson = await res.json();
+      if (errorJson && errorJson.detail) {
+        errorDetail =
+          typeof errorJson.detail === "string"
+            ? errorJson.detail
+            : JSON.stringify(errorJson.detail);
+      }
+    } catch {
+      // Body may not be valid JSON or empty; fallback to status text
+    }
+    throw new Error(`Failed to send chat message: ${errorDetail}`);
   }
   return res.json();
 }

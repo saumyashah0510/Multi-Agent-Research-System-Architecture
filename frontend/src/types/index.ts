@@ -108,26 +108,35 @@ export interface HealthStatusResponse {
   };
 }
 
-export interface SourceChunk {
-  chunk_id: number;
-  paper_id?: number;
-  title: string;
-  text: string;
-  relevance_score: number;
+export interface ChatHistoryMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface CitationSource {
+  paper_id: number;
+  title?: string | null;
+  section_name: string;
+  chunk_index: number;
+  snippet: string;
 }
 
 export interface ChatMessage {
-  id?: string;
+  id: string;
   role: "user" | "assistant";
   content: string;
   timestamp?: string;
-  sources?: SourceChunk[];
+  citations?: CitationSource[];
+  isError?: boolean;
 }
 
 export interface ChatResponse {
-  response: string;
-  sources: SourceChunk[];
+  answer: string;
+  citations: CitationSource[];
 }
+
+/** Backward compatibility alias for CitationSource */
+export type SourceChunk = CitationSource;
 
 export interface ReviewHistoryItem {
   id: string;
