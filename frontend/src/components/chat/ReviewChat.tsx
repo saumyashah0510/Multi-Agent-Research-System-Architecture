@@ -89,23 +89,33 @@ export const ReviewChat: React.FC<ReviewChatProps> = ({ reviewId, className = ""
     const trimmed = inputQuery.trim();
     if (!trimmed || isLoading || !reviewId) return;
 
-    // Build history from previous turns:
+    // Build history from previous completed turns:
     // - Exclude welcome message
     // - Exclude error messages
+    // - Exclude user messages whose corresponding request failed (turn without successful assistant response)
     // - Exclude current question (sent separately as `question`)
     // - Strict ChatHistoryMessage format: { role, content }
+    const successfulTurnIds = new Set(
+      messages
+        .filter((m) => m.role === "assistant" && !m.isError && m.id !== "welcome" && m.turnId)
+        .map((m) => m.turnId as string)
+    );
+
     const historyPayload: ChatHistoryMessage[] = messages
-      .filter((m) => m.id !== "welcome" && !m.isError)
+      .filter((m) => m.id !== "welcome" && !m.isError && m.turnId && successfulTurnIds.has(m.turnId))
       .map((m) => ({
         role: m.role,
         content: m.content,
       }));
 
+    const turnId = `turn-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     const userMessageId = `user-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     const userMsg: ChatMessage = {
       id: userMessageId,
+      turnId,
       role: "user",
       content: trimmed,
+      status: "pending",
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     };
 
@@ -132,13 +142,19 @@ export const ReviewChat: React.FC<ReviewChatProps> = ({ reviewId, className = ""
 
       const assistantMsg: ChatMessage = {
         id: `assistant-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        turnId,
         role: "assistant",
         content: res.answer || "No response generated.",
         citations: res.citations || [],
+        status: "success",
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       };
 
-      setMessages((prev) => [...prev, assistantMsg]);
+      setMessages((prev) =>
+        prev
+          .map((m): ChatMessage => (m.turnId === turnId ? { ...m, status: "success" } : m))
+          .concat(assistantMsg)
+      );
     } catch (err: unknown) {
       // Discard abortions or responses for stale reviews
       if (
@@ -155,13 +171,19 @@ export const ReviewChat: React.FC<ReviewChatProps> = ({ reviewId, className = ""
 
       const errorMsg: ChatMessage = {
         id: `err-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        turnId,
         role: "assistant",
         content: errorMessage,
         isError: true,
+        status: "error",
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       };
 
-      setMessages((prev) => [...prev, errorMsg]);
+      setMessages((prev) =>
+        prev
+          .map((m): ChatMessage => (m.turnId === turnId ? { ...m, status: "error" } : m))
+          .concat(errorMsg)
+      );
     } finally {
       if (currentReviewIdRef.current === activeReviewId) {
         setIsLoading(false);

@@ -128,6 +128,8 @@ export interface ChatMessage {
   timestamp?: string;
   citations?: CitationSource[];
   isError?: boolean;
+  turnId?: string;
+  status?: "pending" | "success" | "error";
 }
 
 export interface ChatResponse {
