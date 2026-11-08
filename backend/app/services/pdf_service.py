@@ -4,13 +4,15 @@ import asyncio
 import io
 import logging
 import re
+import urllib.parse
+from html.parser import HTMLParser
 from typing import Any, Dict, Optional
 
 import httpx
 from pypdf import PdfReader
 
 from app.core.config import settings
-from app.core.guardrails import enforce_pdf_url_safety
+from app.core.guardrails import enforce_pdf_url_safety, validate_pdf_url
 
 logger = logging.getLogger(__name__)
 
@@ -95,16 +97,29 @@ def _normalize_heading(text: str) -> str:
     return text.strip().lower()
 
 
-def _detect_section_heading(line: str) -> str | None:
-    """Return the canonical section name for a recognized heading."""
+def _detect_section_heading(line: str) -> tuple[Optional[str], str]:
+    """Return (canonical_section_name, trailing_content) for a recognized heading.
 
+    Supports standalone headings (e.g. 'Methods') as well as inline headings
+    with a colon or dash (e.g. 'Abstract: The emergence of...').
+    """
     normalized = _normalize_heading(line)
 
     for section_name, aliases in SECTION_ALIASES.items():
         if normalized in aliases:
-            return section_name
+            return section_name, ""
 
-    return None
+    match = re.match(
+        r"^(\d+(?:\.\d+)*[ \t.)-]*)?([a-zA-Z &]{3,30}?)(?::[ \t]*|[ \t]+[-–—][ \t]+)(.*)$",
+        line,
+    )
+    if match:
+        norm_prefix = _normalize_heading(match.group(2))
+        for section_name, aliases in SECTION_ALIASES.items():
+            if norm_prefix in aliases:
+                return section_name, match.group(3).strip()
+
+    return None, ""
 
 
 def _extract_sections(raw_text: str) -> Dict[str, str]:
@@ -135,13 +150,13 @@ def _extract_sections(raw_text: str) -> Dict[str, str]:
                 current_lines.append("")
             continue
 
-        detected_section = _detect_section_heading(stripped_line)
+        detected_section, trailing_text = _detect_section_heading(stripped_line)
 
         if detected_section is not None:
             save_current_section()
 
             current_section = detected_section
-            current_lines = []
+            current_lines = [trailing_text] if trailing_text else []
             continue
 
         if current_section is not None:
@@ -168,40 +183,317 @@ def _extract_pdf_text(pdf_bytes: bytes) -> str:
     return "\n\n".join(page_texts).strip()
 
 
+class _ArticleHTMLParser(HTMLParser):
+    """Secure, zero-dependency HTML parser for Open Access article bodies."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._pieces: list[str] = []
+        self._ignore_stack: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, Optional[str]]]) -> None:
+        tag_lower = tag.lower()
+        if tag_lower in ("script", "style", "nav", "header", "footer", "aside", "noscript"):
+            self._ignore_stack.append(tag_lower)
+        elif tag_lower in (
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+            "p",
+            "div",
+            "section",
+            "article",
+            "br",
+            "li",
+        ):
+            self._pieces.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        tag_lower = tag.lower()
+        if self._ignore_stack and self._ignore_stack[-1] == tag_lower:
+            self._ignore_stack.pop()
+        elif tag_lower in ("h1", "h2", "h3", "h4", "h5", "h6", "p", "div", "section", "article"):
+            self._pieces.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        if not self._ignore_stack:
+            self._pieces.append(data)
+
+    def get_text(self) -> str:
+        raw = "".join(self._pieces)
+        return re.sub(r"\n{3,}", "\n\n", raw).strip()
+
+
+def extract_html_article_text(html_content: str) -> Dict[str, Any]:
+    """Extract clean text and academic sections from an Open Access HTML article.
+
+    Provides a zero-dependency fallback when publishers return full HTML web pages
+    instead of raw PDF binaries.
+    """
+    if not html_content or not html_content.strip():
+        return {"raw_text": "", "sections": {}}
+
+    parser = _ArticleHTMLParser()
+    try:
+        parser.feed(html_content)
+        raw_text = parser.get_text()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("HTML article parsing failed: %s", exc)
+        return {"raw_text": "", "sections": {}}
+
+    if not raw_text:
+        return {"raw_text": "", "sections": {}}
+
+    sections = _extract_sections(raw_text)
+    return {"raw_text": raw_text, "sections": sections}
+
+
+DEFAULT_BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/122.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,application/pdf,*/*;q=0.8",
+}
+
+
+def _normalize_doi(doi: Optional[str]) -> str:
+    """Strip standard DOI URL prefixes and whitespace."""
+    if not doi or not doi.strip():
+        return ""
+    clean = doi.strip()
+    for prefix in (
+        "https://doi.org/",
+        "http://doi.org/",
+        "https://dx.doi.org/",
+        "http://dx.doi.org/",
+        "doi:",
+    ):
+        if clean.lower().startswith(prefix):
+            clean = clean[len(prefix) :].strip()
+    return clean
+
+
+def _is_safe_pdf_url(url: Optional[str]) -> bool:
+    """Validate that candidate URL meets SSRF policy and is not an anti-bot challenge domain."""
+    if not url or not isinstance(url, str) or not url.strip().startswith("https://"):
+        return False
+    # Exclude known Proof-of-Work JS challenge endpoints that block automated HTTP clients
+    if "pmc.ncbi.nlm.nih.gov" in url:
+        return False
+    validation = validate_pdf_url(url.strip())
+    return validation.is_safe
+
+
 async def _download_pdf(pdf_url: str) -> bytes:
-    """Download PDF bytes asynchronously after enforcing SSRF URL safety."""
-    safe_url = enforce_pdf_url_safety(pdf_url)
+    """Download PDF bytes asynchronously after enforcing SSRF URL safety on every redirect hop."""
+    current_url = enforce_pdf_url_safety(pdf_url)
+    max_hops = 5
 
-    async with httpx.AsyncClient(
-        timeout=REQUEST_TIMEOUT,
-        follow_redirects=True,
-    ) as client:
-        response = await client.get(safe_url)
-        response.raise_for_status()
-
-        content_type = response.headers.get(
-            "content-type",
-            "",
-        ).lower()
-
-        if content_type and "pdf" not in content_type:
-            # Some academic repositories may return an incorrect or
-            # missing content type, so the actual PDF content is still
-            # accepted if it can be parsed successfully.
-            pass
-
-        return response.content
+    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+        for _ in range(max_hops):
+            response = await client.get(
+                current_url,
+                headers=DEFAULT_BROWSER_HEADERS,
+                follow_redirects=False,
+            )
+            if response.is_redirect:
+                location = response.headers.get("Location")
+                if not location:
+                    response.raise_for_status()
+                next_url = str(response.url.join(location))
+                current_url = enforce_pdf_url_safety(next_url)
+                continue
+            response.raise_for_status()
+            return response.content
+        raise ValueError(f"Too many redirects downloading PDF from {pdf_url}")
 
 
 def _get_s3_key(cache_key: str) -> str:
     """Return the deterministic S3 key for a given cache_key."""
     if re.match(r"^\d{4}\.\d{4,5}(v\d+)?$", cache_key):
-        return f"{S3_PREFIX}{cache_key}.pdf"
+        return f"{S3_PREFIX}arxiv/{cache_key}.pdf"
+    if cache_key.startswith("pmid_") or cache_key.startswith("pubmed_"):
+        clean_pmid = re.sub(r"[^A-Za-z0-9._-]", "_", cache_key)
+        return f"{S3_PREFIX}pubmed/{clean_pmid}.pdf"
+    if cache_key.startswith("doi_"):
+        clean_doi = re.sub(r"[^A-Za-z0-9._-]", "_", cache_key[4:])
+        return f"{S3_PREFIX}dois/{clean_doi}.pdf"
     import hashlib
 
     title_hash = hashlib.sha256(cache_key.encode("utf-8")).hexdigest()[:12]
     clean_title = re.sub(r"[^A-Za-z0-9._-]", "_", cache_key)[:40].strip("_")
     return f"{S3_PREFIX}titles/{clean_title}_{title_hash}.pdf"
+
+
+async def resolve_pubmed_pdf_url(
+    pmid: str,
+    doi: Optional[str] = None,
+) -> Optional[str]:
+    """Resolve an open-access full-text PDF URL for a PubMed paper.
+
+    Queries OpenAlex works API by PMID, and Unpaywall API by DOI if available.
+    Returns a verified HTTPS URL or None if paywalled/unavailable.
+    """
+    if not pmid or not pmid.strip():
+        return None
+
+    clean_pmid = pmid.strip()
+    encoded_pmid = urllib.parse.quote(clean_pmid, safe="")
+    headers = {"User-Agent": "mailto:team_review@daiict.ac.in"}
+
+    async with httpx.AsyncClient(
+        timeout=REQUEST_TIMEOUT,
+        follow_redirects=True,
+    ) as client:
+        # 1. Query OpenAlex by PMID
+        try:
+            openalex_url = f"https://api.openalex.org/works/pmid:{encoded_pmid}"
+            resp = await client.get(openalex_url, headers=headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                best_oa = data.get("best_oa_location") or {}
+                pdf_url = best_oa.get("pdf_url")
+                if _is_safe_pdf_url(pdf_url):
+                    return pdf_url
+                for loc in data.get("locations", []):
+                    cand = loc.get("pdf_url")
+                    if _is_safe_pdf_url(cand):
+                        return cand
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("OpenAlex PMID resolution failed for %s: %s", clean_pmid, exc)
+
+        # 2. Query Unpaywall if DOI is available
+        clean_doi = _normalize_doi(doi) if doi else ""
+        if clean_doi:
+            try:
+                encoded_doi = urllib.parse.quote(clean_doi, safe="/")
+                unpaywall_url = (
+                    f"https://api.unpaywall.org/v2/{encoded_doi}?email=team_review@daiict.ac.in"
+                )
+                resp = await client.get(unpaywall_url)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    best_oa = data.get("best_oa_location") or {}
+                    pdf_url = best_oa.get("url_for_pdf")
+                    if _is_safe_pdf_url(pdf_url):
+                        return pdf_url
+
+                    # Check secondary repository locations
+                    for loc in data.get("oa_locations", []):
+                        repo_pdf = loc.get("url_for_pdf")
+                        if _is_safe_pdf_url(repo_pdf):
+                            return repo_pdf
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Unpaywall DOI resolution failed for %s: %s", clean_doi, exc)
+
+    return None
+
+
+async def resolve_biorxiv_pdf_url(doi: str) -> Optional[str]:
+    """Resolve an open-access full-text PDF URL for a bioRxiv preprint.
+
+    Tries the direct Cold Spring Harbor canonical stream first, then falls back
+    to OpenAlex and Unpaywall repository locations if direct access is restricted.
+    """
+    clean_doi = _normalize_doi(doi)
+    if not clean_doi:
+        return None
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)"
+        )
+    }
+
+    # 1. Direct bioRxiv preprint stream
+    direct_url = f"https://www.biorxiv.org/content/{clean_doi}.full.pdf"
+    try:
+        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=True) as client:
+            resp = await client.head(direct_url, headers=headers)
+            content_type = resp.headers.get("content-type", "").lower()
+            if resp.status_code == 200 and "pdf" in content_type:
+                return direct_url
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Direct bioRxiv HEAD check failed for %s: %s", clean_doi, exc)
+
+    # 2. Fallback to OpenAlex / Unpaywall repository mirror
+    try:
+        encoded_doi = urllib.parse.quote(clean_doi, safe="/")
+        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=True) as client:
+            unpaywall_url = (
+                f"https://api.unpaywall.org/v2/{encoded_doi}?email=team_review@daiict.ac.in"
+            )
+            resp = await client.get(unpaywall_url)
+            if resp.status_code == 200:
+                data = resp.json()
+                for loc in data.get("oa_locations", []):
+                    pdf_cand = loc.get("url_for_pdf")
+                    if _is_safe_pdf_url(pdf_cand):
+                        return pdf_cand
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("bioRxiv mirror fallback failed for %s: %s", clean_doi, exc)
+
+    return None
+
+
+async def resolve_unpaywall_pdf_url(doi: str) -> Optional[str]:
+    """Resolve an open-access full-text PDF URL for a Crossref or Semantic Scholar DOI.
+
+    Queries Unpaywall API first, then falls back to OpenAlex DOI lookup.
+    Returns a verified HTTPS PDF URL or None if paywalled/restricted.
+    """
+    clean_doi = _normalize_doi(doi)
+    if not clean_doi:
+        return None
+
+    headers = {"User-Agent": "mailto:team_review@daiict.ac.in"}
+    encoded_doi = urllib.parse.quote(clean_doi, safe="/")
+
+    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=True) as client:
+        # 1. Query Unpaywall API
+        try:
+            unpaywall_url = (
+                f"https://api.unpaywall.org/v2/{encoded_doi}?email=team_review@daiict.ac.in"
+            )
+            resp = await client.get(unpaywall_url)
+            if resp.status_code == 200:
+                data = resp.json()
+                best_oa = data.get("best_oa_location") or {}
+                pdf_url = best_oa.get("url_for_pdf")
+                if _is_safe_pdf_url(pdf_url):
+                    return pdf_url
+
+                # Check secondary repository locations
+                for loc in data.get("oa_locations", []):
+                    cand = loc.get("url_for_pdf")
+                    if _is_safe_pdf_url(cand):
+                        return cand
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Unpaywall resolution failed for %s: %s", clean_doi, exc)
+
+        # 2. Fallback to OpenAlex by DOI
+        try:
+            openalex_url = f"https://api.openalex.org/works/doi:{encoded_doi}"
+            resp = await client.get(openalex_url, headers=headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                best_oa = data.get("best_oa_location") or {}
+                pdf_url = best_oa.get("pdf_url")
+                if _is_safe_pdf_url(pdf_url):
+                    return pdf_url
+                for loc in data.get("locations", []):
+                    cand = loc.get("pdf_url")
+                    if _is_safe_pdf_url(cand):
+                        return cand
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("OpenAlex DOI resolution failed for %s: %s", clean_doi, exc)
+
+    return None
 
 
 async def get_pdf_from_s3(cache_key: str) -> Optional[bytes]:
@@ -215,7 +507,10 @@ async def get_pdf_from_s3(cache_key: str) -> Optional[bytes]:
     if not cache_key or not access_key or not secret_key:
         return None
 
-    s3_key = _get_s3_key(cache_key)
+    primary_key = _get_s3_key(cache_key)
+    legacy_key = (
+        f"{S3_PREFIX}{cache_key}.pdf" if re.match(r"^\d{4}\.\d{4,5}(v\d+)?$", cache_key) else None
+    )
 
     def _fetch() -> Optional[bytes]:
         import boto3
@@ -237,19 +532,25 @@ async def get_pdf_from_s3(cache_key: str) -> Optional[bytes]:
             client_kwargs["aws_session_token"] = settings.AWS_SESSION_TOKEN
 
         client = boto3.client("s3", **client_kwargs)
-        try:
-            response = client.get_object(
-                Bucket=settings.AWS_S3_BUCKET,
-                Key=s3_key,
-            )
-            body = response["Body"].read()
-            if body and body.startswith(b"%PDF"):
-                return body
-        except ClientError:
-            return None
-        except Exception as exc:  # noqa: BLE001 - cache read failure falls back to download
-            logger.debug("S3 fetch failed for key '%s': %s", s3_key, exc)
-            return None
+
+        keys_to_try = [primary_key]
+        if legacy_key:
+            keys_to_try.append(legacy_key)
+
+        for s3_key in keys_to_try:
+            try:
+                response = client.get_object(
+                    Bucket=settings.AWS_S3_BUCKET,
+                    Key=s3_key,
+                )
+                body = response["Body"].read()
+                if body and body.startswith(b"%PDF"):
+                    return body
+            except ClientError:
+                continue
+            except Exception as exc:  # noqa: BLE001 - cache read failure falls back to download
+                logger.debug("S3 fetch failed for key '%s': %s", s3_key, exc)
+                continue
         return None
 
     try:
@@ -350,6 +651,22 @@ async def download_and_extract_pdf(
         pdf_bytes = await _download_pdf(safe_url)
 
         if not pdf_bytes or not pdf_bytes.startswith(b"%PDF"):
+            # Connect HTML fallback if the response is an Open Access HTML article
+            if pdf_bytes and (
+                pdf_bytes.lstrip().startswith(b"<!doctype html")
+                or pdf_bytes.lstrip().startswith(b"<!DOCTYPE html")
+                or pdf_bytes.lstrip().startswith(b"<html")
+                or b"<article" in pdf_bytes[:500]
+            ):
+                try:
+                    html_text = pdf_bytes.decode("utf-8", errors="replace")
+                    html_data = extract_html_article_text(html_text)
+                    if html_data.get("sections") and html_data.get("raw_text"):
+                        logger.info("Extracted HTML article full text for '%s'", pdf_url)
+                        return html_data
+                except Exception as html_exc:  # noqa: BLE001
+                    logger.debug("HTML extraction fallback failed for '%s': %s", pdf_url, html_exc)
+
             if pdf_bytes and not pdf_bytes.startswith(b"%PDF"):
                 logger.warning(
                     "Downloaded content for '%s' is not a valid PDF (header: %s).",

@@ -1,6 +1,18 @@
 import React from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import { Sparkles, Search, Filter, LoaderCircle, CircleAlert, CircleCheck } from "lucide-react";
+import {
+  Sparkles,
+  Search,
+  Filter,
+  LoaderCircle,
+  CircleAlert,
+  CircleCheck,
+  FileText,
+  Layers,
+  GitCompare,
+  ShieldCheck,
+  BookOpen,
+} from "lucide-react";
 import { PipelineStage } from "./types";
 
 interface StageCardProps {
@@ -39,6 +51,41 @@ const STAGE_CONFIG: Record<string, StageStyleConfig> = {
     border: "border-[#c2c5f6]",
     activeBorder: "border-[#b3b7f5]",
     activeRing: "ring-indigo-500/20",
+  },
+  "pdf-extraction": {
+    icon: <FileText className="w-4 h-4 text-neutral-800/80 shrink-0" aria-hidden="true" />,
+    bg: "var(--tint-sky)",
+    border: "border-[#b2dbfa]",
+    activeBorder: "border-[#9ed2fa]",
+    activeRing: "ring-blue-500/20",
+  },
+  "vector-embedding": {
+    icon: <Layers className="w-4 h-4 text-neutral-800/80 shrink-0" aria-hidden="true" />,
+    bg: "var(--tint-lavender)",
+    border: "border-[#c2c5f6]",
+    activeBorder: "border-[#b3b7f5]",
+    activeRing: "ring-indigo-500/20",
+  },
+  "gap-analysis": {
+    icon: <GitCompare className="w-4 h-4 text-neutral-800/80 shrink-0" aria-hidden="true" />,
+    bg: "var(--tint-mint)",
+    border: "border-[#bfe8b2]",
+    activeBorder: "border-[#a5df97]",
+    activeRing: "ring-[var(--color-success)]/20",
+  },
+  "citation-verification": {
+    icon: <ShieldCheck className="w-4 h-4 text-neutral-800/80 shrink-0" aria-hidden="true" />,
+    bg: "var(--tint-sky)",
+    border: "border-[#b2dbfa]",
+    activeBorder: "border-[#9ed2fa]",
+    activeRing: "ring-blue-500/20",
+  },
+  "report-synthesis": {
+    icon: <BookOpen className="w-4 h-4 text-neutral-800/80 shrink-0" aria-hidden="true" />,
+    bg: "var(--tint-mint)",
+    border: "border-[#bfe8b2]",
+    activeBorder: "border-[#a5df97]",
+    activeRing: "ring-[var(--color-success)]/20",
   },
 };
 
