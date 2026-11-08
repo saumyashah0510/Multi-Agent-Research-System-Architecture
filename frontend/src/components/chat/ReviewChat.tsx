@@ -32,6 +32,11 @@ export interface ReviewChatProps {
 const WELCOME_CONTENT =
   "Hello! I am your research assistant grounded in the literature reviewed for this session. Ask me anything about specific findings, methodologies, or comparisons across the analyzed papers.";
 
+/**
+ * Creates the initial welcome greeting message from the RAG research assistant.
+ *
+ * @returns A ChatMessage initialized with the default academic assistant greeting.
+ */
 function createWelcomeMessage(): ChatMessage {
   return {
     id: "welcome",
@@ -41,6 +46,13 @@ function createWelcomeMessage(): ChatMessage {
   };
 }
 
+/**
+ * Interactive Multi-Turn RAG Chat UI & Source Context Drawer component.
+ *
+ * Provides a conversational assistant interface grounded in pgvector literature chunk embeddings.
+ * Features strict multi-turn history serialization, expandable citation evidence drawers,
+ * auto-scrolling, review ID isolation, and graceful error handling.
+ */
 export const ReviewChat: React.FC<ReviewChatProps> = ({ reviewId, className = "" }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([createWelcomeMessage()]);
   const [inputQuery, setInputQuery] = useState("");
@@ -72,6 +84,9 @@ export const ReviewChat: React.FC<ReviewChatProps> = ({ reviewId, className = ""
     };
   }, [reviewId]);
 
+  /**
+   * Smoothly scrolls the chat message viewport to the newest message or typing indicator.
+   */
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
@@ -80,10 +95,52 @@ export const ReviewChat: React.FC<ReviewChatProps> = ({ reviewId, className = ""
     scrollToBottom();
   }, [messages, isLoading]);
 
+  /**
+   * Toggles the expanded/collapsed state of the retrieved sources drawer for a specific assistant message.
+   *
+   * @param msgId - The unique ID of the assistant message whose citation accordion should toggle.
+   */
   const toggleSources = (msgId: string) => {
     setExpandedSources((prev) => ({ ...prev, [msgId]: !prev[msgId] }));
   };
 
+  /**
+   * Handles user question submission and orchestrates the full RAG chat request lifecycle.
+   *
+   * Workflow and Invariants:
+   * 1. **Validation & Deduplication**:
+   *    Validates that the input query is non-empty after trimming, verifies that a valid `reviewId`
+   *    exists, and rejects concurrent submissions while `isLoading` is true.
+   * 2. **Conversation History Serialization**:
+   *    - Identifies all previously completed turns by finding turn IDs with a successful, non-error
+   *      assistant response (`successfulTurnIds`).
+   *    - Excludes the initial welcome greeting (`id === 'welcome'`).
+   *    - Excludes prior assistant error notices (`isError === true`).
+   *    - Excludes failed or unanswered user questions (whose turn did not produce a valid assistant answer).
+   *    - Excludes the currently submitted question because it is transmitted separately in the `question` field.
+   *    - Maps valid turns to `{ role: 'user' | 'assistant', content }` while preserving chronological order.
+   * 3. **Turn Initialization & Optimistic User Message**:
+   *    - Generates a unique, stable `turnId` correlating the user question with its subsequent response.
+   *    - Immediately appends the user message in `status: 'pending'` and activates the loading indicator.
+   *    - Clears the input field immediately to provide responsive feedback.
+   * 4. **Network Request & In-Flight Abort Management**:
+   *    - Creates an `AbortController` stored in `abortControllerRef` to enable request cancellation if the
+   *      component unmounts or if the user switches to a different review.
+   *    - Calls `sendReviewChatMessage` targeting `POST /api/v1/reviews/{reviewId}/chat` with `{ question, history }`.
+   * 5. **Stale Review Protection & Race-Condition Guarding**:
+   *    - Checks `currentReviewIdRef.current === activeReviewId` before applying any state updates.
+   *    - Discards responses and errors if the user switched reviews while the request was in flight.
+   * 6. **Response & Failure Handling**:
+   *    - **On Success**: Appends the assistant message with `status: 'success'` and retrieved `citations`,
+   *      while promoting the correlated user message to `status: 'success'`.
+   *    - **On Error**: Ignores `AbortError` and stale review responses. For actual failures, appends an
+   *      assistant error bubble with `isError: true` and `status: 'error'`, and updates the correlated
+   *      user message to `status: 'error'`. This preserves visible error feedback for the user while
+   *      preventing failed questions from contaminating subsequent conversation turns.
+   *    - **Cleanup**: Clears the loading state (`isLoading = false`) if the review remains active.
+   *
+   * @param e - The form submission event.
+   */
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = inputQuery.trim();

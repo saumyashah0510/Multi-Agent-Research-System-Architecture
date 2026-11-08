@@ -108,11 +108,17 @@ export interface HealthStatusResponse {
   };
 }
 
+/**
+ * Single turn in conversation history sent to the backend RAG chat API.
+ */
 export interface ChatHistoryMessage {
   role: "user" | "assistant";
   content: string;
 }
 
+/**
+ * Retrieved source chunk citation from the pgvector literature database.
+ */
 export interface CitationSource {
   paper_id: number;
   title?: string | null;
@@ -121,6 +127,10 @@ export interface CitationSource {
   snippet: string;
 }
 
+/**
+ * Chat message rendered in the ReviewChat UI, representing user queries,
+ * grounded assistant answers, or error notifications.
+ */
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
@@ -132,6 +142,9 @@ export interface ChatMessage {
   status?: "pending" | "success" | "error";
 }
 
+/**
+ * Response payload returned by POST /api/v1/reviews/{reviewId}/chat.
+ */
 export interface ChatResponse {
   answer: string;
   citations: CitationSource[];
