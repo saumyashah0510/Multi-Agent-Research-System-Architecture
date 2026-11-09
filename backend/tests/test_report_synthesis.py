@@ -249,3 +249,36 @@ def test_format_review_as_markdown():
     assert "1. Error correction" in md_output
     assert "## Conclusion & Future Directions" in md_output
     assert "## References & Bibliography" in md_output
+
+
+def test_reference_item_bibliographic_metadata_and_markdown():
+    """Verify ReferenceItem handles authors, year, url, and matched_passage."""
+    from app.schemas.agent_outputs import ReferenceItem
+
+    ref = ReferenceItem(
+        title="Attention Is All You Need",
+        citation_key="Vaswani et al., 2017",
+        authors=["Ashish Vaswani", "Noam Shazeer"],
+        year=2017,
+        url="https://arxiv.org/abs/1706.03762",
+        matched_passage="The dominant sequence transduction models are based on complex recurrent or convolutional neural networks.",
+        summary="Foundational transformer architecture paper.",
+    )
+
+    assert ref.title == "Attention Is All You Need"
+    assert ref.year == 2017
+    assert len(ref.authors) == 2
+    assert "arxiv.org" in ref.url
+
+    review_dict = {
+        "title": "Transformer Survey",
+        "executive_summary": "Transformers have reshaped deep learning.",
+        "references": [ref.model_dump()],
+    }
+
+    md = format_review_as_markdown(review_dict)
+    assert "**Attention Is All You Need**" in md
+    assert "by Ashish Vaswani, Noam Shazeer" in md
+    assert "(2017)" in md
+    assert "<https://arxiv.org/abs/1706.03762>" in md
+    assert "Foundational transformer architecture paper." in md

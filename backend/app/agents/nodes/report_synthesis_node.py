@@ -26,13 +26,23 @@ SYNTHESIS_SYSTEM_PROMPT = """You are an elite academic researcher and principal 
 Your task is to synthesize a high-impact, publication-grade academic literature review report based on the provided approved research papers, comparative methodology findings, verified citations, and research gaps.
 
 CRITICAL SYNTHESIS GUIDELINES:
-1. Title: Formulate an authoritative, publication-ready academic title reflecting the synthesis.
-2. Executive Summary: Provide an extensive, rigorous multi-paragraph synthesis of the overarching domain, architectural paradigms, empirical performance trends, and primary open challenges.
-3. Thematic Clusters: Group the literature into 2 to 4 thematic clusters (e.g., architectural paradigms, benchmark evaluation, optimization trade-offs). Under each cluster, provide in-depth comparative analysis rather than simple isolated summaries, referencing relevant papers.
+1. Title: Formulate an authoritative, publication-ready academic title reflecting the synthesis topic.
+2. Executive Summary: Provide an extensive, rigorous 2-3 paragraph academic synthesis structured into:
+   - Problem scope & theoretical motivation
+   - Synthesis of dominant paradigms and current state-of-the-art
+   - Key breakthroughs, empirical performance benchmarks, and major consensus/trade-offs.
+3. Thematic Clusters: Group the literature into 2 to 4 thematic chapters. Under each cluster, provide in-depth comparative analysis rather than simple isolated summaries, contrasting the strengths, empirical metrics, and methodologies of the evaluated papers. Include standard in-text citation keys (e.g. '[Author, Year]').
 4. Methodology Matrix: Preserve or synthesize a comparative methodology breakdown mapping methods, papers used, strengths, and limitations. Ensure each method accurately references the papers that used it.
-5. Research Gaps: Articulate actionable research gaps (typically 3 to 5, or fewer if the domain scope is tightly focused) that future research must address.
-6. Conclusion: Formulate a definitive conclusion summarizing theoretical implications and the next frontier for the domain.
-7. References: Include a curated bibliography listing the evaluated papers and verified citations.
+5. Research Gaps: Articulate 3 to 5 concrete, actionable research gaps detailing specific technical bottlenecks, evaluation deficiencies, or unresolved failure modes.
+6. Conclusion & Recommendations: Formulate a definitive conclusion summarizing theoretical implications, architectural recommendations, and actionable future research horizons.
+7. References: Include a curated bibliography listing the evaluated papers with complete bibliographic metadata:
+   - title: Canonical paper title
+   - citation_key: Author-year or bracket key (e.g., '[Chase et al., 2024]')
+   - authors: List of author names from provided metadata
+   - year: Publication year if provided
+   - url: Canonical arXiv / DOI link if available
+   - matched_passage: Verbatim grounding excerpt/quote from verified citations proving claims
+   - summary: Brief 1-sentence relevance to this review.
 8. Citation & Evidence Grounding (STRICT):
    - Use ONLY verified citations and approved papers as factual evidence.
    - Never fabricate DOIs, URLs, publication venues, authors, or experimental results.
@@ -117,14 +127,26 @@ def format_review_as_markdown(review: Dict[str, Any]) -> str:
                 summary = ref.get("summary")
                 claim = ref.get("claim")
                 quote = ref.get("matched_passage")
+                authors = ref.get("authors")
+                year = ref.get("year")
+                url = ref.get("url")
 
                 ref_parts = [f"**{ref_title}**"]
+                if authors:
+                    auth_str = ", ".join(authors) if isinstance(authors, list) else str(authors)
+                    ref_parts.append(f"by {auth_str}")
+                if year:
+                    ref_parts.append(f"({year})")
                 if cite_key:
                     ref_parts.append(f"`[{cite_key}]`")
+                if url:
+                    ref_parts.append(f"<{url}>")
                 if summary:
                     ref_parts.append(f"- {summary}")
                 elif claim and quote:
                     ref_parts.append(f'- *"{claim}"* (Grounding: *"{quote}"*)')
+                elif quote:
+                    ref_parts.append(f'- (Grounding: *"{quote}"*)')
 
                 lines.append(f"{idx}. {' '.join(ref_parts)}")
             else:
@@ -178,6 +200,9 @@ async def report_synthesis_node(state: AgentState) -> Dict[str, Any]:
         authors = p.get("authors")
         year = p.get("year")
         abstract = p.get("abstract", "")
+        url = p.get("pdf_url") or p.get("url") or ""
+        doi = p.get("doi") or ""
+        arxiv_id = p.get("arxiv_id") or ""
 
         header = f"Paper: {title}"
         if authors:
@@ -185,6 +210,12 @@ async def report_synthesis_node(state: AgentState) -> Dict[str, Any]:
             header += f" | Authors: {auth_str}"
         if year:
             header += f" ({year})"
+        if arxiv_id:
+            header += f" | arXiv:{arxiv_id}"
+        if doi:
+            header += f" | DOI:{doi}"
+        if url:
+            header += f" | URL: {url}"
         papers_context.append(f"{header}\nAbstract: {abstract}")
 
     # Map p_id to title if known so excerpts have full paper titles
