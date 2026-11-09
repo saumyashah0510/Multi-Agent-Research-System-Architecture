@@ -280,5 +280,83 @@ def test_reference_item_bibliographic_metadata_and_markdown():
     assert "**Attention Is All You Need**" in md
     assert "by Ashish Vaswani, Noam Shazeer" in md
     assert "(2017)" in md
+    assert "`[Vaswani et al., 2017]`" in md
     assert "<https://arxiv.org/abs/1706.03762>" in md
     assert "Foundational transformer architecture paper." in md
+    # Assert grounding quote is rendered even when summary exists (CodeRabbit Item 1)
+    assert "The dominant sequence transduction models" in md
+
+
+def test_markdown_citation_key_preserves_single_brackets():
+    """Verify citation keys with or without brackets render cleanly as `[Key]` (no double brackets)."""
+    ref_with_brackets = {
+        "title": "Paper One",
+        "citation_key": "[Vaswani et al., 2017]",
+    }
+    ref_without_brackets = {
+        "title": "Paper Two",
+        "citation_key": "Chase et al., 2024",
+    }
+    review = {"references": [ref_with_brackets, ref_without_brackets]}
+    md = format_review_as_markdown(review)
+
+    assert "`[Vaswani et al., 2017]`" in md
+    assert "`[[Vaswani et al., 2017]]`" not in md
+    assert "`[Chase et al., 2024]`" in md
+    assert "`[[Chase et al., 2024]]`" not in md
+
+
+def test_sanitize_references_drops_hallucinated_quotes_and_preserves_grounded():
+    """Verify _sanitize_references drops ungrounded quotes, preserves verified quotes, and backfills."""
+    from app.agents.nodes.report_synthesis_node import _sanitize_references
+    from app.schemas.agent_outputs import ReferenceItem
+
+    verified_refs = [
+        {
+            "paper_id_or_title": "Attention Is All You Need",
+            "claim": "Transformers replace recurrence",
+            "matched_passage": "The dominant sequence transduction models are based on complex recurrent networks.",
+        }
+    ]
+
+    approved = [
+        {
+            "title": "Attention Is All You Need",
+            "abstract": "We propose the Transformer, a model architecture eschewing recurrence.",
+        }
+    ]
+
+    # Ref 1: grounded passage from verified_references
+    ref1 = ReferenceItem(
+        title="Attention Is All You Need",
+        citation_key="Vaswani et al., 2017",
+        matched_passage="The dominant sequence transduction models are based on complex recurrent networks.",
+    )
+
+    # Ref 2: hallucinated quote not present in verified citations or abstracts
+    ref2 = ReferenceItem(
+        title="Fabricated Paper",
+        citation_key="Unknown, 2025",
+        matched_passage="This is a completely fabricated quotation never written in any paper.",
+    )
+
+    # Ref 3: empty quote, should backfill from verified_refs matching paper title
+    ref3 = ReferenceItem(
+        title="Attention Is All You Need",
+        citation_key="Vaswani et al., 2017",
+        matched_passage="",
+    )
+
+    sanitized = _sanitize_references(
+        references=[ref1, ref2, ref3],
+        verified_references=verified_refs,
+        approved_papers=approved,
+        extracted_pdf_contents={},
+    )
+
+    # Ref 1 kept
+    assert sanitized[0]["matched_passage"] == ref1.matched_passage
+    # Ref 2 hallucinated quote safely dropped
+    assert sanitized[1]["matched_passage"] == ""
+    # Ref 3 backfilled from verified citation
+    assert sanitized[2]["matched_passage"] == verified_refs[0]["matched_passage"]

@@ -17,6 +17,7 @@ from google import genai
 from app.agents.state import AgentState
 from app.core.config import settings
 from app.schemas.agent_outputs import (
+    ReferenceItem,
     SynthesizedReviewOutput,
 )
 
@@ -37,15 +38,16 @@ CRITICAL SYNTHESIS GUIDELINES:
 6. Conclusion & Recommendations: Formulate a definitive conclusion summarizing theoretical implications, architectural recommendations, and actionable future research horizons.
 7. References: Include a curated bibliography listing the evaluated papers with complete bibliographic metadata:
    - title: Canonical paper title
-   - citation_key: Author-year or bracket key (e.g., '[Chase et al., 2024]')
+   - citation_key: Author-year or identifier citation key without outer brackets (e.g. 'Chase et al., 2024' or 'Vaswani et al., 2017')
    - authors: List of author names from provided metadata
    - year: Publication year if provided
    - url: Canonical arXiv / DOI link if available
-   - matched_passage: Verbatim grounding excerpt/quote from verified citations proving claims
+   - matched_passage: Verbatim grounding quote copied ONLY from the provided VERIFIED CITATIONS or paper excerpts proving claims. If no exact quote is in the provided context, leave empty ("").
    - summary: Brief 1-sentence relevance to this review.
 8. Citation & Evidence Grounding (STRICT):
    - Use ONLY verified citations and approved papers as factual evidence.
-   - Never fabricate DOIs, URLs, publication venues, authors, or experimental results.
+   - Never fabricate DOIs, URLs, publication venues, authors, quotes, or experimental results.
+   - Any matched_passage must directly originate from the provided verified citations or paper excerpts; do not invent or hallucinate quotes.
    - If any preliminary claim was flagged in the audit trail as a rejected/unsupported hallucination, STRICTLY EXCLUDE IT from the report.
    - Preserve the association between each methodology and its cited papers.
 
@@ -138,15 +140,17 @@ def format_review_as_markdown(review: Dict[str, Any]) -> str:
                 if year:
                     ref_parts.append(f"({year})")
                 if cite_key:
-                    ref_parts.append(f"`[{cite_key}]`")
+                    ck = str(cite_key).strip()
+                    bracketed_key = ck if (ck.startswith("[") and ck.endswith("]")) else f"[{ck}]"
+                    ref_parts.append(f"`{bracketed_key}`")
                 if url:
                     ref_parts.append(f"<{url}>")
                 if summary:
                     ref_parts.append(f"- {summary}")
-                elif claim and quote:
+                if claim and quote:
                     ref_parts.append(f'- *"{claim}"* (Grounding: *"{quote}"*)')
                 elif quote:
-                    ref_parts.append(f'- (Grounding: *"{quote}"*)')
+                    ref_parts.append(f'(Grounding: *"{quote}"*)')
 
                 lines.append(f"{idx}. {' '.join(ref_parts)}")
             else:
@@ -154,6 +158,73 @@ def format_review_as_markdown(review: Dict[str, Any]) -> str:
         lines.append("")
 
     return "\n".join(lines).strip()
+
+
+def _sanitize_references(
+    references: List[ReferenceItem],
+    verified_references: List[Dict[str, Any]],
+    approved_papers: List[Dict[str, Any]],
+    extracted_pdf_contents: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    """Verify and ground matched passages before publishing in synthesized review."""
+    # 1. Collect verified reference passages from Agent 08
+    verified_passages: List[str] = [
+        str(r.get("matched_passage", "")).strip().lower()
+        for r in verified_references
+        if r.get("matched_passage")
+    ]
+
+    # 2. Collect paper source texts (abstracts and extracted sections)
+    source_texts: List[str] = []
+    for p in approved_papers:
+        if p.get("abstract"):
+            source_texts.append(str(p["abstract"]).lower())
+    for content in (extracted_pdf_contents or {}).values():
+        if isinstance(content, dict):
+            for sec_t in (content.get("sections") or {}).values():
+                if isinstance(sec_t, str):
+                    source_texts.append(sec_t.lower())
+            if content.get("full_text"):
+                source_texts.append(str(content["full_text"]).lower())
+        elif isinstance(content, str):
+            source_texts.append(content.lower())
+
+    sanitized: List[Dict[str, Any]] = []
+    for ref in references:
+        ref_dict = ref.model_dump()
+        passage = (ref_dict.get("matched_passage") or "").strip()
+
+        if passage:
+            clean_p = passage.lower()
+            # Check if passage matches any verified citation
+            is_grounded = any(clean_p in vp or vp in clean_p for vp in verified_passages if vp)
+            # If not in verified citations, check if substring exists in source texts
+            if not is_grounded:
+                probe = clean_p[:60] if len(clean_p) > 60 else clean_p
+                if len(probe) >= 15:
+                    is_grounded = any(probe in st for st in source_texts)
+
+            if not is_grounded:
+                logger.warning(
+                    "Dropping unverified/hallucinated matched_passage for reference '%s': '%s'",
+                    ref_dict.get("title"),
+                    passage[:80],
+                )
+                ref_dict["matched_passage"] = ""
+
+        # Backfill matched_passage from verified_references if LLM omitted it
+        if not ref_dict.get("matched_passage"):
+            ref_title = (ref_dict.get("title") or "").lower()
+            for vr in verified_references:
+                vr_passage = vr.get("matched_passage")
+                vr_target = (vr.get("paper_id_or_title") or "").lower()
+                if vr_passage and vr_target and (vr_target in ref_title or ref_title in vr_target):
+                    ref_dict["matched_passage"] = vr_passage
+                    break
+
+        sanitized.append(ref_dict)
+
+    return sanitized
 
 
 async def report_synthesis_node(state: AgentState) -> Dict[str, Any]:
@@ -200,7 +271,7 @@ async def report_synthesis_node(state: AgentState) -> Dict[str, Any]:
         authors = p.get("authors")
         year = p.get("year")
         abstract = p.get("abstract", "")
-        url = p.get("pdf_url") or p.get("url") or ""
+        url = p.get("url") or p.get("pdf_url") or ""
         doi = p.get("doi") or ""
         arxiv_id = p.get("arxiv_id") or ""
 
@@ -330,7 +401,14 @@ async def report_synthesis_node(state: AgentState) -> Dict[str, Any]:
                 f"All configured Gemini models {candidate_models} failed during report synthesis. Last error: {last_model_error}"
             )
 
-        # 5. Construct synthesized review dictionary
+        # 5. Validate and ground references before publishing
+        sanitized_refs = _sanitize_references(
+            references=parsed_output.references,
+            verified_references=verified_references,
+            approved_papers=approved_papers,
+            extracted_pdf_contents=extracted_pdf_contents,
+        )
+
         synthesized_dict = {
             "title": parsed_output.title,
             "executive_summary": parsed_output.executive_summary,
@@ -338,7 +416,7 @@ async def report_synthesis_node(state: AgentState) -> Dict[str, Any]:
             "methodology_matrix": [mm.model_dump() for mm in parsed_output.methodology_matrix],
             "research_gaps": parsed_output.research_gaps,
             "conclusion": parsed_output.conclusion,
-            "references": [ref.model_dump() for ref in parsed_output.references],
+            "references": sanitized_refs,
         }
 
         logger.info(

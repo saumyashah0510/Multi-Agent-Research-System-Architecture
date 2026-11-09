@@ -24,10 +24,21 @@ logger = logging.getLogger(__name__)
 
 
 def _normalize_identifier(val: Optional[str]) -> str:
-    """Normalize identifiers (arXiv IDs, DOIs, PubMed IDs) for robust lookup."""
+    """Normalize identifiers (arXiv IDs, DOIs, PubMed IDs, canonical URLs) for robust lookup."""
     if not val:
         return ""
     s = str(val).strip().lower()
+    for url_prefix in (
+        "https://arxiv.org/abs/",
+        "http://arxiv.org/abs/",
+        "https://arxiv.org/pdf/",
+        "http://arxiv.org/pdf/",
+        "https://doi.org/",
+        "http://doi.org/",
+        "https://dx.doi.org/",
+    ):
+        if s.startswith(url_prefix):
+            s = s[len(url_prefix) :].rstrip("/").replace(".pdf", "").strip()
     for prefix in ("arxiv:", "doi:", "pmid:"):
         if s.startswith(prefix):
             s = s[len(prefix) :].strip()
@@ -309,7 +320,9 @@ async def _process_and_store_embeddings(
         db_papers
     )
 
-    total_chunks_stored = 0
+    # Group extracted contents by resolved paper to guarantee a single replacement per paper
+    # and preserve content across multiple sources (e.g. sections and full-text).
+    grouped_papers: Dict[int, Dict[str, Any]] = {}
 
     for paper_key, content in extracted_pdf_contents.items():
         paper = _resolve_paper(
@@ -334,7 +347,45 @@ async def _process_and_store_embeddings(
             )
             continue
 
-        sections, full_text = _extract_paper_sections_and_text(content, paper=paper)
+        item_sections, item_full_text = _extract_paper_sections_and_text(content, paper=None)
+
+        if paper.id not in grouped_papers:
+            grouped_papers[paper.id] = {
+                "paper": paper,
+                "sections": {},
+                "full_texts": [],
+            }
+
+        group = grouped_papers[paper.id]
+
+        for sec_name, sec_text in item_sections.items():
+            clean_sec = sec_text.strip()
+            if not clean_sec:
+                continue
+            if sec_name not in group["sections"]:
+                group["sections"][sec_name] = clean_sec
+            elif clean_sec not in group["sections"][sec_name]:
+                # Append distinct content under existing section name
+                group["sections"][sec_name] = f"{group['sections'][sec_name]}\n\n{clean_sec}"
+
+        if item_full_text and item_full_text.strip():
+            clean_ft = item_full_text.strip()
+            if clean_ft not in group["full_texts"]:
+                group["full_texts"].append(clean_ft)
+
+    total_chunks_stored = 0
+
+    for group in grouped_papers.values():
+        paper = group["paper"]
+        sections = group["sections"]
+        full_text = "\n\n".join(group["full_texts"]).strip()
+
+        # Fallback to Paper record attributes if neither sections nor full_text were in extracted content
+        if not sections and not full_text:
+            if paper.sections and isinstance(paper.sections, dict):
+                sections = {str(k): str(v) for k, v in paper.sections.items() if v}
+            elif paper.abstract:
+                sections = {"Abstract": paper.abstract}
 
         if not sections and not full_text:
             logger.warning(

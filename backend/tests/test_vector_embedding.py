@@ -554,6 +554,46 @@ def test_normalization_helpers():
     assert _normalize_title("Attention Is All You Need!!!\n\t") == "attention is all you need"
 
 
+@pytest.mark.asyncio
+async def test_multiple_entries_same_paper_grouped_and_preserved():
+    """Verify that multiple extracted entries resolving to the same paper are grouped
+    before replacement, preserving sections across both entries and persisting chunks once.
+    """
+    db_paper = Paper(
+        id=77,
+        title="Federated Learning Survey",
+        arxiv_id="2301.77777",
+        review_id=5,
+    )
+    mock_db = MockAsyncSession(papers=[db_paper])
+
+    # Two entries resolving to the same paper: one by arXiv ID, one by URL
+    state: AgentState = {
+        "review_id": 5,
+        "extracted_pdf_contents": {
+            "2301.77777": {
+                "sections": {
+                    "Introduction": "Federated learning enables collaborative model training."
+                }
+            },
+            "https://arxiv.org/abs/2301.77777": {
+                "sections": {
+                    "Methodology": "Clients perform local SGD iterations and transmit parameter deltas."
+                }
+            },
+        },
+    }
+
+    result = await vector_embedding_node(state, db=mock_db)
+    assert result["current_step"] == "vector_embedding_completed"
+    assert result["chunks_stored_count"] == 2
+
+    # Verify both sections are present in stored chunks
+    section_names = {c.section_name for c in mock_db.added_chunks}
+    assert "Introduction" in section_names
+    assert "Methodology" in section_names
+
+
 # ==============================================================================
 # 6. Dedicated Integration Test (Real SentenceTransformer Model)
 # ==============================================================================
