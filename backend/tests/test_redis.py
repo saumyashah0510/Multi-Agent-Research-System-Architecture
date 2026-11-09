@@ -226,13 +226,19 @@ async def test_pubsub_cleanup_resilient_to_unsubscribe_failure():
 
 
 def is_live_redis_available() -> bool:
-    """Check if a live Redis daemon is reachable on localhost:6379."""
+    """Check if the configured Redis instance is reachable."""
     import socket
+    from urllib.parse import urlparse
+
+    from app.core.config import settings
 
     try:
+        parsed = urlparse(settings.REDIS_URL)
+        host = parsed.hostname or "127.0.0.1"
+        port = parsed.port or 6379
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(0.5)
-        result = sock.connect_ex(("127.0.0.1", 6379))
+        result = sock.connect_ex((host, port))
         sock.close()
         return result == 0
     except Exception:
@@ -244,7 +250,7 @@ LIVE_REDIS_AVAILABLE = is_live_redis_available()
 
 @pytest.mark.skipif(
     not LIVE_REDIS_AVAILABLE,
-    reason="Live Redis daemon is not reachable on localhost:6379",
+    reason="Live Redis daemon is not reachable at configured REDIS_URL",
 )
 @pytest.mark.asyncio
 async def test_live_redis_pubsub_integration(monkeypatch: pytest.MonkeyPatch):

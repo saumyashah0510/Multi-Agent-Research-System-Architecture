@@ -373,6 +373,12 @@ def test_subscription_synchronization_detects_registered_subscriber(mock_redis: 
 
     with client.websocket_connect(f"/api/v1/ws/reviews/{review_id}") as ws:
         # Observable signal check: subscriber is registered in Redis pubsub before publishing
+        import time
+
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline and not mock_redis.channels.get(channel):
+            time.sleep(0.01)
+
         numsub = asyncio.run(mock_redis.pubsub_numsub(channel))
         assert numsub == [(channel, 1)]
 
@@ -382,13 +388,19 @@ def test_subscription_synchronization_detects_registered_subscriber(mock_redis: 
 
 
 def is_live_redis_available() -> bool:
-    """Check if a live Redis daemon is reachable on localhost:6379."""
+    """Check if the configured Redis instance is reachable."""
     import socket
+    from urllib.parse import urlparse
+
+    from app.core.config import settings
 
     try:
+        parsed = urlparse(settings.REDIS_URL)
+        host = parsed.hostname or "127.0.0.1"
+        port = parsed.port or 6379
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(0.5)
-        result = sock.connect_ex(("127.0.0.1", 6379))
+        result = sock.connect_ex((host, port))
         sock.close()
         return result == 0
     except Exception:
@@ -400,7 +412,7 @@ LIVE_REDIS_AVAILABLE = is_live_redis_available()
 
 @pytest.mark.skipif(
     not LIVE_REDIS_AVAILABLE,
-    reason="Live Redis daemon is not reachable on localhost:6379",
+    reason="Live Redis daemon is not reachable at configured REDIS_URL",
 )
 def test_live_redis_websocket_stream():
     """Live integration test: publish event to live Redis and receive via WebSocket."""
@@ -427,19 +439,19 @@ def test_live_redis_websocket_stream():
             decode_responses=True,
         )
         try:
-            deadline = time.monotonic() + timeout
+            deadline = time.monotonic() + 1.0
             subscribed = False
             while time.monotonic() < deadline:
                 numsub = await test_redis.pubsub_numsub(target_channel)
                 if numsub and numsub[0][1] > 0:
                     subscribed = True
                     break
-                await asyncio.sleep(0.02)
+                await asyncio.sleep(0.05)
 
+            # If the Redis provider does not populate PUBSUB NUMSUB (e.g., Upstash cloud proxy),
+            # wait a short grace period for the ASGI server's subscription handshake to settle.
             if not subscribed:
-                raise TimeoutError(
-                    f"Timed out after {timeout}s waiting for Redis subscription on '{target_channel}'"
-                )
+                await asyncio.sleep(0.3)
 
             subscribers = await redis_service.publish_review_event(
                 review_id, payload, client=test_redis
@@ -456,6 +468,9 @@ def test_live_redis_websocket_stream():
             except Exception:
                 pass
 
+    # Ensure any stale client created on a previously closed event loop is discarded
+    redis_service.redis_client = None
+
     try:
         with client.websocket_connect(f"/api/v1/ws/reviews/{review_id}") as ws:
             asyncio.run(wait_for_subscription_and_publish(channel, event))
@@ -466,3 +481,5 @@ def test_live_redis_websocket_stream():
             asyncio.run(redis_service.close_redis_client())
         except Exception:
             pass
+        finally:
+            redis_service.redis_client = None
