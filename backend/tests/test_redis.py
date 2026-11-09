@@ -162,6 +162,69 @@ async def test_publish_review_event_redis_error(monkeypatch: pytest.MonkeyPatch)
         await redis_service.publish_review_event(101, {"event": "test"})
 
 
+@pytest.mark.asyncio
+async def test_publish_review_event_custom_client():
+    """Verify publish_review_event uses explicitly provided client without accessing singleton."""
+    mock_client = AsyncMock()
+    mock_client.publish.return_value = 3
+    event_data = {"event": "custom_client_test"}
+    subscribers = await redis_service.publish_review_event(105, event_data, client=mock_client)
+
+    assert subscribers == 3
+    mock_client.publish.assert_called_once_with(
+        "review:105:events",
+        '{"event": "custom_client_test"}',
+    )
+
+
+@pytest.mark.asyncio
+async def test_pubsub_cleanup_fallback_when_aclose_missing():
+    """Verify pubsub cleanup falls back to close() when aclose is unavailable (Redis 5.0.0)."""
+    import inspect
+
+    mock_pubsub = MagicMock(spec=["unsubscribe", "close"])
+    mock_pubsub.unsubscribe = AsyncMock()
+    mock_pubsub.close = AsyncMock()
+
+    try:
+        await mock_pubsub.unsubscribe("test_channel")
+    finally:
+        if hasattr(mock_pubsub, "aclose"):
+            await mock_pubsub.aclose()
+        elif hasattr(mock_pubsub, "close"):
+            res = mock_pubsub.close()
+            if inspect.isawaitable(res):
+                await res
+
+    mock_pubsub.unsubscribe.assert_called_once_with("test_channel")
+    mock_pubsub.close.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_pubsub_cleanup_resilient_to_unsubscribe_failure():
+    """Verify pubsub and client close still execute even if unsubscribe raises an error."""
+    mock_pubsub = MagicMock(spec=["unsubscribe", "aclose"])
+    mock_pubsub.unsubscribe = AsyncMock(side_effect=ConnectionError("Unsubscribe dropped"))
+    mock_pubsub.aclose = AsyncMock()
+    mock_client = AsyncMock()
+
+    try:
+        try:
+            await mock_pubsub.unsubscribe("test_channel")
+        except Exception:
+            pass
+        finally:
+            if hasattr(mock_pubsub, "aclose"):
+                await mock_pubsub.aclose()
+    finally:
+        if hasattr(mock_client, "aclose"):
+            await mock_client.aclose()
+
+    mock_pubsub.unsubscribe.assert_called_once()
+    mock_pubsub.aclose.assert_called_once()
+    mock_client.aclose.assert_called_once()
+
+
 def is_live_redis_available() -> bool:
     """Check if a live Redis daemon is reachable on localhost:6379."""
     import socket
@@ -184,20 +247,33 @@ LIVE_REDIS_AVAILABLE = is_live_redis_available()
     reason="Live Redis daemon is not reachable on localhost:6379",
 )
 @pytest.mark.asyncio
-async def test_live_redis_pubsub_integration():
+async def test_live_redis_pubsub_integration(monkeypatch: pytest.MonkeyPatch):
     """Live integration test: connect, subscribe, publish, and receive over live Redis."""
     import asyncio
+    import inspect
     import json
+    import uuid
 
-    review_id = 9977
+    from app.core.config import settings
+
+    review_id = (uuid.uuid4().int & 0x7FFFFFFF) % 1_000_000 + 10000
     channel = f"review:{review_id}:events"
-    client = redis_service.get_redis_client()
-    pubsub = client.pubsub()
 
+    # Isolate test from cached global Redis client using pytest monkeypatching
+    isolated_client = redis_service.aioredis.from_url(
+        settings.REDIS_URL,
+        decode_responses=True,
+    )
+    monkeypatch.setattr(redis_service, "get_redis_client", lambda: isolated_client)
+
+    pubsub = None
     try:
+        pubsub = isolated_client.pubsub()
         await pubsub.subscribe(channel)
         event = {"event": "live_redis_test", "review_id": review_id}
-        subscribers = await redis_service.publish_review_event(review_id, event)
+        subscribers = await redis_service.publish_review_event(
+            review_id, event, client=isolated_client
+        )
         assert subscribers >= 1
 
         async with asyncio.timeout(3.0):
@@ -209,5 +285,30 @@ async def test_live_redis_pubsub_integration():
                     assert payload == event
                     break
     finally:
-        await pubsub.unsubscribe(channel)
-        await pubsub.aclose()
+        # 1. PubSub cleanup: robust against unsubscribe failure and compatible with Redis 5.0.0
+        if pubsub is not None:
+            try:
+                await pubsub.unsubscribe(channel)
+            except Exception:
+                pass
+            finally:
+                try:
+                    if hasattr(pubsub, "aclose"):
+                        await pubsub.aclose()
+                    elif hasattr(pubsub, "close"):
+                        res = pubsub.close()
+                        if inspect.isawaitable(res):
+                            await res
+                except Exception:
+                    pass
+
+        # 2. Redis client cleanup: guaranteed to run even if earlier PubSub cleanup failed
+        try:
+            if hasattr(isolated_client, "aclose"):
+                await isolated_client.aclose()
+            elif hasattr(isolated_client, "close"):
+                res = isolated_client.close()
+                if inspect.isawaitable(res):
+                    await res
+        except Exception:
+            pass

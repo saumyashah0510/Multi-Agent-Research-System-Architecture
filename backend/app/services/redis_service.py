@@ -76,12 +76,17 @@ async def close_redis_client() -> None:
         redis_client = None
 
 
-async def publish_review_event(review_id: int, event_data: Dict[str, Any]) -> int:
+async def publish_review_event(
+    review_id: int,
+    event_data: Dict[str, Any],
+    client: Optional[aioredis.Redis] = None,
+) -> int:
     """Publish a real-time JSON event to Redis channel 'review:{review_id}:events'.
 
     Args:
         review_id: The ID of the review being processed.
         event_data: The event dictionary to serialize and broadcast.
+        client: Optional Redis client instance. If omitted, uses get_redis_client().
 
     Returns:
         The number of Redis subscribers that received the message.
@@ -97,9 +102,9 @@ async def publish_review_event(review_id: int, event_data: Dict[str, Any]) -> in
         logger.error(f"Failed to serialize review event for review {review_id}: {exc}")
         raise
 
-    client = get_redis_client()
+    redis_cli = client if client is not None else get_redis_client()
     try:
-        subscribers_count = await client.publish(channel, serialized_val)
+        subscribers_count = await redis_cli.publish(channel, serialized_val)
         return int(subscribers_count)
     except Exception as exc:
         logger.error(f"Failed to publish event to Redis channel '{channel}': {exc}")

@@ -29,6 +29,7 @@ class MockPubSub:
     """Thread-safe mock Redis PubSub for unit testing WebSocket streaming."""
 
     def __init__(self, client: "MockRedis"):
+        """Initialize mock PubSub instance with subscriber channel tracking."""
         self.client = client
         self.subscribed_channels: Set[str] = set()
         self.unsubscribed_channels: List[str] = []
@@ -37,25 +38,30 @@ class MockPubSub:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
 
     async def subscribe(self, channel: str):
+        """Subscribe to a Redis channel and register with the mock Redis client."""
         self._loop = asyncio.get_running_loop()
         self.subscribed_channels.add(channel)
         self.client._register_subscriber(channel, self)
 
     async def unsubscribe(self, channel: str):
+        """Unsubscribe from a Redis channel and unregister from the mock Redis client."""
         self.unsubscribed_channels.append(channel)
         self.subscribed_channels.discard(channel)
         self.client._unregister_subscriber(channel, self)
 
     async def aclose(self):
+        """Close PubSub instance and remove all active channel subscriptions."""
         self.closed = True
         for ch in list(self.subscribed_channels):
             self.client._unregister_subscriber(ch, self)
         self.subscribed_channels.clear()
 
     async def close(self):
+        """Backwards-compatible alias for aclose()."""
         await self.aclose()
 
     async def listen(self):
+        """Asynchronously yield messages or raise injected errors from the event queue."""
         while not self.closed:
             try:
                 msg = await self.queue.get()
@@ -68,10 +74,12 @@ class MockPubSub:
                 break
 
     def deliver_message(self, msg: Dict[str, Any]):
+        """Thread-safely enqueue a message dictionary into the subscriber event queue."""
         if self._loop and not self.closed:
             self._loop.call_soon_threadsafe(self.queue.put_nowait, msg)
 
     def inject_error(self, exc: Exception):
+        """Thread-safely inject an exception into the subscriber event queue."""
         if self._loop and not self.closed:
             self._loop.call_soon_threadsafe(self.queue.put_nowait, exc)
 
@@ -80,26 +88,35 @@ class MockRedis:
     """Mock Redis client managing channels and delivering PubSub messages."""
 
     def __init__(self):
+        """Initialize mock Redis client with channel routing tables."""
         self.channels: Dict[str, Set[MockPubSub]] = {}
         self.pubsubs: List[MockPubSub] = []
 
     def pubsub(self) -> MockPubSub:
+        """Create and track a new MockPubSub instance."""
         ps = MockPubSub(self)
         self.pubsubs.append(ps)
         return ps
 
     def _register_subscriber(self, channel: str, pubsub: MockPubSub):
+        """Register a subscriber instance for a given channel name."""
         if channel not in self.channels:
             self.channels[channel] = set()
         self.channels[channel].add(pubsub)
 
     def _unregister_subscriber(self, channel: str, pubsub: MockPubSub):
+        """Remove a subscriber instance from a given channel name."""
         if channel in self.channels:
             self.channels[channel].discard(pubsub)
             if not self.channels[channel]:
                 del self.channels[channel]
 
+    async def pubsub_numsub(self, *channels: str) -> List[tuple]:
+        """Return subscriber count tuples for the requested channels."""
+        return [(ch, len(self.channels.get(ch, set()))) for ch in channels]
+
     async def publish(self, channel: str, message: str) -> int:
+        """Publish a message string to all active subscribers on the specified channel."""
         subscribers = list(self.channels.get(channel, []))
         for sub in subscribers:
             sub.deliver_message({"type": "message", "channel": channel, "data": message})
@@ -194,10 +211,14 @@ def test_redis_subscription_failure_cleanup(monkeypatch: pytest.MonkeyPatch):
     """Requirement 8: Handle Redis connection failure during initial subscription."""
 
     class FailingRedis:
+        """Mock Redis client whose PubSub instance fails on subscribe."""
+
         def pubsub(self):
+            """Return a MockPubSub whose subscribe method raises ConnectionError."""
             ps = MockPubSub(self)
 
             async def fail_subscribe(channel: str):
+                """Simulate connection drop during subscription attempt."""
                 raise ConnectionError("Redis server unreachable")
 
             ps.subscribe = fail_subscribe
@@ -344,6 +365,22 @@ def test_websocket_invalid_review_id_rejected():
     assert exc_info2.value.code == 1008
 
 
+def test_subscription_synchronization_detects_registered_subscriber(mock_redis: MockRedis):
+    """Requirement for Finding 3: Verify subscription synchronization waits for observable subscriber count > 0."""
+    review_id = 555
+    channel = f"review:{review_id}:events"
+    client = TestClient(app)
+
+    with client.websocket_connect(f"/api/v1/ws/reviews/{review_id}") as ws:
+        # Observable signal check: subscriber is registered in Redis pubsub before publishing
+        numsub = asyncio.run(mock_redis.pubsub_numsub(channel))
+        assert numsub == [(channel, 1)]
+
+        event = {"event": "sync_test", "review_id": review_id}
+        asyncio.run(redis_service.publish_review_event(review_id, event))
+        assert ws.receive_json() == event
+
+
 def is_live_redis_available() -> bool:
     """Check if a live Redis daemon is reachable on localhost:6379."""
     import socket
@@ -367,11 +404,65 @@ LIVE_REDIS_AVAILABLE = is_live_redis_available()
 )
 def test_live_redis_websocket_stream():
     """Live integration test: publish event to live Redis and receive via WebSocket."""
-    review_id = 9988
-    client = TestClient(app)
+    import inspect
+    import time
+    import uuid
 
-    with client.websocket_connect(f"/api/v1/ws/reviews/{review_id}") as ws:
-        event = {"event": "live_test", "review_id": review_id, "status": "ok"}
-        asyncio.run(redis_service.publish_review_event(review_id, event))
-        received = ws.receive_json()
-        assert received == event
+    from app.core.config import settings
+
+    # Generate a unique review ID to avoid test collisions and stale channel pollution
+    review_id = (uuid.uuid4().int & 0x7FFFFFFF) % 1_000_000 + 10000
+    channel = f"review:{review_id}:events"
+    client = TestClient(app)
+    event = {"event": "live_test", "review_id": review_id, "status": "ok"}
+
+    async def wait_for_subscription_and_publish(
+        target_channel: str,
+        payload: Dict[str, Any],
+        timeout: float = 5.0,
+    ) -> None:
+        """Wait for WebSocket Redis subscription registration via PUBSUB NUMSUB, then publish."""
+        test_redis = redis_service.aioredis.from_url(
+            settings.REDIS_URL,
+            decode_responses=True,
+        )
+        try:
+            deadline = time.monotonic() + timeout
+            subscribed = False
+            while time.monotonic() < deadline:
+                numsub = await test_redis.pubsub_numsub(target_channel)
+                if numsub and numsub[0][1] > 0:
+                    subscribed = True
+                    break
+                await asyncio.sleep(0.02)
+
+            if not subscribed:
+                raise TimeoutError(
+                    f"Timed out after {timeout}s waiting for Redis subscription on '{target_channel}'"
+                )
+
+            subscribers = await redis_service.publish_review_event(
+                review_id, payload, client=test_redis
+            )
+            assert subscribers >= 1
+        finally:
+            try:
+                if hasattr(test_redis, "aclose"):
+                    await test_redis.aclose()
+                elif hasattr(test_redis, "close"):
+                    res = test_redis.close()
+                    if inspect.isawaitable(res):
+                        await res
+            except Exception:
+                pass
+
+    try:
+        with client.websocket_connect(f"/api/v1/ws/reviews/{review_id}") as ws:
+            asyncio.run(wait_for_subscription_and_publish(channel, event))
+            received = ws.receive_json()
+            assert received == event
+    finally:
+        try:
+            asyncio.run(redis_service.close_redis_client())
+        except Exception:
+            pass
