@@ -10,7 +10,7 @@ Assignee Task (Issue AI-10):
 """
 
 import logging
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Optional, Set
 
 from google import genai
 
@@ -205,27 +205,40 @@ def _sanitize_references(
             }
         )
 
+    def _find_matching_bucket(target: str) -> Optional[Dict[str, Any]]:
+        clean_target = _norm_ws(target)
+        if not clean_target:
+            return None
+
+        # 1. Exact match pass against bucket identifiers
+        for b in paper_buckets:
+            if clean_target in b["identifiers"]:
+                return b
+
+        # 2. Substring fallback pass (only if unambiguous: exactly one bucket matches)
+        substring_matches = []
+        for b in paper_buckets:
+            for ident in b["identifiers"]:
+                if len(clean_target) >= 4 and len(ident) >= 4:
+                    if clean_target in ident or ident in clean_target:
+                        substring_matches.append(b)
+                        break
+
+        if len(substring_matches) == 1:
+            return substring_matches[0]
+
+        return None
+
     # Associate extracted_pdf_contents to the appropriate paper bucket
     for paper_key, content in (extracted_pdf_contents or {}).items():
-        norm_key = _norm_ws(str(paper_key))
-        matched_bucket = None
-        for b in paper_buckets:
-            if norm_key in b["identifiers"]:
-                matched_bucket = b
-                break
-            if isinstance(content, dict):
-                c_title = content.get("title")
-                c_arxiv = content.get("arxiv_id")
-                c_doi = content.get("doi")
-                if c_title and _norm_ws(c_title) in b["identifiers"]:
-                    matched_bucket = b
-                    break
-                if c_arxiv and _norm_ws(c_arxiv) in b["identifiers"]:
-                    matched_bucket = b
-                    break
-                if c_doi and _norm_ws(c_doi) in b["identifiers"]:
-                    matched_bucket = b
-                    break
+        matched_bucket = _find_matching_bucket(str(paper_key))
+        if not matched_bucket and isinstance(content, dict):
+            for field in ("title", "arxiv_id", "doi"):
+                val = content.get(field)
+                if val:
+                    matched_bucket = _find_matching_bucket(str(val))
+                    if matched_bucket:
+                        break
 
         if matched_bucket:
             if isinstance(content, dict):
@@ -249,14 +262,9 @@ def _sanitize_references(
         if not vr_target or not raw_vp:
             continue
 
-        for b in paper_buckets:
-            is_match = False
-            for ident in b["identifiers"]:
-                if vr_target == ident or vr_target in ident or ident in vr_target:
-                    is_match = True
-                    break
-            if is_match:
-                b["verified_passages"].append(raw_vp)
+        matched_b = _find_matching_bucket(vr_target)
+        if matched_b:
+            matched_b["verified_passages"].append(raw_vp)
 
     sanitized: List[Dict[str, Any]] = []
     for ref in references:
@@ -265,19 +273,10 @@ def _sanitize_references(
         ref_title = _norm_ws(ref_dict.get("title") or "")
         ref_key = _norm_ws(ref_dict.get("citation_key") or "")
 
-        # Find the specific paper bucket corresponding to this reference
-        target_bucket = None
-        for b in paper_buckets:
-            is_match = False
-            for ident in b["identifiers"]:
-                if (
-                    ref_title and (ref_title == ident or ref_title in ident or ident in ref_title)
-                ) or (ref_key and (ref_key == ident or ref_key in ident or ident in ref_key)):
-                    is_match = True
-                    break
-            if is_match:
-                target_bucket = b
-                break
+        # Find the specific paper bucket corresponding to this reference (exact first, unambiguous fallback)
+        target_bucket = _find_matching_bucket(ref_title)
+        if not target_bucket and ref_key:
+            target_bucket = _find_matching_bucket(ref_key)
 
         # If reference cannot be matched to an approved paper, do not fall back to global corpus
         if not target_bucket:

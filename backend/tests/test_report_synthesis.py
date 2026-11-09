@@ -493,3 +493,58 @@ def test_cross_paper_quote_cleared_when_cited_by_different_paper():
 
     # Scoped grounding must clear the quote because Paper B's source does not contain it
     assert sanitized[0]["matched_passage"] == ""
+
+
+def test_overlapping_titles_resolve_to_exact_paper_bucket():
+    """Verify overlapping titles (e.g. 'BERT' vs 'BERT: Pre-training...') resolve to exact bucket."""
+    from app.agents.nodes.report_synthesis_node import _sanitize_references
+    from app.schemas.agent_outputs import ReferenceItem
+
+    approved = [
+        {
+            "title": "BERT",
+            "abstract": "Short overview paper about BERT.",
+        },
+        {
+            "title": "BERT: Pre-training of Deep Bidirectional Transformers",
+            "abstract": "We introduce BERT, which stands for Bidirectional Encoder Representations.",
+        },
+    ]
+
+    verified_refs = [
+        {
+            "paper_id_or_title": "BERT",
+            "matched_passage": "Short overview paper about BERT.",
+        },
+        {
+            "paper_id_or_title": "BERT: Pre-training of Deep Bidirectional Transformers",
+            "matched_passage": "We introduce BERT, which stands for Bidirectional Encoder Representations.",
+        },
+    ]
+
+    # Ref for shorter title must match short title's quote, not longer title's quote
+    ref_short = ReferenceItem(
+        title="BERT",
+        citation_key="Devlin, 2018",
+        matched_passage="Short overview paper about BERT.",
+    )
+
+    # Ref for longer title must match longer title's quote
+    ref_long = ReferenceItem(
+        title="BERT: Pre-training of Deep Bidirectional Transformers",
+        citation_key="Devlin et al., 2019",
+        matched_passage="We introduce BERT, which stands for Bidirectional Encoder Representations.",
+    )
+
+    sanitized = _sanitize_references(
+        references=[ref_short, ref_long],
+        verified_references=verified_refs,
+        approved_papers=approved,
+        extracted_pdf_contents={},
+    )
+
+    assert sanitized[0]["matched_passage"] == "Short overview paper about BERT."
+    assert (
+        sanitized[1]["matched_passage"]
+        == "We introduce BERT, which stands for Bidirectional Encoder Representations."
+    )
