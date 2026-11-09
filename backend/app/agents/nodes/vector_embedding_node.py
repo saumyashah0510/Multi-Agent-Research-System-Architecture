@@ -28,17 +28,31 @@ def _normalize_identifier(val: Optional[str]) -> str:
     if not val:
         return ""
     s = str(val).strip().lower()
-    for url_prefix in (
+
+    # Strip arXiv URL prefixes and remove .pdf extension if present
+    for arxiv_prefix in (
         "https://arxiv.org/abs/",
         "http://arxiv.org/abs/",
         "https://arxiv.org/pdf/",
         "http://arxiv.org/pdf/",
+    ):
+        if s.startswith(arxiv_prefix):
+            s = s[len(arxiv_prefix) :].rstrip("/").strip()
+            if s.endswith(".pdf"):
+                s = s[:-4].strip()
+            break
+
+    # Strip DOI URL prefixes (preserve DOI suffixes including any periods or .pdf)
+    for doi_prefix in (
         "https://doi.org/",
         "http://doi.org/",
         "https://dx.doi.org/",
+        "http://dx.doi.org/",
     ):
-        if s.startswith(url_prefix):
-            s = s[len(url_prefix) :].rstrip("/").replace(".pdf", "").strip()
+        if s.startswith(doi_prefix):
+            s = s[len(doi_prefix) :].rstrip("/").strip()
+            break
+
     for prefix in ("arxiv:", "doi:", "pmid:"):
         if s.startswith(prefix):
             s = s[len(prefix) :].strip()
@@ -394,6 +408,14 @@ async def _process_and_store_embeddings(
                 paper.title,
             )
             continue
+
+        # When a paper has both sections and full_text from mixed entries, include distinct
+        # full_text under a dedicated section so chunk_paper_sections chunks both.
+        if sections and full_text:
+            combined_sec = " ".join(sections.values())
+            if full_text.strip() not in combined_sec:
+                sec_name = "Main Body" if "Main Body" not in sections else "Full Text"
+                sections[sec_name] = full_text
 
         stored = await store_paper_chunks(
             db=db,

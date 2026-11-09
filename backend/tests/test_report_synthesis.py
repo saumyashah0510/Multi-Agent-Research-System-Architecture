@@ -403,3 +403,58 @@ def test_sanitize_references_drops_hallucinated_quotes_and_preserves_grounded():
     assert sanitized[4]["matched_passage"] == verified_refs[0]["matched_passage"]
     # Ref 6 paraphrase not backfilled because it is not verbatim in source
     assert sanitized[5]["matched_passage"] == ""
+
+
+def test_whitespace_normalization_and_paper_scoped_trimming():
+    """Verify whitespace normalization handles PDF line wraps and trimming respects cited paper."""
+    from app.agents.nodes.report_synthesis_node import _sanitize_references
+    from app.schemas.agent_outputs import ReferenceItem
+
+    verified_refs = [
+        {
+            "paper_id_or_title": "Paper A",
+            "matched_passage": "Paper A verified excerpt.",
+        },
+        {
+            "paper_id_or_title": "Paper B",
+            "matched_passage": "Paper B verified excerpt.",
+        },
+    ]
+
+    approved = [
+        {
+            "title": "Paper A",
+            # Source text has hard newline breaks from PDF extraction
+            "abstract": "The dominant sequence\ntransduction models are based\non complex recurrence.",
+        },
+        {
+            "title": "Paper B",
+            "abstract": "Deep learning architectures for vision.",
+        },
+    ]
+
+    # Ref A: LLM quoted without newlines (spaces only) -> matches via whitespace normalization
+    ref_a = ReferenceItem(
+        title="Paper A",
+        citation_key="Paper A, 2024",
+        matched_passage="The dominant sequence transduction models are based on complex recurrence.",
+    )
+
+    # Ref B: contains Paper A's quote but belongs to Paper B -> must NOT trim to Paper A's passage!
+    ref_b = ReferenceItem(
+        title="Paper B",
+        citation_key="Paper B, 2024",
+        matched_passage="Paper A verified excerpt plus hallucination.",
+    )
+
+    sanitized = _sanitize_references(
+        references=[ref_a, ref_b],
+        verified_references=verified_refs,
+        approved_papers=approved,
+        extracted_pdf_contents={},
+    )
+
+    # Ref A preserved through whitespace normalization despite source hard line breaks
+    assert sanitized[0]["matched_passage"] == ref_a.matched_passage
+    # Ref B dropped rather than incorrectly assigned Paper A's quote
+    assert sanitized[1]["matched_passage"] == ""

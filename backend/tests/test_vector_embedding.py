@@ -594,6 +594,48 @@ async def test_multiple_entries_same_paper_grouped_and_preserved():
     assert "Methodology" in section_names
 
 
+@pytest.mark.asyncio
+async def test_mixed_entries_section_and_full_text_both_persisted():
+    """Verify that when one entry supplies sections and another supplies full_text, both are chunked."""
+    db_paper = Paper(
+        id=88,
+        title="Multimodal RAG Review",
+        arxiv_id="2301.88888",
+        review_id=6,
+    )
+    mock_db = MockAsyncSession(papers=[db_paper])
+
+    state: AgentState = {
+        "review_id": 6,
+        "extracted_pdf_contents": {
+            "2301.88888": {
+                "sections": {"Abstract": "Multimodal RAG combines text and vision embeddings."}
+            },
+            "https://arxiv.org/abs/2301.88888": {
+                "full_text": "Comprehensive analysis of dense retrieval with cross-attention decoders across benchmarks."
+            },
+        },
+    }
+
+    result = await vector_embedding_node(state, db=mock_db)
+    assert result["current_step"] == "vector_embedding_completed"
+    assert result["chunks_stored_count"] == 2
+
+    # Verify both the section and the full text (under Main Body) were chunked
+    section_names = {c.section_name for c in mock_db.added_chunks}
+    assert "Abstract" in section_names
+    assert "Main Body" in section_names
+
+
+def test_normalize_identifier_preserves_doi_suffix_with_pdf():
+    """Verify that .pdf is only stripped from arXiv URLs and never from DOI identifiers."""
+    assert _normalize_identifier("https://arxiv.org/pdf/2301.12345.pdf") == "2301.12345"
+    assert _normalize_identifier("http://arxiv.org/abs/2301.12345v1") == "2301.12345v1"
+    # DOI ending in .pdf must preserve its identifier suffix
+    assert _normalize_identifier("https://doi.org/10.1000/xstudy.pdf") == "10.1000/xstudy.pdf"
+    assert _normalize_identifier("https://dx.doi.org/10.1000/182") == "10.1000/182"
+
+
 # ==============================================================================
 # 6. Dedicated Integration Test (Real SentenceTransformer Model)
 # ==============================================================================
