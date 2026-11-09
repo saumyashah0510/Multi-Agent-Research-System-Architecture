@@ -220,7 +220,12 @@ def _resolve_paper(
                 or norm_key == _normalize_identifier(ap_doi)
             ):
                 matches_ap = True
-        if not matches_ap and norm_title and norm_title == _normalize_title(ap_title):
+        if (
+            not matches_ap
+            and norm_title
+            and norm_title not in ambiguous_titles
+            and norm_title == _normalize_title(ap_title)
+        ):
             matches_ap = True
 
         if matches_ap:
@@ -292,9 +297,9 @@ async def _process_and_store_embeddings(
     commit_on_complete: bool = False,
 ) -> Dict[str, Any]:
     """Query scoped papers, resolve identities, chunk text, and persist PaperChunk records."""
-    stmt = select(Paper)
-    if review_id is not None:
-        stmt = stmt.where(Paper.review_id == review_id)
+    if review_id is None:
+        raise ValueError("review_id is required to scope paper resolution and chunk replacement")
+    stmt = select(Paper).where(Paper.review_id == review_id)
     # Order by Paper.id deterministically to prevent locking deadlocks across concurrent runs
     stmt = stmt.order_by(Paper.id)
     res = await db.execute(stmt)
@@ -377,7 +382,7 @@ async def vector_embedding_node(
     1. Read extracted_pdf_contents and review_id from state.
     2. Validate extracted content; if empty, return early with 0 chunks stored.
     3. Ensure sentence-transformers embedding model is available (all-MiniLM-L6-v2, 384D).
-    4. Query database for papers scoped to review_id (or all if review_id is None).
+    4. Query database for papers scoped to review_id.
     5. Resolve each extracted paper key to its actual Paper.id record.
     6. Chunk sections into 500-char sliding windows with 50-char overlap.
     7. Generate 384D semantic embeddings and store PaperChunk records linked to Paper.id.

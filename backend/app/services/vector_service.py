@@ -1,5 +1,6 @@
 """Vector embedding and text chunking service using pgvector and sentence-transformers."""
 
+import asyncio
 import hashlib
 import logging
 from typing import Any, Optional
@@ -57,10 +58,10 @@ def format_section_name(name: str) -> str:
     # capitalize word initials
     if cleaned.islower():
         words = cleaned.split()
-        return " ".join(w.capitalize() for w in words)
+        return " ".join(w.capitalize() for w in words)[:150]
 
     # If heading contains mixed case or uppercase acronyms, preserve exact author/scientific casing
-    return cleaned
+    return cleaned[:150]
 
 
 def chunk_text(
@@ -153,8 +154,8 @@ async def generate_embedding(text: str, allow_fallback: bool = True) -> list[flo
 
     if model:
         try:
-            vec = model.encode(text, convert_to_numpy=True).tolist()
-            return [round(float(x), 6) for x in vec]
+            vec = await asyncio.to_thread(model.encode, text, convert_to_numpy=True)
+            return [round(float(x), 6) for x in vec.tolist()]
         except Exception as err:
             logger.warning(f"SentenceTransformer encoding error: {err}")
             if not allow_fallback:
@@ -182,7 +183,7 @@ async def generate_embedding(text: str, allow_fallback: bool = True) -> list[flo
 
 async def generate_embeddings_batch(
     texts: list[str],
-    allow_fallback: bool = False,
+    allow_fallback: bool = True,
 ) -> list[list[float]]:
     """Generate 384-dimensional vector embeddings for a batch of texts using sentence-transformers."""
     if not texts:
@@ -191,7 +192,9 @@ async def generate_embeddings_batch(
     model = _get_embedding_model()
     if model:
         try:
-            vecs = model.encode(texts, convert_to_numpy=True, show_progress_bar=False)
+            vecs = await asyncio.to_thread(
+                model.encode, texts, convert_to_numpy=True, show_progress_bar=False
+            )
             return [[round(float(x), 6) for x in vec] for vec in vecs]
         except Exception as err:
             logger.warning(f"SentenceTransformer batch encoding error: {err}")
@@ -215,7 +218,7 @@ async def store_paper_chunks(
     sections: Optional[dict[str, str]] = None,
     chunk_size: int = 500,
     overlap: int = 50,
-    allow_fallback: bool = False,
+    allow_fallback: bool = True,
     replace_existing: bool = False,
 ) -> list[PaperChunk]:
     """Chunk paper text, generate embeddings, and insert PaperChunk records into PostgreSQL.
