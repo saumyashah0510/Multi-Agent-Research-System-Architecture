@@ -4,9 +4,47 @@ Assignee Task (Issue BE-09):
 - Implement WebSocket route at /reviews/{review_id}
 - Listen to Redis Pub/Sub channel f"review:{review_id}:events"
 - Broadcast agent progress events to connected clients
+
+SECURITY & AUTHENTICATION AUDIT NOTE:
+--------------------------------------
+This endpoint is currently UNAUTHENTICATED and suitable ONLY for controlled
+development environments and automated integration test suites.
+
+Authentication & Authorization Status:
+- User authentication, identity resolution, and review ownership enforcement
+  remain UNIMPLEMENTED across this service.
+- There is currently no JWT signing/verification infrastructure (no SECRET_KEY in Settings).
+- There is no user login/session store or token issuance endpoint.
+- LiteratureReview ORM records support an optional user_id, but current REST routes
+  create reviews anonymously (user_id=NULL) without user identity context.
+- Validating that review_id > 0 is route parameter format validation only;
+  it does NOT constitute authentication or access authorization.
+
+PRODUCTION REQUIREMENTS FOR AUTHENTICATION:
+Prior to production or multi-tenant deployment, the following authentication
+and authorization flow must be established:
+1. Authenticate the connecting client during the HTTP/WebSocket handshake
+   (e.g., verifying a cryptographically signed JWT or secure session cookie).
+2. Resolve the client's authenticated user identity from the verified credentials.
+3. Query the requested LiteratureReview from the database.
+4. Verify authorization: assert review.user_id == authenticated_user_id
+   (or verify authorized administrative access permissions).
+5. If unauthenticated or unauthorized, immediately reject the handshake with
+   WebSocket close code 1008 (Policy Violation) before calling websocket.accept().
 """
 
-from fastapi import APIRouter, WebSocket
+import asyncio
+import inspect
+import json
+import logging
+from typing import Optional
+
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from starlette.websockets import WebSocketState
+
+from app.services.redis_service import get_redis_client
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -15,12 +53,161 @@ router = APIRouter()
 async def websocket_review_stream(websocket: WebSocket, review_id: int):
     """Real-time WebSocket endpoint streaming agent execution progress.
 
-    TODO (Assignee - BE-09):
-    1. Accept WebSocket connection (await websocket.accept())
-    2. Subscribe to Redis channel f"review:{review_id}:events"
-    3. Stream incoming messages to client using await websocket.send_text() or send_json()
-    4. Handle WebSocketDisconnect gracefully
+    Subscribes to Redis Pub/Sub channel 'review:{review_id}:events' and
+    forwards agent execution events as JSON frames to the connected client.
+
+    NOTE: This endpoint is unauthenticated and intended for controlled development.
+    Validating review_id > 0 enforces parameter format integrity only.
     """
+    # Route input format validation: reject non-positive review IDs (code 1008 policy violation)
+    if review_id <= 0:
+        logger.warning(
+            "WebSocket connection rejected: invalid non-positive review_id %s (closing with code 1008)",
+            review_id,
+        )
+        await websocket.close(code=1008)
+        return
+
     await websocket.accept()
-    # TODO (Assignee - BE-09): Add Redis Pub/Sub listener loop here
-    await websocket.close()
+
+    channel = f"review:{review_id}:events"
+    redis_client = get_redis_client()
+    pubsub = None
+
+    try:
+        pubsub = redis_client.pubsub()
+        await pubsub.subscribe(channel)
+        logger.info(f"WebSocket client connected and subscribed to Redis channel: {channel}")
+    except Exception as exc:
+        logger.error(
+            f"Failed to subscribe to Redis channel {channel} for review {review_id}: {exc}"
+        )
+        if pubsub is not None:
+            try:
+                if hasattr(pubsub, "aclose"):
+                    await pubsub.aclose()
+                elif hasattr(pubsub, "close"):
+                    res = pubsub.close()
+                    if inspect.isawaitable(res):
+                        await res
+            except Exception as close_err:
+                logger.debug("Error closing pubsub on subscribe failure: %s", close_err)
+        if websocket.client_state == WebSocketState.CONNECTED:
+            await websocket.close(code=1011)
+        return
+
+    receiver_task: Optional[asyncio.Task] = None
+    redis_task: Optional[asyncio.Task] = None
+    has_error: bool = False
+
+    async def monitor_disconnect():
+        """Listen for incoming WebSocket messages or client disconnection."""
+        try:
+            while True:
+                msg = await websocket.receive()
+                if msg.get("type") == "websocket.disconnect":
+                    break
+        except WebSocketDisconnect:
+            pass
+        except Exception as err:
+            logger.debug(f"WebSocket receive ended for review {review_id}: {err}")
+
+    async def stream_redis_events():
+        """Listen to Redis Pub/Sub channel and stream JSON frames to client."""
+        try:
+            async for message in pubsub.listen():
+                if not message:
+                    continue
+                if message.get("type") == "message":
+                    data = message.get("data")
+                    if data is None:
+                        continue
+
+                    if isinstance(data, bytes):
+                        data = data.decode("utf-8")
+
+                    if isinstance(data, str):
+                        try:
+                            payload = json.loads(data)
+                        except (json.JSONDecodeError, TypeError) as parse_err:
+                            logger.warning(
+                                f"Skipping malformed JSON from channel {channel}: {parse_err}"
+                            )
+                            continue
+                    elif isinstance(data, dict):
+                        payload = data
+                    else:
+                        continue
+
+                    await websocket.send_json(payload)
+        except asyncio.CancelledError:
+            raise
+        except (WebSocketDisconnect, RuntimeError):
+            logger.debug(f"WebSocket disconnected during send for review {review_id}")
+        except Exception as err:
+            logger.error(f"Error streaming Redis events for review {review_id}: {err}")
+            raise
+
+    try:
+        receiver_task = asyncio.create_task(monitor_disconnect())
+        redis_task = asyncio.create_task(stream_redis_events())
+
+        done, pending = await asyncio.wait(
+            [receiver_task, redis_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+
+        for task in pending:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            except Exception as task_err:
+                logger.debug(f"Pending task cancellation exception: {task_err}")
+
+        # Check for unexpected exceptions in completed tasks
+        for task in done:
+            if not task.cancelled():
+                exc = task.exception()
+                if exc and not isinstance(exc, (WebSocketDisconnect, RuntimeError)):
+                    has_error = True
+                    logger.warning(f"Task finished with exception: {exc}")
+
+    finally:
+        # Guarantee cancellation and awaiting of any remaining tasks
+        for task in (receiver_task, redis_task):
+            if task is not None and not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+                except Exception as cancel_err:
+                    logger.debug("Error awaiting cancelled task: %s", cancel_err)
+
+        # Cleanup Redis pubsub subscription
+        if pubsub is not None:
+            try:
+                await pubsub.unsubscribe(channel)
+            except Exception as exc:
+                logger.debug(f"Error unsubscribing from Redis channel {channel}: {exc}")
+            finally:
+                try:
+                    if hasattr(pubsub, "aclose"):
+                        await pubsub.aclose()
+                    elif hasattr(pubsub, "close"):
+                        res = pubsub.close()
+                        if inspect.isawaitable(res):
+                            await res
+                except Exception as exc:
+                    logger.debug(f"Error closing Redis pubsub: {exc}")
+
+        # Ensure WebSocket connection is closed if still connected
+        if websocket.client_state == WebSocketState.CONNECTED:
+            try:
+                close_code = 1011 if has_error else 1000
+                await websocket.close(code=close_code)
+            except Exception as ws_close_err:
+                logger.debug("Error closing WebSocket: %s", ws_close_err)
+        logger.info(f"Cleaned up WebSocket connection and Redis pubsub for review {review_id}")

@@ -1,9 +1,12 @@
 import json
+import logging
 from typing import Any, Dict, List, Optional, Union
 
 import redis.asyncio as aioredis
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 # Global Redis client instance
 redis_client: Optional[aioredis.Redis] = None
@@ -73,7 +76,36 @@ async def close_redis_client() -> None:
         redis_client = None
 
 
-# TODO (Assignee - BE-09): Implement Redis Pub/Sub event publisher:
-# async def publish_review_event(review_id: int, event_data: Dict[str, Any]) -> int:
-#     """Publish a real-time JSON event to Redis channel 'review:{review_id}:events'."""
-#     pass
+async def publish_review_event(
+    review_id: int,
+    event_data: Dict[str, Any],
+    client: Optional[aioredis.Redis] = None,
+) -> int:
+    """Publish a real-time JSON event to Redis channel 'review:{review_id}:events'.
+
+    Args:
+        review_id: The ID of the review being processed.
+        event_data: The event dictionary to serialize and broadcast.
+        client: Optional Redis client instance. If omitted, uses get_redis_client().
+
+    Returns:
+        The number of Redis subscribers that received the message.
+
+    Raises:
+        TypeError, ValueError: If event_data cannot be serialized to JSON.
+        Exception: If Redis publication fails.
+    """
+    channel = f"review:{review_id}:events"
+    try:
+        serialized_val = json.dumps(event_data)
+    except (TypeError, ValueError) as exc:
+        logger.error(f"Failed to serialize review event for review {review_id}: {exc}")
+        raise
+
+    redis_cli = client if client is not None else get_redis_client()
+    try:
+        subscribers_count = await redis_cli.publish(channel, serialized_val)
+        return int(subscribers_count)
+    except Exception as exc:
+        logger.error(f"Failed to publish event to Redis channel '{channel}': {exc}")
+        raise
