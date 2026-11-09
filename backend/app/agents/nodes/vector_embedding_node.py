@@ -382,18 +382,21 @@ async def _process_and_store_embeddings(
         group = grouped_papers[paper.id]
 
         for sec_name, sec_text in item_sections.items():
-            clean_sec = sec_text.strip()
-            if not clean_sec:
+            clean_sec = str(sec_text or "").replace("\x00", "").strip()
+            clean_sec_name = str(sec_name or "").replace("\x00", "").strip()
+            if not clean_sec or not clean_sec_name:
                 continue
-            if sec_name not in group["sections"]:
-                group["sections"][sec_name] = clean_sec
-            elif clean_sec not in group["sections"][sec_name]:
+            if clean_sec_name not in group["sections"]:
+                group["sections"][clean_sec_name] = clean_sec
+            elif clean_sec not in group["sections"][clean_sec_name]:
                 # Append distinct content under existing section name
-                group["sections"][sec_name] = f"{group['sections'][sec_name]}\n\n{clean_sec}"
+                group["sections"][
+                    clean_sec_name
+                ] = f"{group['sections'][clean_sec_name]}\n\n{clean_sec}"
 
         if item_full_text and item_full_text.strip():
-            clean_ft = item_full_text.strip()
-            if clean_ft not in group["full_texts"]:
+            clean_ft = item_full_text.replace("\x00", "").strip()
+            if clean_ft and clean_ft not in group["full_texts"]:
                 group["full_texts"].append(clean_ft)
 
     total_chunks_stored = 0

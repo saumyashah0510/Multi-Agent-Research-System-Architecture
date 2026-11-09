@@ -50,6 +50,18 @@ def test_chunk_paper_sections():
     assert "Methodology" in section_names
 
 
+def test_chunk_text_sanitizes_null_bytes():
+    """Verify that literal null bytes (0x00) are stripped to prevent PostgreSQL encoding errors."""
+    text_with_null = "Autonomous\x00 agent \x00systems for literature review."
+    chunks = chunk_text(text_with_null, section_name="Intro\x00duction", chunk_size=100)
+
+    assert len(chunks) == 1
+    assert "\x00" not in chunks[0]["content"]
+    assert "\x00" not in chunks[0]["section_name"]
+    assert chunks[0]["content"] == "Autonomous agent systems for literature review."
+    assert chunks[0]["section_name"] == "Introduction"
+
+
 @pytest.mark.asyncio
 async def test_generate_embedding_fallback():
     """Test embedding generation length and unit normalization in offline fallback mode."""
