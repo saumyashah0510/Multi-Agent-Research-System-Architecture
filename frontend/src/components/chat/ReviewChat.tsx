@@ -10,6 +10,7 @@
  */
 
 import React, { useState, useRef, useEffect } from "react";
+
 import {
   Send,
   Bot,
@@ -54,6 +55,10 @@ function createWelcomeMessage(): ChatMessage {
  * auto-scrolling, review ID isolation, and graceful error handling.
  */
 export const ReviewChat: React.FC<ReviewChatProps> = ({ reviewId, className = "" }) => {
+  // Check whether reviewId is a canonical numeric database ID
+  const isNumericReviewId = /^\d+$/.test(reviewId);
+
+  // All React Hooks called unconditionally at top-level
   const [messages, setMessages] = useState<ChatMessage[]>([createWelcomeMessage()]);
   const [inputQuery, setInputQuery] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -62,6 +67,7 @@ export const ReviewChat: React.FC<ReviewChatProps> = ({ reviewId, className = ""
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const currentReviewIdRef = useRef(reviewId);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Review ID isolation: Reset conversation & abort in-flight requests when reviewId changes
   useEffect(() => {
@@ -144,7 +150,7 @@ export const ReviewChat: React.FC<ReviewChatProps> = ({ reviewId, className = ""
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = inputQuery.trim();
-    if (!trimmed || isLoading || !reviewId) return;
+    if (!trimmed || isLoading || !reviewId || !isNumericReviewId) return;
 
     // Build history from previous completed turns:
     // - Exclude welcome message
@@ -152,6 +158,10 @@ export const ReviewChat: React.FC<ReviewChatProps> = ({ reviewId, className = ""
     // - Exclude user messages whose corresponding request failed (turn without successful assistant response)
     // - Exclude current question (sent separately as `question`)
     // - Strict ChatHistoryMessage format: { role, content }
+    //
+    // NOTE: Multi-turn history is transmitted in full from the frontend. Token-aware history
+    // budgeting and truncation are not yet implemented on the backend and remain a pending backend
+    // requirement for generate_rag_chat_response (leveraging Gemini's large context window).
     const successfulTurnIds = new Set(
       messages
         .filter((m) => m.role === "assistant" && !m.isError && m.id !== "welcome" && m.turnId)
@@ -179,6 +189,11 @@ export const ReviewChat: React.FC<ReviewChatProps> = ({ reviewId, className = ""
     setMessages((prev) => [...prev, userMsg]);
     setInputQuery("");
     setIsLoading(true);
+
+    // Focus input immediately when a valid submission starts.
+    // The input remains readOnly during loading, preserving user focus without allowing edits.
+    // Focus is not forcibly stolen later when loading completes.
+    inputRef.current?.focus();
 
     const activeReviewId = reviewId;
     const controller = new AbortController();
@@ -257,6 +272,21 @@ export const ReviewChat: React.FC<ReviewChatProps> = ({ reviewId, className = ""
         <p className="font-medium text-neutral-700">No Literature Review Selected</p>
         <p className="text-xs text-neutral-500 mt-1">
           Please select or complete a literature review to start chatting.
+        </p>
+      </div>
+    );
+  }
+
+  // Guard: non-numeric review IDs indicate an unindexed or in-progress pipeline session
+  if (!isNumericReviewId) {
+    return (
+      <div
+        className={`w-full bg-white rounded-2xl border border-neutral-200 shadow-xs flex flex-col items-center justify-center p-8 text-center text-neutral-500 text-sm ${className}`}
+      >
+        <Sparkles className="w-6 h-6 text-neutral-400 mb-2" />
+        <p className="font-medium text-neutral-700">Review Initializing</p>
+        <p className="text-xs text-neutral-500 mt-1">
+          This review is still being initialized. The RAG chat assistant will become available once the literature review record has been indexed.
         </p>
       </div>
     );
@@ -455,19 +485,20 @@ export const ReviewChat: React.FC<ReviewChatProps> = ({ reviewId, className = ""
         className="p-3 bg-white border-t border-neutral-200 flex items-center gap-2"
       >
         <input
+          ref={inputRef}
           type="text"
           placeholder="Ask a question about the reviewed papers..."
           aria-label="Ask a question about the reviewed papers"
           value={inputQuery}
           onChange={(e) => setInputQuery(e.target.value)}
           readOnly={isLoading}
-          disabled={!reviewId}
+          disabled={!reviewId || !isNumericReviewId}
           className="flex-1 px-4 py-2.5 text-xs sm:text-sm bg-neutral-50 border border-neutral-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
         />
         <button
           type="submit"
           aria-label="Send message"
-          disabled={!inputQuery.trim() || isLoading || !reviewId}
+          disabled={!inputQuery.trim() || isLoading || !reviewId || !isNumericReviewId}
           className="p-2.5 bg-neutral-900 text-white rounded-xl hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors shrink-0 flex items-center justify-center"
         >
           {isLoading ? (

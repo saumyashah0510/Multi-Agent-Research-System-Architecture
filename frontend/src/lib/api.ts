@@ -94,11 +94,8 @@ export async function sendReviewChatMessage(
     let errorDetail = res.statusText || `HTTP ${res.status}`;
     try {
       const errorJson = await res.json();
-      if (errorJson && errorJson.detail) {
-        errorDetail =
-          typeof errorJson.detail === "string"
-            ? errorJson.detail
-            : JSON.stringify(errorJson.detail);
+      if (errorJson && typeof errorJson.detail === "string") {
+        errorDetail = errorJson.detail;
       }
     } catch {
       // Body may not be valid JSON or empty; fallback to status text
