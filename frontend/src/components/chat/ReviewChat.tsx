@@ -340,6 +340,9 @@ export const ReviewChat: React.FC<ReviewChatProps> = ({ reviewId, className = ""
                       : "bg-neutral-100 text-neutral-900 rounded-tl-xs"
                   }`}
                 >
+                  <span className="sr-only">
+                    {isUser ? "You" : "Assistant"}
+                  </span>
                   <p className="whitespace-pre-wrap break-words">{msg.content}</p>
                 </div>
 
