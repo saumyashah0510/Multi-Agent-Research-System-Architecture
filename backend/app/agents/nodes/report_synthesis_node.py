@@ -174,20 +174,28 @@ def _sanitize_references(
         if r.get("matched_passage")
     ]
 
-    # 2. Collect paper source texts (abstracts and extracted sections)
+    # 2. Collect paper source texts (abstracts, results, methodology, sections, full_text)
     source_texts: List[str] = []
     for p in approved_papers:
         if p.get("abstract"):
-            source_texts.append(str(p["abstract"]).lower())
+            source_texts.append(str(p["abstract"]).lower().strip())
+
     for content in (extracted_pdf_contents or {}).values():
         if isinstance(content, dict):
+            # Collect from nested sections dict
             for sec_t in (content.get("sections") or {}).values():
-                if isinstance(sec_t, str):
-                    source_texts.append(sec_t.lower())
-            if content.get("full_text"):
-                source_texts.append(str(content["full_text"]).lower())
-        elif isinstance(content, str):
-            source_texts.append(content.lower())
+                if isinstance(sec_t, str) and sec_t.strip():
+                    source_texts.append(sec_t.lower().strip())
+            # Collect from top-level section fields (e.g. results, methodology, full_text)
+            for k, v in content.items():
+                if (
+                    k not in ("sections", "title", "arxiv_id", "doi", "pubmed_id", "url")
+                    and isinstance(v, str)
+                    and v.strip()
+                ):
+                    source_texts.append(v.lower().strip())
+        elif isinstance(content, str) and content.strip():
+            source_texts.append(content.lower().strip())
 
     sanitized: List[Dict[str, Any]] = []
     for ref in references:
@@ -196,31 +204,45 @@ def _sanitize_references(
 
         if passage:
             clean_p = passage.lower()
-            # Check if passage matches any verified citation
-            is_grounded = any(clean_p in vp or vp in clean_p for vp in verified_passages if vp)
-            # If not in verified citations, check if substring exists in source texts
-            if not is_grounded:
-                probe = clean_p[:60] if len(clean_p) > 60 else clean_p
-                if len(probe) >= 15:
-                    is_grounded = any(probe in st for st in source_texts)
 
-            if not is_grounded:
-                logger.warning(
-                    "Dropping unverified/hallucinated matched_passage for reference '%s': '%s'",
-                    ref_dict.get("title"),
-                    passage[:80],
-                )
-                ref_dict["matched_passage"] = ""
+            # Check if the complete quote occurs in verified citations or source texts
+            is_grounded = any(clean_p in vp for vp in verified_passages if vp) or any(
+                clean_p in st for st in source_texts if st
+            )
 
-        # Backfill matched_passage from verified_references if LLM omitted it
+            # If not grounded as a whole, check if the quote contains a verified citation
+            # with fabricated extensions. If so, preserve only the verbatim verified portion.
+            if not is_grounded:
+                trimmed_to_vp = None
+                for vr in verified_references:
+                    raw_vp = (vr.get("matched_passage") or "").strip()
+                    if raw_vp and raw_vp.lower() in clean_p:
+                        trimmed_to_vp = raw_vp
+                        break
+
+                if trimmed_to_vp:
+                    ref_dict["matched_passage"] = trimmed_to_vp
+                    is_grounded = True
+                else:
+                    logger.warning(
+                        "Dropping unverified/hallucinated matched_passage for reference '%s': '%s'",
+                        ref_dict.get("title"),
+                        passage[:80],
+                    )
+                    ref_dict["matched_passage"] = ""
+
+        # Backfill matched_passage only if it is an exact verbatim quote from the cited paper
         if not ref_dict.get("matched_passage"):
             ref_title = (ref_dict.get("title") or "").lower()
             for vr in verified_references:
-                vr_passage = vr.get("matched_passage")
+                vr_passage = (vr.get("matched_passage") or "").strip()
                 vr_target = (vr.get("paper_id_or_title") or "").lower()
                 if vr_passage and vr_target and (vr_target in ref_title or ref_title in vr_target):
-                    ref_dict["matched_passage"] = vr_passage
-                    break
+                    # Verify vr_passage actually occurs verbatim in source text before copying
+                    clean_vr_p = vr_passage.lower()
+                    if any(clean_vr_p in st for st in source_texts):
+                        ref_dict["matched_passage"] = vr_passage
+                        break
 
         sanitized.append(ref_dict)
 

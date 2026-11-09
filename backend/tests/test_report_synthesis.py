@@ -316,15 +316,31 @@ def test_sanitize_references_drops_hallucinated_quotes_and_preserves_grounded():
             "paper_id_or_title": "Attention Is All You Need",
             "claim": "Transformers replace recurrence",
             "matched_passage": "The dominant sequence transduction models are based on complex recurrent networks.",
-        }
+        },
+        {
+            "paper_id_or_title": "Paraphrased Paper",
+            "claim": "Paraphrase claim",
+            "matched_passage": "Supported paraphrase summary but not verbatim text in source.",
+        },
     ]
 
     approved = [
         {
             "title": "Attention Is All You Need",
-            "abstract": "We propose the Transformer, a model architecture eschewing recurrence.",
-        }
+            "abstract": "The dominant sequence transduction models are based on complex recurrent networks. We propose the Transformer.",
+        },
+        {
+            "title": "Paraphrased Paper",
+            "abstract": "Completely different words in abstract.",
+        },
     ]
+
+    extracted_pdf = {
+        "2301.12345": {
+            "results": "Empirical accuracy improved by 14.2% on WMT 2014 English-to-German.",
+            "methodology": "Scaled dot-product attention compute Q, K, V dot products.",
+        }
+    }
 
     # Ref 1: grounded passage from verified_references
     ref1 = ReferenceItem(
@@ -333,25 +349,46 @@ def test_sanitize_references_drops_hallucinated_quotes_and_preserves_grounded():
         matched_passage="The dominant sequence transduction models are based on complex recurrent networks.",
     )
 
-    # Ref 2: hallucinated quote not present in verified citations or abstracts
+    # Ref 2: hallucinated quote not present in verified citations, abstracts, or results
     ref2 = ReferenceItem(
         title="Fabricated Paper",
         citation_key="Unknown, 2025",
         matched_passage="This is a completely fabricated quotation never written in any paper.",
     )
 
-    # Ref 3: empty quote, should backfill from verified_refs matching paper title
+    # Ref 3: empty quote, backfills from verified_refs because it verbatim matches source text
     ref3 = ReferenceItem(
         title="Attention Is All You Need",
         citation_key="Vaswani et al., 2017",
         matched_passage="",
     )
 
+    # Ref 4: quote from extracted_pdf_contents["results"] (Comment 1 test)
+    ref4 = ReferenceItem(
+        title="Attention Is All You Need",
+        citation_key="Vaswani et al., 2017",
+        matched_passage="Empirical accuracy improved by 14.2% on WMT 2014 English-to-German.",
+    )
+
+    # Ref 5: quote with verified passage prefix plus hallucinated extension (Comment 2 test)
+    ref5 = ReferenceItem(
+        title="Attention Is All You Need",
+        citation_key="Vaswani et al., 2017",
+        matched_passage="The dominant sequence transduction models are based on complex recurrent networks. AND THIS PART IS HALLUCINATED NONSENSE.",
+    )
+
+    # Ref 6: empty quote for Paraphrased Paper (Comment 3 test - paraphrase should NOT be backfilled)
+    ref6 = ReferenceItem(
+        title="Paraphrased Paper",
+        citation_key="Paraphrase, 2024",
+        matched_passage="",
+    )
+
     sanitized = _sanitize_references(
-        references=[ref1, ref2, ref3],
+        references=[ref1, ref2, ref3, ref4, ref5, ref6],
         verified_references=verified_refs,
         approved_papers=approved,
-        extracted_pdf_contents={},
+        extracted_pdf_contents=extracted_pdf,
     )
 
     # Ref 1 kept
@@ -360,3 +397,9 @@ def test_sanitize_references_drops_hallucinated_quotes_and_preserves_grounded():
     assert sanitized[1]["matched_passage"] == ""
     # Ref 3 backfilled from verified citation
     assert sanitized[2]["matched_passage"] == verified_refs[0]["matched_passage"]
+    # Ref 4 results quote preserved
+    assert sanitized[3]["matched_passage"] == ref4.matched_passage
+    # Ref 5 hallucinated extension trimmed to verified passage
+    assert sanitized[4]["matched_passage"] == verified_refs[0]["matched_passage"]
+    # Ref 6 paraphrase not backfilled because it is not verbatim in source
+    assert sanitized[5]["matched_passage"] == ""
