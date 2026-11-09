@@ -548,3 +548,160 @@ def test_overlapping_titles_resolve_to_exact_paper_bucket():
         sanitized[1]["matched_passage"]
         == "We introduce BERT, which stands for Bidirectional Encoder Representations."
     )
+
+
+def test_generate_citation_key_formatting():
+    """Verify _generate_citation_key generates standard academic Author-Year keys."""
+    from app.agents.nodes.report_synthesis_node import _generate_citation_key
+
+    # 3+ authors
+    p3 = {"authors": ["Ashish Vaswani", "Noam Shazeer", "Niki Parmar"], "year": 2017}
+    assert _generate_citation_key(p3) == "Vaswani et al., 2017"
+
+    # 2 authors
+    p2 = {"authors": ["Shota Takayama", "Katsuhide Fujita"], "year": 2025}
+    assert _generate_citation_key(p2) == "Takayama & Fujita, 2025"
+
+    # 1 author
+    p1 = {"authors": ["Sebastian Ament"], "year": 2021}
+    assert _generate_citation_key(p1) == "Ament, 2021"
+
+    # No authors
+    p0 = {"authors": [], "year": 2024}
+    assert _generate_citation_key(p0) == "Anon, 2024"
+
+    # No year
+    p_ny = {"authors": ["Roberta Calegari"], "year": None}
+    assert _generate_citation_key(p_ny) == "Calegari, n.d."
+
+
+def test_enrich_bibliography_with_approved_papers():
+    """Verify _enrich_bibliography_with_approved_papers includes all evaluated papers without duplicates."""
+    from app.agents.nodes.report_synthesis_node import _enrich_bibliography_with_approved_papers
+
+    sanitized_refs = [
+        {
+            "title": "Existing Paper One",
+            "citation_key": "Author1 et al., 2024",
+            "summary": "Existing summary.",
+            "authors": ["Author1"],
+            "year": 2024,
+            "url": "https://arxiv.org/abs/2401.00001",
+            "matched_passage": "Grounding quote.",
+        }
+    ]
+
+    approved_papers = [
+        # Paper 1 is already in sanitized_refs -> must NOT be duplicated
+        {
+            "title": "Existing Paper One",
+            "authors": ["Author1"],
+            "year": 2024,
+            "arxiv_id": "2401.00001",
+            "abstract": "Abstract of paper 1.",
+        },
+        # Paper 2 is missing from sanitized_refs -> must be enriched
+        {
+            "title": "New Paper Two",
+            "authors": ["Alice Smith", "Bob Jones"],
+            "year": 2025,
+            "doi": "10.1000/182",
+            "abstract": "Abstract of paper 2.",
+        },
+    ]
+
+    enriched = _enrich_bibliography_with_approved_papers(
+        sanitized_refs=sanitized_refs,
+        approved_papers=approved_papers,
+        user_query="Multi-Agent Literature Review",
+    )
+
+    assert len(enriched) == 2
+    assert enriched[0]["title"] == "Existing Paper One"
+    assert enriched[1]["title"] == "New Paper Two"
+    assert enriched[1]["citation_key"] == "Smith & Jones, 2025"
+    assert enriched[1]["url"] == "https://doi.org/10.1000/182"
+    assert "Abstract of paper 2" in enriched[1]["summary"]
+
+
+@pytest.mark.asyncio
+async def test_report_synthesis_large_corpus_scaling(monkeypatch):
+    """Verify that when 30 approved papers are provided, all 30 are sent to Gemini and max_output_tokens=8192."""
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "mock-gemini-key")
+
+    mock_review_json = json.dumps(
+        {
+            "title": "Comprehensive Multi-Agent Review",
+            "executive_summary": "Extensive academic synthesis across 30 evaluated papers.",
+            "thematic_clusters": [
+                {
+                    "theme": "Autonomous Discovery",
+                    "summary": "Deep comparative discourse spanning multiple paradigms.",
+                    "citations": ["Paper 1", "Paper 2"],
+                }
+            ],
+            "methodology_matrix": [
+                {
+                    "method_name": "Multi-Agent RL",
+                    "papers_used": ["Paper 1"],
+                    "strengths": ["Coordination"],
+                    "limitations": ["Scalability"],
+                }
+            ],
+            "research_gaps": ["Evaluation benchmarks", "Neuro-symbolic alignment"],
+            "conclusion": "Definitive roadmap for multi-agent systems.",
+            "references": [
+                {
+                    "title": "Paper 1",
+                    "citation_key": "Author 1, 2024",
+                    "summary": "Key contribution.",
+                }
+            ],
+        }
+    )
+
+    mock_response = MagicMock()
+    mock_response.text = mock_review_json
+
+    mock_client = MagicMock()
+    mock_client.models.generate_content.return_value = mock_response
+
+    # Generate 30 distinct approved papers
+    approved = [
+        {
+            "title": f"Paper {i}",
+            "authors": [f"Author {i}"],
+            "year": 2020 + (i % 5),
+            "arxiv_id": f"2401.{i:05d}",
+            "abstract": f"Abstract for Paper {i} discussing autonomous research systems.",
+        }
+        for i in range(1, 31)
+    ]
+
+    state = {
+        "user_query": "Multi-Agent Research Systems",
+        "approved_papers": approved,
+        "methodology_matrix": [],
+        "research_gaps": [],
+        "verified_references": [],
+        "extracted_pdf_contents": {},
+    }
+
+    with patch("google.genai.Client", return_value=mock_client):
+        result = await report_synthesis_node(state)
+
+    # Verify Gemini was invoked with max_output_tokens=8192
+    mock_client.models.generate_content.assert_called_once()
+    call_args = mock_client.models.generate_content.call_args
+    passed_config = call_args.kwargs.get("config") or call_args[1].get("config")
+    assert passed_config["max_output_tokens"] == 8192
+
+    # Verify user_content passed to Gemini contains all 30 papers (no [:12] truncation)
+    passed_contents = call_args.kwargs.get("contents") or call_args[0][0]
+    prompt_str = passed_contents[1] if isinstance(passed_contents, list) else str(passed_contents)
+    for i in range(1, 31):
+        assert f"Paper {i}" in prompt_str
+
+    # Verify that bibliography enrichment ensured all 30 papers are represented
+    synthesis = result["synthesized_review"]
+    assert len(synthesis["references"]) == 30
