@@ -10,13 +10,14 @@ Assignee Task (Issue AI-10):
 """
 
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Set
 
 from google import genai
 
 from app.agents.state import AgentState
 from app.core.config import settings
 from app.schemas.agent_outputs import (
+    ReferenceItem,
     SynthesizedReviewOutput,
 )
 
@@ -26,16 +27,27 @@ SYNTHESIS_SYSTEM_PROMPT = """You are an elite academic researcher and principal 
 Your task is to synthesize a high-impact, publication-grade academic literature review report based on the provided approved research papers, comparative methodology findings, verified citations, and research gaps.
 
 CRITICAL SYNTHESIS GUIDELINES:
-1. Title: Formulate an authoritative, publication-ready academic title reflecting the synthesis.
-2. Executive Summary: Provide an extensive, rigorous multi-paragraph synthesis of the overarching domain, architectural paradigms, empirical performance trends, and primary open challenges.
-3. Thematic Clusters: Group the literature into 2 to 4 thematic clusters (e.g., architectural paradigms, benchmark evaluation, optimization trade-offs). Under each cluster, provide in-depth comparative analysis rather than simple isolated summaries, referencing relevant papers.
+1. Title: Formulate an authoritative, publication-ready academic title reflecting the synthesis topic.
+2. Executive Summary: Provide an extensive, rigorous 2-3 paragraph academic synthesis structured into:
+   - Problem scope & theoretical motivation
+   - Synthesis of dominant paradigms and current state-of-the-art
+   - Key breakthroughs, empirical performance benchmarks, and major consensus/trade-offs.
+3. Thematic Clusters: Group the literature into 2 to 4 thematic chapters. Under each cluster, provide in-depth comparative analysis rather than simple isolated summaries, contrasting the strengths, empirical metrics, and methodologies of the evaluated papers. Include standard in-text citation keys (e.g. '[Author, Year]').
 4. Methodology Matrix: Preserve or synthesize a comparative methodology breakdown mapping methods, papers used, strengths, and limitations. Ensure each method accurately references the papers that used it.
-5. Research Gaps: Articulate actionable research gaps (typically 3 to 5, or fewer if the domain scope is tightly focused) that future research must address.
-6. Conclusion: Formulate a definitive conclusion summarizing theoretical implications and the next frontier for the domain.
-7. References: Include a curated bibliography listing the evaluated papers and verified citations.
+5. Research Gaps: Articulate 3 to 5 concrete, actionable research gaps detailing specific technical bottlenecks, evaluation deficiencies, or unresolved failure modes.
+6. Conclusion & Recommendations: Formulate a definitive conclusion summarizing theoretical implications, architectural recommendations, and actionable future research horizons.
+7. References: Include a curated bibliography listing the evaluated papers with complete bibliographic metadata:
+   - title: Canonical paper title
+   - citation_key: Author-year or identifier citation key without outer brackets (e.g. 'Chase et al., 2024' or 'Vaswani et al., 2017')
+   - authors: List of author names from provided metadata
+   - year: Publication year if provided
+   - url: Canonical arXiv / DOI link if available
+   - matched_passage: Verbatim grounding quote copied ONLY from the provided VERIFIED CITATIONS or paper excerpts proving claims. If no exact quote is in the provided context, leave empty ("").
+   - summary: Brief 1-sentence relevance to this review.
 8. Citation & Evidence Grounding (STRICT):
    - Use ONLY verified citations and approved papers as factual evidence.
-   - Never fabricate DOIs, URLs, publication venues, authors, or experimental results.
+   - Never fabricate DOIs, URLs, publication venues, authors, quotes, or experimental results.
+   - Any matched_passage must directly originate from the provided verified citations or paper excerpts; do not invent or hallucinate quotes.
    - If any preliminary claim was flagged in the audit trail as a rejected/unsupported hallucination, STRICTLY EXCLUDE IT from the report.
    - Preserve the association between each methodology and its cited papers.
 
@@ -117,14 +129,28 @@ def format_review_as_markdown(review: Dict[str, Any]) -> str:
                 summary = ref.get("summary")
                 claim = ref.get("claim")
                 quote = ref.get("matched_passage")
+                authors = ref.get("authors")
+                year = ref.get("year")
+                url = ref.get("url")
 
                 ref_parts = [f"**{ref_title}**"]
+                if authors:
+                    auth_str = ", ".join(authors) if isinstance(authors, list) else str(authors)
+                    ref_parts.append(f"by {auth_str}")
+                if year:
+                    ref_parts.append(f"({year})")
                 if cite_key:
-                    ref_parts.append(f"`[{cite_key}]`")
+                    ck = str(cite_key).strip()
+                    bracketed_key = ck if (ck.startswith("[") and ck.endswith("]")) else f"[{ck}]"
+                    ref_parts.append(f"`{bracketed_key}`")
+                if url:
+                    ref_parts.append(f"<{url}>")
                 if summary:
                     ref_parts.append(f"- {summary}")
-                elif claim and quote:
+                if claim and quote:
                     ref_parts.append(f'- *"{claim}"* (Grounding: *"{quote}"*)')
+                elif quote:
+                    ref_parts.append(f'(Grounding: *"{quote}"*)')
 
                 lines.append(f"{idx}. {' '.join(ref_parts)}")
             else:
@@ -132,6 +158,174 @@ def format_review_as_markdown(review: Dict[str, Any]) -> str:
         lines.append("")
 
     return "\n".join(lines).strip()
+
+
+def _sanitize_references(
+    references: List[ReferenceItem],
+    verified_references: List[Dict[str, Any]],
+    approved_papers: List[Dict[str, Any]],
+    extracted_pdf_contents: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    """Verify and ground matched passages before publishing in synthesized review."""
+
+    def _norm_ws(text: str) -> str:
+        return " ".join(text.lower().split())
+
+    # Build per-paper source text and verified passage mapping
+    paper_buckets: List[Dict[str, Any]] = []
+
+    for p in approved_papers:
+        identifiers: Set[str] = set()
+        title = p.get("title")
+        if title:
+            identifiers.add(_norm_ws(title))
+        if p.get("arxiv_id"):
+            identifiers.add(_norm_ws(p["arxiv_id"]))
+            identifiers.add(_norm_ws(f"arxiv:{p['arxiv_id']}"))
+        if p.get("doi"):
+            identifiers.add(_norm_ws(p["doi"]))
+            identifiers.add(_norm_ws(f"doi:{p['doi']}"))
+        if p.get("pubmed_id"):
+            identifiers.add(_norm_ws(str(p["pubmed_id"])))
+        if p.get("url"):
+            identifiers.add(_norm_ws(p["url"]))
+        if p.get("pdf_url"):
+            identifiers.add(_norm_ws(p["pdf_url"]))
+
+        src_texts = []
+        if p.get("abstract"):
+            src_texts.append(_norm_ws(p["abstract"]))
+
+        paper_buckets.append(
+            {
+                "paper": p,
+                "identifiers": identifiers,
+                "source_texts": src_texts,
+                "verified_passages": [],
+            }
+        )
+
+    def _find_matching_bucket(target: str) -> Optional[Dict[str, Any]]:
+        clean_target = _norm_ws(target)
+        if not clean_target:
+            return None
+
+        # 1. Exact match pass against bucket identifiers
+        for b in paper_buckets:
+            if clean_target in b["identifiers"]:
+                return b
+
+        # 2. Substring fallback pass (only if unambiguous: exactly one bucket matches)
+        substring_matches = []
+        for b in paper_buckets:
+            for ident in b["identifiers"]:
+                if len(clean_target) >= 4 and len(ident) >= 4:
+                    if clean_target in ident or ident in clean_target:
+                        substring_matches.append(b)
+                        break
+
+        if len(substring_matches) == 1:
+            return substring_matches[0]
+
+        return None
+
+    # Associate extracted_pdf_contents to the appropriate paper bucket
+    for paper_key, content in (extracted_pdf_contents or {}).items():
+        matched_bucket = _find_matching_bucket(str(paper_key))
+        if not matched_bucket and isinstance(content, dict):
+            for field in ("title", "arxiv_id", "doi"):
+                val = content.get(field)
+                if val:
+                    matched_bucket = _find_matching_bucket(str(val))
+                    if matched_bucket:
+                        break
+
+        if matched_bucket:
+            if isinstance(content, dict):
+                for sec_t in (content.get("sections") or {}).values():
+                    if isinstance(sec_t, str) and sec_t.strip():
+                        matched_bucket["source_texts"].append(_norm_ws(sec_t))
+                for k, v in content.items():
+                    if (
+                        k not in ("sections", "title", "arxiv_id", "doi", "pubmed_id", "url")
+                        and isinstance(v, str)
+                        and v.strip()
+                    ):
+                        matched_bucket["source_texts"].append(_norm_ws(v))
+            elif isinstance(content, str) and content.strip():
+                matched_bucket["source_texts"].append(_norm_ws(content))
+
+    # Associate verified_references from Agent 08 to the appropriate paper bucket
+    for vr in verified_references:
+        vr_target = _norm_ws(str(vr.get("paper_id_or_title") or ""))
+        raw_vp = (vr.get("matched_passage") or "").strip()
+        if not vr_target or not raw_vp:
+            continue
+
+        matched_b = _find_matching_bucket(vr_target)
+        if matched_b:
+            matched_b["verified_passages"].append(raw_vp)
+
+    sanitized: List[Dict[str, Any]] = []
+    for ref in references:
+        ref_dict = ref.model_dump()
+        passage = (ref_dict.get("matched_passage") or "").strip()
+        ref_title = _norm_ws(ref_dict.get("title") or "")
+        ref_key = _norm_ws(ref_dict.get("citation_key") or "")
+
+        # Find the specific paper bucket corresponding to this reference (exact first, unambiguous fallback)
+        target_bucket = _find_matching_bucket(ref_title)
+        if not target_bucket and ref_key:
+            target_bucket = _find_matching_bucket(ref_key)
+
+        # If reference cannot be matched to an approved paper, do not fall back to global corpus
+        if not target_bucket:
+            ref_dict["matched_passage"] = ""
+            sanitized.append(ref_dict)
+            continue
+
+        paper_sources = target_bucket["source_texts"]
+        paper_vps = target_bucket["verified_passages"]
+
+        if passage:
+            norm_p = _norm_ws(passage)
+
+            # Check if the complete quote occurs in this paper's verified citations or source texts
+            is_grounded = any(norm_p in _norm_ws(vp) for vp in paper_vps if vp) or any(
+                norm_p in st for st in paper_sources if st
+            )
+
+            # If not grounded as a whole, check if the quote contains a verified citation
+            # belonging to this paper with fabricated extensions
+            if not is_grounded:
+                trimmed_to_vp = None
+                for raw_vp in paper_vps:
+                    if raw_vp and _norm_ws(raw_vp) in norm_p:
+                        trimmed_to_vp = raw_vp
+                        break
+
+                if trimmed_to_vp:
+                    ref_dict["matched_passage"] = trimmed_to_vp
+                    is_grounded = True
+                else:
+                    logger.warning(
+                        "Dropping unverified/hallucinated matched_passage for reference '%s': '%s'",
+                        ref_dict.get("title"),
+                        passage[:80],
+                    )
+                    ref_dict["matched_passage"] = ""
+
+        # Backfill matched_passage only if an exact verbatim quote from this cited paper exists
+        if not ref_dict.get("matched_passage"):
+            for raw_vp in paper_vps:
+                norm_vr_p = _norm_ws(raw_vp)
+                if any(norm_vr_p in st for st in paper_sources):
+                    ref_dict["matched_passage"] = raw_vp
+                    break
+
+        sanitized.append(ref_dict)
+
+    return sanitized
 
 
 async def report_synthesis_node(state: AgentState) -> Dict[str, Any]:
@@ -178,6 +372,9 @@ async def report_synthesis_node(state: AgentState) -> Dict[str, Any]:
         authors = p.get("authors")
         year = p.get("year")
         abstract = p.get("abstract", "")
+        url = p.get("url") or p.get("pdf_url") or ""
+        doi = p.get("doi") or ""
+        arxiv_id = p.get("arxiv_id") or ""
 
         header = f"Paper: {title}"
         if authors:
@@ -185,6 +382,12 @@ async def report_synthesis_node(state: AgentState) -> Dict[str, Any]:
             header += f" | Authors: {auth_str}"
         if year:
             header += f" ({year})"
+        if arxiv_id:
+            header += f" | arXiv:{arxiv_id}"
+        if doi:
+            header += f" | DOI:{doi}"
+        if url:
+            header += f" | URL: {url}"
         papers_context.append(f"{header}\nAbstract: {abstract}")
 
     # Map p_id to title if known so excerpts have full paper titles
@@ -299,7 +502,14 @@ async def report_synthesis_node(state: AgentState) -> Dict[str, Any]:
                 f"All configured Gemini models {candidate_models} failed during report synthesis. Last error: {last_model_error}"
             )
 
-        # 5. Construct synthesized review dictionary
+        # 5. Validate and ground references before publishing
+        sanitized_refs = _sanitize_references(
+            references=parsed_output.references,
+            verified_references=verified_references,
+            approved_papers=approved_papers,
+            extracted_pdf_contents=extracted_pdf_contents,
+        )
+
         synthesized_dict = {
             "title": parsed_output.title,
             "executive_summary": parsed_output.executive_summary,
@@ -307,7 +517,7 @@ async def report_synthesis_node(state: AgentState) -> Dict[str, Any]:
             "methodology_matrix": [mm.model_dump() for mm in parsed_output.methodology_matrix],
             "research_gaps": parsed_output.research_gaps,
             "conclusion": parsed_output.conclusion,
-            "references": [ref.model_dump() for ref in parsed_output.references],
+            "references": sanitized_refs,
         }
 
         logger.info(

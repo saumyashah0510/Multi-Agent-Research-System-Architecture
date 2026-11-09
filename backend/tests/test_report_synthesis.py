@@ -249,3 +249,302 @@ def test_format_review_as_markdown():
     assert "1. Error correction" in md_output
     assert "## Conclusion & Future Directions" in md_output
     assert "## References & Bibliography" in md_output
+
+
+def test_reference_item_bibliographic_metadata_and_markdown():
+    """Verify ReferenceItem handles authors, year, url, and matched_passage."""
+    from app.schemas.agent_outputs import ReferenceItem
+
+    ref = ReferenceItem(
+        title="Attention Is All You Need",
+        citation_key="Vaswani et al., 2017",
+        authors=["Ashish Vaswani", "Noam Shazeer"],
+        year=2017,
+        url="https://arxiv.org/abs/1706.03762",
+        matched_passage="The dominant sequence transduction models are based on complex recurrent or convolutional neural networks.",
+        summary="Foundational transformer architecture paper.",
+    )
+
+    assert ref.title == "Attention Is All You Need"
+    assert ref.year == 2017
+    assert len(ref.authors) == 2
+    assert "arxiv.org" in ref.url
+
+    review_dict = {
+        "title": "Transformer Survey",
+        "executive_summary": "Transformers have reshaped deep learning.",
+        "references": [ref.model_dump()],
+    }
+
+    md = format_review_as_markdown(review_dict)
+    assert "**Attention Is All You Need**" in md
+    assert "by Ashish Vaswani, Noam Shazeer" in md
+    assert "(2017)" in md
+    assert "`[Vaswani et al., 2017]`" in md
+    assert "<https://arxiv.org/abs/1706.03762>" in md
+    assert "Foundational transformer architecture paper." in md
+    # Assert grounding quote is rendered even when summary exists (CodeRabbit Item 1)
+    assert "The dominant sequence transduction models" in md
+
+
+def test_markdown_citation_key_preserves_single_brackets():
+    """Verify citation keys with or without brackets render cleanly as `[Key]` (no double brackets)."""
+    ref_with_brackets = {
+        "title": "Paper One",
+        "citation_key": "[Vaswani et al., 2017]",
+    }
+    ref_without_brackets = {
+        "title": "Paper Two",
+        "citation_key": "Chase et al., 2024",
+    }
+    review = {"references": [ref_with_brackets, ref_without_brackets]}
+    md = format_review_as_markdown(review)
+
+    assert "`[Vaswani et al., 2017]`" in md
+    assert "`[[Vaswani et al., 2017]]`" not in md
+    assert "`[Chase et al., 2024]`" in md
+    assert "`[[Chase et al., 2024]]`" not in md
+
+
+def test_sanitize_references_drops_hallucinated_quotes_and_preserves_grounded():
+    """Verify _sanitize_references drops ungrounded quotes, preserves verified quotes, and backfills."""
+    from app.agents.nodes.report_synthesis_node import _sanitize_references
+    from app.schemas.agent_outputs import ReferenceItem
+
+    verified_refs = [
+        {
+            "paper_id_or_title": "Attention Is All You Need",
+            "claim": "Transformers replace recurrence",
+            "matched_passage": "The dominant sequence transduction models are based on complex recurrent networks.",
+        },
+        {
+            "paper_id_or_title": "Paraphrased Paper",
+            "claim": "Paraphrase claim",
+            "matched_passage": "Supported paraphrase summary but not verbatim text in source.",
+        },
+    ]
+
+    approved = [
+        {
+            "title": "Attention Is All You Need",
+            "arxiv_id": "2301.12345",
+            "abstract": "The dominant sequence transduction models are based on complex recurrent networks. We propose the Transformer.",
+        },
+        {
+            "title": "Paraphrased Paper",
+            "abstract": "Completely different words in abstract.",
+        },
+    ]
+
+    extracted_pdf = {
+        "2301.12345": {
+            "results": "Empirical accuracy improved by 14.2% on WMT 2014 English-to-German.",
+            "methodology": "Scaled dot-product attention compute Q, K, V dot products.",
+        }
+    }
+
+    # Ref 1: grounded passage from verified_references
+    ref1 = ReferenceItem(
+        title="Attention Is All You Need",
+        citation_key="Vaswani et al., 2017",
+        matched_passage="The dominant sequence transduction models are based on complex recurrent networks.",
+    )
+
+    # Ref 2: hallucinated quote not present in verified citations, abstracts, or results
+    ref2 = ReferenceItem(
+        title="Fabricated Paper",
+        citation_key="Unknown, 2025",
+        matched_passage="This is a completely fabricated quotation never written in any paper.",
+    )
+
+    # Ref 3: empty quote, backfills from verified_refs because it verbatim matches source text
+    ref3 = ReferenceItem(
+        title="Attention Is All You Need",
+        citation_key="Vaswani et al., 2017",
+        matched_passage="",
+    )
+
+    # Ref 4: quote from extracted_pdf_contents["results"] (Comment 1 test)
+    ref4 = ReferenceItem(
+        title="Attention Is All You Need",
+        citation_key="Vaswani et al., 2017",
+        matched_passage="Empirical accuracy improved by 14.2% on WMT 2014 English-to-German.",
+    )
+
+    # Ref 5: quote with verified passage prefix plus hallucinated extension (Comment 2 test)
+    ref5 = ReferenceItem(
+        title="Attention Is All You Need",
+        citation_key="Vaswani et al., 2017",
+        matched_passage="The dominant sequence transduction models are based on complex recurrent networks. AND THIS PART IS HALLUCINATED NONSENSE.",
+    )
+
+    # Ref 6: empty quote for Paraphrased Paper (Comment 3 test - paraphrase should NOT be backfilled)
+    ref6 = ReferenceItem(
+        title="Paraphrased Paper",
+        citation_key="Paraphrase, 2024",
+        matched_passage="",
+    )
+
+    sanitized = _sanitize_references(
+        references=[ref1, ref2, ref3, ref4, ref5, ref6],
+        verified_references=verified_refs,
+        approved_papers=approved,
+        extracted_pdf_contents=extracted_pdf,
+    )
+
+    # Ref 1 kept
+    assert sanitized[0]["matched_passage"] == ref1.matched_passage
+    # Ref 2 hallucinated quote safely dropped
+    assert sanitized[1]["matched_passage"] == ""
+    # Ref 3 backfilled from verified citation
+    assert sanitized[2]["matched_passage"] == verified_refs[0]["matched_passage"]
+    # Ref 4 results quote preserved
+    assert sanitized[3]["matched_passage"] == ref4.matched_passage
+    # Ref 5 hallucinated extension trimmed to verified passage
+    assert sanitized[4]["matched_passage"] == verified_refs[0]["matched_passage"]
+    # Ref 6 paraphrase not backfilled because it is not verbatim in source
+    assert sanitized[5]["matched_passage"] == ""
+
+
+def test_whitespace_normalization_and_paper_scoped_trimming():
+    """Verify whitespace normalization handles PDF line wraps and trimming respects cited paper."""
+    from app.agents.nodes.report_synthesis_node import _sanitize_references
+    from app.schemas.agent_outputs import ReferenceItem
+
+    verified_refs = [
+        {
+            "paper_id_or_title": "Paper A",
+            "matched_passage": "Paper A verified excerpt.",
+        },
+        {
+            "paper_id_or_title": "Paper B",
+            "matched_passage": "Paper B verified excerpt.",
+        },
+    ]
+
+    approved = [
+        {
+            "title": "Paper A",
+            # Source text has hard newline breaks from PDF extraction
+            "abstract": "The dominant sequence\ntransduction models are based\non complex recurrence.",
+        },
+        {
+            "title": "Paper B",
+            "abstract": "Deep learning architectures for vision.",
+        },
+    ]
+
+    # Ref A: LLM quoted without newlines (spaces only) -> matches via whitespace normalization
+    ref_a = ReferenceItem(
+        title="Paper A",
+        citation_key="Paper A, 2024",
+        matched_passage="The dominant sequence transduction models are based on complex recurrence.",
+    )
+
+    # Ref B: contains Paper A's quote but belongs to Paper B -> must NOT trim to Paper A's passage!
+    ref_b = ReferenceItem(
+        title="Paper B",
+        citation_key="Paper B, 2024",
+        matched_passage="Paper A verified excerpt plus hallucination.",
+    )
+
+    sanitized = _sanitize_references(
+        references=[ref_a, ref_b],
+        verified_references=verified_refs,
+        approved_papers=approved,
+        extracted_pdf_contents={},
+    )
+
+    # Ref A preserved through whitespace normalization despite source hard line breaks
+    assert sanitized[0]["matched_passage"] == ref_a.matched_passage
+    # Ref B dropped rather than incorrectly assigned Paper A's quote
+    assert sanitized[1]["matched_passage"] == ""
+
+
+def test_cross_paper_quote_cleared_when_cited_by_different_paper():
+    """Verify that when Paper B cites an exact quote found only in Paper A, it is cleared."""
+    from app.agents.nodes.report_synthesis_node import _sanitize_references
+    from app.schemas.agent_outputs import ReferenceItem
+
+    approved = [
+        {
+            "title": "Paper A",
+            "abstract": "Exact unique quote belonging strictly to Paper A.",
+        },
+        {
+            "title": "Paper B",
+            "abstract": "Different content belonging to Paper B.",
+        },
+    ]
+
+    # Reference is for Paper B, but quotes text found only in Paper A
+    ref_b = ReferenceItem(
+        title="Paper B",
+        citation_key="Paper B, 2024",
+        matched_passage="Exact unique quote belonging strictly to Paper A.",
+    )
+
+    sanitized = _sanitize_references(
+        references=[ref_b],
+        verified_references=[],
+        approved_papers=approved,
+        extracted_pdf_contents={},
+    )
+
+    # Scoped grounding must clear the quote because Paper B's source does not contain it
+    assert sanitized[0]["matched_passage"] == ""
+
+
+def test_overlapping_titles_resolve_to_exact_paper_bucket():
+    """Verify overlapping titles (e.g. 'BERT' vs 'BERT: Pre-training...') resolve to exact bucket."""
+    from app.agents.nodes.report_synthesis_node import _sanitize_references
+    from app.schemas.agent_outputs import ReferenceItem
+
+    approved = [
+        {
+            "title": "BERT",
+            "abstract": "Short overview paper about BERT.",
+        },
+        {
+            "title": "BERT: Pre-training of Deep Bidirectional Transformers",
+            "abstract": "We introduce BERT, which stands for Bidirectional Encoder Representations.",
+        },
+    ]
+
+    verified_refs = [
+        {
+            "paper_id_or_title": "BERT",
+            "matched_passage": "Short overview paper about BERT.",
+        },
+        {
+            "paper_id_or_title": "BERT: Pre-training of Deep Bidirectional Transformers",
+            "matched_passage": "We introduce BERT, which stands for Bidirectional Encoder Representations.",
+        },
+    ]
+
+    # Ref for shorter title must match short title's quote, not longer title's quote
+    ref_short = ReferenceItem(
+        title="BERT",
+        citation_key="Devlin, 2018",
+        matched_passage="Short overview paper about BERT.",
+    )
+
+    # Ref for longer title must match longer title's quote
+    ref_long = ReferenceItem(
+        title="BERT: Pre-training of Deep Bidirectional Transformers",
+        citation_key="Devlin et al., 2019",
+        matched_passage="We introduce BERT, which stands for Bidirectional Encoder Representations.",
+    )
+
+    sanitized = _sanitize_references(
+        references=[ref_short, ref_long],
+        verified_references=verified_refs,
+        approved_papers=approved,
+        extracted_pdf_contents={},
+    )
+
+    assert sanitized[0]["matched_passage"] == "Short overview paper about BERT."
+    assert (
+        sanitized[1]["matched_passage"]
+        == "We introduce BERT, which stands for Bidirectional Encoder Representations."
+    )

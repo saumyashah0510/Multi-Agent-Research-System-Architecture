@@ -114,10 +114,18 @@ class ReferenceItem(BaseModel):
 
     title: str = Field(..., description="Title of the cited research paper")
     citation_key: str = Field(
-        default="", description="Citation key, paper ID, or author-year reference"
+        default="",
+        description="Author-year or identifier citation key without outer brackets (e.g. 'Chase et al., 2024' or 'Vaswani et al., 2017')",
     )
     summary: str = Field(
         default="", description="Brief relevance or key contribution to this review"
+    )
+    authors: List[str] = Field(default_factory=list, description="List of paper authors")
+    year: Optional[int] = Field(default=None, description="Publication year")
+    url: str = Field(default="", description="Canonical paper URL (arXiv or DOI)")
+    matched_passage: str = Field(
+        default="",
+        description="Verified verbatim quote or passage from the paper proving grounded claims",
     )
 
 
