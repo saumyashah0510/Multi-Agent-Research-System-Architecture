@@ -627,6 +627,42 @@ async def test_mixed_entries_section_and_full_text_both_persisted():
     assert "Main Body" in section_names
 
 
+@pytest.mark.asyncio
+async def test_mixed_entries_preserves_existing_full_text_and_main_body():
+    """Verify that if both Main Body and Full Text exist, distinct full text selects a non-colliding name."""
+    db_paper = Paper(
+        id=89,
+        title="Collision Test Paper",
+        arxiv_id="2301.89999",
+        review_id=6,
+    )
+    mock_db = MockAsyncSession(papers=[db_paper])
+
+    state: AgentState = {
+        "review_id": 6,
+        "extracted_pdf_contents": {
+            "2301.89999": {
+                "sections": {
+                    "Main Body": "Existing main body section content.",
+                    "Full Text": "Existing full text section content.",
+                }
+            },
+            "https://arxiv.org/abs/2301.89999": {
+                "full_text": "Newly extracted distinct full text content from another source."
+            },
+        },
+    }
+
+    result = await vector_embedding_node(state, db=mock_db)
+    assert result["current_step"] == "vector_embedding_completed"
+    assert result["chunks_stored_count"] == 3
+
+    section_names = {c.section_name for c in mock_db.added_chunks}
+    assert "Main Body" in section_names
+    assert "Full Text" in section_names
+    assert any("Full Text" in s and s != "Full Text" for s in section_names)
+
+
 def test_normalize_identifier_preserves_doi_suffix_with_pdf():
     """Verify that .pdf is only stripped from arXiv URLs and never from DOI identifiers."""
     assert _normalize_identifier("https://arxiv.org/pdf/2301.12345.pdf") == "2301.12345"

@@ -10,7 +10,7 @@ Assignee Task (Issue AI-10):
 """
 
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Set
 
 from google import genai
 
@@ -171,64 +171,136 @@ def _sanitize_references(
     def _norm_ws(text: str) -> str:
         return " ".join(text.lower().split())
 
-    # 1. Collect verified reference passages from Agent 08 (normalized whitespace)
-    verified_passages: List[str] = [
-        _norm_ws(str(r.get("matched_passage", "")))
-        for r in verified_references
-        if r.get("matched_passage")
-    ]
+    # Build per-paper source text and verified passage mapping
+    paper_buckets: List[Dict[str, Any]] = []
 
-    # 2. Collect paper source texts (abstracts, results, methodology, sections, full_text)
-    source_texts: List[str] = []
     for p in approved_papers:
-        if p.get("abstract"):
-            source_texts.append(_norm_ws(str(p["abstract"])))
+        identifiers: Set[str] = set()
+        title = p.get("title")
+        if title:
+            identifiers.add(_norm_ws(title))
+        if p.get("arxiv_id"):
+            identifiers.add(_norm_ws(p["arxiv_id"]))
+            identifiers.add(_norm_ws(f"arxiv:{p['arxiv_id']}"))
+        if p.get("doi"):
+            identifiers.add(_norm_ws(p["doi"]))
+            identifiers.add(_norm_ws(f"doi:{p['doi']}"))
+        if p.get("pubmed_id"):
+            identifiers.add(_norm_ws(str(p["pubmed_id"])))
+        if p.get("url"):
+            identifiers.add(_norm_ws(p["url"]))
+        if p.get("pdf_url"):
+            identifiers.add(_norm_ws(p["pdf_url"]))
 
-    for content in (extracted_pdf_contents or {}).values():
-        if isinstance(content, dict):
-            # Collect from nested sections dict
-            for sec_t in (content.get("sections") or {}).values():
-                if isinstance(sec_t, str) and sec_t.strip():
-                    source_texts.append(_norm_ws(sec_t))
-            # Collect from top-level section fields (e.g. results, methodology, full_text)
-            for k, v in content.items():
-                if (
-                    k not in ("sections", "title", "arxiv_id", "doi", "pubmed_id", "url")
-                    and isinstance(v, str)
-                    and v.strip()
-                ):
-                    source_texts.append(_norm_ws(v))
-        elif isinstance(content, str) and content.strip():
-            source_texts.append(_norm_ws(content))
+        src_texts = []
+        if p.get("abstract"):
+            src_texts.append(_norm_ws(p["abstract"]))
+
+        paper_buckets.append(
+            {
+                "paper": p,
+                "identifiers": identifiers,
+                "source_texts": src_texts,
+                "verified_passages": [],
+            }
+        )
+
+    # Associate extracted_pdf_contents to the appropriate paper bucket
+    for paper_key, content in (extracted_pdf_contents or {}).items():
+        norm_key = _norm_ws(str(paper_key))
+        matched_bucket = None
+        for b in paper_buckets:
+            if norm_key in b["identifiers"]:
+                matched_bucket = b
+                break
+            if isinstance(content, dict):
+                c_title = content.get("title")
+                c_arxiv = content.get("arxiv_id")
+                c_doi = content.get("doi")
+                if c_title and _norm_ws(c_title) in b["identifiers"]:
+                    matched_bucket = b
+                    break
+                if c_arxiv and _norm_ws(c_arxiv) in b["identifiers"]:
+                    matched_bucket = b
+                    break
+                if c_doi and _norm_ws(c_doi) in b["identifiers"]:
+                    matched_bucket = b
+                    break
+
+        if matched_bucket:
+            if isinstance(content, dict):
+                for sec_t in (content.get("sections") or {}).values():
+                    if isinstance(sec_t, str) and sec_t.strip():
+                        matched_bucket["source_texts"].append(_norm_ws(sec_t))
+                for k, v in content.items():
+                    if (
+                        k not in ("sections", "title", "arxiv_id", "doi", "pubmed_id", "url")
+                        and isinstance(v, str)
+                        and v.strip()
+                    ):
+                        matched_bucket["source_texts"].append(_norm_ws(v))
+            elif isinstance(content, str) and content.strip():
+                matched_bucket["source_texts"].append(_norm_ws(content))
+
+    # Associate verified_references from Agent 08 to the appropriate paper bucket
+    for vr in verified_references:
+        vr_target = _norm_ws(str(vr.get("paper_id_or_title") or ""))
+        raw_vp = (vr.get("matched_passage") or "").strip()
+        if not vr_target or not raw_vp:
+            continue
+
+        for b in paper_buckets:
+            is_match = False
+            for ident in b["identifiers"]:
+                if vr_target == ident or vr_target in ident or ident in vr_target:
+                    is_match = True
+                    break
+            if is_match:
+                b["verified_passages"].append(raw_vp)
 
     sanitized: List[Dict[str, Any]] = []
     for ref in references:
         ref_dict = ref.model_dump()
         passage = (ref_dict.get("matched_passage") or "").strip()
-        ref_title = (ref_dict.get("title") or "").lower()
+        ref_title = _norm_ws(ref_dict.get("title") or "")
+        ref_key = _norm_ws(ref_dict.get("citation_key") or "")
+
+        # Find the specific paper bucket corresponding to this reference
+        target_bucket = None
+        for b in paper_buckets:
+            is_match = False
+            for ident in b["identifiers"]:
+                if (
+                    ref_title and (ref_title == ident or ref_title in ident or ident in ref_title)
+                ) or (ref_key and (ref_key == ident or ref_key in ident or ident in ref_key)):
+                    is_match = True
+                    break
+            if is_match:
+                target_bucket = b
+                break
+
+        # If reference cannot be matched to an approved paper, do not fall back to global corpus
+        if not target_bucket:
+            ref_dict["matched_passage"] = ""
+            sanitized.append(ref_dict)
+            continue
+
+        paper_sources = target_bucket["source_texts"]
+        paper_vps = target_bucket["verified_passages"]
 
         if passage:
             norm_p = _norm_ws(passage)
 
-            # Check if the complete quote occurs in verified citations or source texts
-            is_grounded = any(norm_p in vp for vp in verified_passages if vp) or any(
-                norm_p in st for st in source_texts if st
+            # Check if the complete quote occurs in this paper's verified citations or source texts
+            is_grounded = any(norm_p in _norm_ws(vp) for vp in paper_vps if vp) or any(
+                norm_p in st for st in paper_sources if st
             )
 
             # If not grounded as a whole, check if the quote contains a verified citation
-            # for this cited paper with fabricated extensions. If so, preserve only the verified portion.
+            # belonging to this paper with fabricated extensions
             if not is_grounded:
                 trimmed_to_vp = None
-                paper_verified_refs = [
-                    vr
-                    for vr in verified_references
-                    if not ref_title
-                    or not vr.get("paper_id_or_title")
-                    or vr.get("paper_id_or_title", "").lower() in ref_title
-                    or ref_title in vr.get("paper_id_or_title", "").lower()
-                ]
-                for vr in paper_verified_refs:
-                    raw_vp = (vr.get("matched_passage") or "").strip()
+                for raw_vp in paper_vps:
                     if raw_vp and _norm_ws(raw_vp) in norm_p:
                         trimmed_to_vp = raw_vp
                         break
@@ -244,17 +316,13 @@ def _sanitize_references(
                     )
                     ref_dict["matched_passage"] = ""
 
-        # Backfill matched_passage only if it is an exact verbatim quote from the cited paper
+        # Backfill matched_passage only if an exact verbatim quote from this cited paper exists
         if not ref_dict.get("matched_passage"):
-            for vr in verified_references:
-                vr_passage = (vr.get("matched_passage") or "").strip()
-                vr_target = (vr.get("paper_id_or_title") or "").lower()
-                if vr_passage and vr_target and (vr_target in ref_title or ref_title in vr_target):
-                    # Verify vr_passage actually occurs verbatim in source text before copying
-                    norm_vr_p = _norm_ws(vr_passage)
-                    if any(norm_vr_p in st for st in source_texts):
-                        ref_dict["matched_passage"] = vr_passage
-                        break
+            for raw_vp in paper_vps:
+                norm_vr_p = _norm_ws(raw_vp)
+                if any(norm_vr_p in st for st in paper_sources):
+                    ref_dict["matched_passage"] = raw_vp
+                    break
 
         sanitized.append(ref_dict)
 

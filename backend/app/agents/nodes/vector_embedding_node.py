@@ -410,12 +410,16 @@ async def _process_and_store_embeddings(
             continue
 
         # When a paper has both sections and full_text from mixed entries, include distinct
-        # full_text under a dedicated section so chunk_paper_sections chunks both.
+        # full_text under a dedicated non-colliding section so chunk_paper_sections chunks both.
         if sections and full_text:
             combined_sec = " ".join(sections.values())
             if full_text.strip() not in combined_sec:
-                sec_name = "Main Body" if "Main Body" not in sections else "Full Text"
-                sections[sec_name] = full_text
+                if "Main Body" not in sections:
+                    sections["Main Body"] = full_text
+                elif "Full Text" not in sections:
+                    sections["Full Text"] = full_text
+                else:
+                    sections[f"Full Text {len(sections) + 1}"] = full_text
 
         stored = await store_paper_chunks(
             db=db,

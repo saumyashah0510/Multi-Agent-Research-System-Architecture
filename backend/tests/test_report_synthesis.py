@@ -327,6 +327,7 @@ def test_sanitize_references_drops_hallucinated_quotes_and_preserves_grounded():
     approved = [
         {
             "title": "Attention Is All You Need",
+            "arxiv_id": "2301.12345",
             "abstract": "The dominant sequence transduction models are based on complex recurrent networks. We propose the Transformer.",
         },
         {
@@ -458,3 +459,37 @@ def test_whitespace_normalization_and_paper_scoped_trimming():
     assert sanitized[0]["matched_passage"] == ref_a.matched_passage
     # Ref B dropped rather than incorrectly assigned Paper A's quote
     assert sanitized[1]["matched_passage"] == ""
+
+
+def test_cross_paper_quote_cleared_when_cited_by_different_paper():
+    """Verify that when Paper B cites an exact quote found only in Paper A, it is cleared."""
+    from app.agents.nodes.report_synthesis_node import _sanitize_references
+    from app.schemas.agent_outputs import ReferenceItem
+
+    approved = [
+        {
+            "title": "Paper A",
+            "abstract": "Exact unique quote belonging strictly to Paper A.",
+        },
+        {
+            "title": "Paper B",
+            "abstract": "Different content belonging to Paper B.",
+        },
+    ]
+
+    # Reference is for Paper B, but quotes text found only in Paper A
+    ref_b = ReferenceItem(
+        title="Paper B",
+        citation_key="Paper B, 2024",
+        matched_passage="Exact unique quote belonging strictly to Paper A.",
+    )
+
+    sanitized = _sanitize_references(
+        references=[ref_b],
+        verified_references=[],
+        approved_papers=approved,
+        extracted_pdf_contents={},
+    )
+
+    # Scoped grounding must clear the quote because Paper B's source does not contain it
+    assert sanitized[0]["matched_passage"] == ""
