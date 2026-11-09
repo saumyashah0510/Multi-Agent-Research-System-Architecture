@@ -280,6 +280,7 @@ export const ReviewChat: React.FC<ReviewChatProps> = ({ reviewId, className = ""
           </div>
         </div>
         <span
+          role="status"
           className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full flex items-center gap-1.5 ${
             isLoading
               ? "bg-amber-50 text-amber-700"
@@ -296,7 +297,11 @@ export const ReviewChat: React.FC<ReviewChatProps> = ({ reviewId, className = ""
       </div>
 
       {/* Messages Scroll View */}
-      <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
+      <div
+        role="log"
+        aria-live="polite"
+        className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4"
+      >
         {messages.map((msg, idx) => {
           const isUser = msg.role === "user";
           const msgKey = msg.id || `msg-${idx}`;
@@ -326,6 +331,7 @@ export const ReviewChat: React.FC<ReviewChatProps> = ({ reviewId, className = ""
 
               <div className="max-w-[85%] sm:max-w-[78%] space-y-1.5">
                 <div
+                  role={isErrorMessage ? "alert" : undefined}
                   className={`p-3.5 rounded-2xl text-xs sm:text-sm leading-relaxed ${
                     isUser
                       ? "bg-neutral-900 text-white rounded-tr-xs"
@@ -451,7 +457,8 @@ export const ReviewChat: React.FC<ReviewChatProps> = ({ reviewId, className = ""
           aria-label="Ask a question about the reviewed papers"
           value={inputQuery}
           onChange={(e) => setInputQuery(e.target.value)}
-          disabled={isLoading || !reviewId}
+          readOnly={isLoading}
+          disabled={!reviewId}
           className="flex-1 px-4 py-2.5 text-xs sm:text-sm bg-neutral-50 border border-neutral-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
         />
         <button
