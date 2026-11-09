@@ -16,6 +16,7 @@ class AgentState(TypedDict, total=False):
     screened_papers: List[dict]
     approved_papers: List[dict]
     extracted_pdf_contents: Dict[str, Any]
+    chunks_stored_count: int
     methodology_matrix: List[dict]
     research_gaps: List[str]
     verified_references: List[dict]
