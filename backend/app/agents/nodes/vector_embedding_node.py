@@ -390,9 +390,8 @@ async def _process_and_store_embeddings(
                 group["sections"][clean_sec_name] = clean_sec
             elif clean_sec not in group["sections"][clean_sec_name]:
                 # Append distinct content under existing section name
-                group["sections"][
-                    clean_sec_name
-                ] = f"{group['sections'][clean_sec_name]}\n\n{clean_sec}"
+                existing_sec = group["sections"][clean_sec_name]
+                group["sections"][clean_sec_name] = f"{existing_sec}\n\n{clean_sec}"
 
         if item_full_text and item_full_text.strip():
             clean_ft = item_full_text.replace("\x00", "").strip()

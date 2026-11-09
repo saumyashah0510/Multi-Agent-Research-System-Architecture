@@ -84,13 +84,15 @@ async def generate_rag_chat_response(
     formatted_contexts = []
 
     for index, chunk in enumerate(contexts, start=1):
-        formatted_contexts.append(f"""
+        formatted_contexts.append(
+            f"""
 [Citation Index: {index}]
 Paper ID: {chunk["paper_id"]}
 Section: {chunk["section_name"]}
 Chunk Index: {chunk["chunk_index"]}
 Excerpt: {chunk["content"]}
-""")
+"""
+        )
 
     context_text = "\n\n".join(formatted_contexts)
 

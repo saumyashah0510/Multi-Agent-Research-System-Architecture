@@ -12,24 +12,51 @@ from app.schemas.agent_outputs import GapAnalysisOutput
 logger = logging.getLogger(__name__)
 
 GAP_ANALYSIS_SYSTEM_PROMPT = """You are a Distinguished Academic Research Methodologist and Systematic Review Director.
-Your task is to conduct a comparative methodological analysis across a corpus of scientific papers and identify unaddressed literature gaps based on the researcher's topic.
+Your task is to conduct an exhaustive comparative methodological analysis across a corpus of scientific papers and identify unaddressed literature gaps based on the researcher's topic.
 
 Guidelines:
 1. Methodology Matrix:
-   - Identify distinct algorithmic architectures, experimental protocols, or theoretical frameworks used across the analyzed papers.
+   - Identify distinct algorithmic architectures, experimental protocols, or theoretical frameworks used across the analyzed papers (typically 5 to 10 distinct methodologies for comprehensive corpora).
    - For each distinct methodology:
-     - 'method_name': Precise technical label (e.g., 'Variational Quantum Eigensolver (VQE)', 'Graph Neural Networks (GNN)').
-     - 'papers_used': List of titles of papers that employed or benchmarked this methodology.
-     - 'strengths': 2-3 specific technical strengths, convergence properties, or benchmark advantages.
-     - 'limitations': 2-3 bottlenecks, computational overheads, noise sensitivity, or scalability constraints.
+     - 'method_name': Precise technical label (e.g., 'Multi-Agent Reinforcement Learning with Communication', 'Neuro-Symbolic Automated Theorem Proving').
+     - 'papers_used': List of titles of papers that employed, benchmarked, or introduced this methodology.
+     - 'strengths': 2-4 specific technical strengths, convergence properties, or benchmark advantages.
+     - 'limitations': 2-4 bottlenecks, computational overheads, noise sensitivity, or scalability constraints.
 2. Literature Research Gaps:
-   - Identify 3 to 5 critical unaddressed challenges or research voids across the analyzed literature.
+   - Identify 5 to 8 critical unaddressed challenges or research voids across the analyzed literature (or 3 to 5 for smaller corpora).
    - Focus on:
      * Discrepancies or conflicting findings across benchmark studies.
-     * Theoretical vs. empirical gaps (e.g., lack of real-world biological validation vs. synthetic datasets).
-     * Missing architectural integration or lack of standardized evaluation frameworks.
-   - Formulate each gap as a clear, rigorous research question suitable for future doctoral or grant proposal investigation.
+     * Theoretical vs. empirical gaps (e.g., lack of real-world physical/clinical validation vs. synthetic benchmarks).
+     * Missing architectural integration, safety/alignment failures, or lack of standardized evaluation frameworks.
+   - Formulate each gap as a clear, rigorous research question suitable for doctoral or grant proposal investigation.
 """
+
+
+def _resolve_paper_extracted_content(
+    paper: Dict[str, Any], extracted_pdf_contents: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Resolve extracted PDF sections for a paper across various identifier formats."""
+    if not extracted_pdf_contents:
+        return {}
+
+    candidates = []
+    if paper.get("arxiv_id"):
+        aid = str(paper["arxiv_id"]).strip()
+        candidates.extend([aid, f"arxiv_{aid}", aid.lower(), f"arxiv_{aid.lower()}"])
+    if paper.get("doi"):
+        doi = str(paper["doi"]).strip()
+        candidates.extend([doi, f"doi_{doi}", doi.lower(), f"doi_{doi.lower()}"])
+    if paper.get("pubmed_id"):
+        pmid = str(paper["pubmed_id"]).strip()
+        candidates.extend([pmid, f"pmid_{pmid}", f"pubmed_{pmid}"])
+    if paper.get("title"):
+        title = str(paper["title"]).strip()
+        candidates.extend([title, title.lower()])
+
+    for c in candidates:
+        if c in extracted_pdf_contents and isinstance(extracted_pdf_contents[c], dict):
+            return extracted_pdf_contents[c]
+    return {}
 
 
 async def gap_analysis_node(state: AgentState) -> Dict[str, Any]:
@@ -57,20 +84,23 @@ async def gap_analysis_node(state: AgentState) -> Dict[str, Any]:
     corpus_blocks = []
     for idx, paper in enumerate(approved_papers, 1):
         title = paper.get("title", f"Paper {idx}").strip()
-        paper_id = paper.get("arxiv_id") or paper.get("doi") or title
+        content = _resolve_paper_extracted_content(paper, extracted_pdf_contents)
 
-        # Check if full section text exists in extracted_pdf_contents
-        content = extracted_pdf_contents.get(paper_id) or extracted_pdf_contents.get(title) or {}
         if isinstance(content, dict) and content:
-            methodology = content.get("methodology") or content.get("methods") or ""
-            results = content.get("results") or ""
-            abstract = content.get("abstract") or paper.get("abstract", "")
-            block = (
-                f"[{idx}] Title: {title}\n"
-                f"Abstract: {abstract}\n"
-                f"Methodology Excerpt: {methodology[:1200]}\n"
-                f"Results Excerpt: {results[:800]}"
+            methodology = (
+                content.get("methodology")
+                or content.get("methods")
+                or (content.get("sections") or {}).get("methods", "")
+                or (content.get("sections") or {}).get("methodology", "")
             )
+            results = content.get("results") or (content.get("sections") or {}).get("results", "")
+            abstract = content.get("abstract") or paper.get("abstract", "")
+            block_parts = [f"[{idx}] Title: {title}", f"Abstract: {abstract}"]
+            if methodology:
+                block_parts.append(f"Methodology Excerpt: {str(methodology)[:1200]}")
+            if results:
+                block_parts.append(f"Results Excerpt: {str(results)[:800]}")
+            block = "\n".join(block_parts)
         else:
             abstract = paper.get("abstract") or "No abstract provided."
             block = f"[{idx}] Title: {title}\nAbstract: {abstract}"
