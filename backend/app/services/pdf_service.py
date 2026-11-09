@@ -134,7 +134,7 @@ def _extract_sections(raw_text: str) -> Dict[str, str]:
         if current_section is None:
             return
 
-        content = "\n".join(current_lines).strip()
+        content = "\n".join(current_lines).replace("\x00", "").strip()
 
         if content:
             if current_section in sections:
@@ -142,7 +142,8 @@ def _extract_sections(raw_text: str) -> Dict[str, str]:
             else:
                 sections[current_section] = content
 
-    for line in raw_text.splitlines():
+    clean_raw = (raw_text or "").replace("\x00", "")
+    for line in clean_raw.splitlines():
         stripped_line = line.strip()
 
         if not stripped_line:
@@ -175,7 +176,7 @@ def _extract_pdf_text(pdf_bytes: bytes) -> str:
     page_texts: list[str] = []
 
     for page in reader.pages:
-        text = page.extract_text() or ""
+        text = (page.extract_text() or "").replace("\x00", "")
 
         if text.strip():
             page_texts.append(text.strip())

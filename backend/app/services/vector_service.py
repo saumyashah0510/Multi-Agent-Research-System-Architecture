@@ -52,7 +52,9 @@ def format_section_name(name: str) -> str:
     if not name or not name.strip():
         return "Full Text"
 
-    cleaned = name.strip()
+    cleaned = name.replace("\x00", "").strip()
+    if not cleaned:
+        return "Full Text"
 
     # If the heading is purely lowercase (e.g. 'methods', 'abstract' from automated extractors),
     # capitalize word initials
@@ -71,17 +73,21 @@ def chunk_text(
     overlap: int = 50,
 ) -> list[dict[str, Any]]:
     """Split raw text into overlapping chunks while preserving section metadata."""
-    if not text or not text.strip():
+    if not text:
         return []
 
-    cleaned_text = text.strip()
+    cleaned_text = text.replace("\x00", "").strip()
+    if not cleaned_text:
+        return []
+
+    clean_sec = (section_name or "Full Text").replace("\x00", "").strip() or "Full Text"
     chunks: list[dict[str, Any]] = []
 
     if len(cleaned_text) <= chunk_size:
         return [
             {
                 "chunk_index": 0,
-                "section_name": section_name,
+                "section_name": clean_sec,
                 "content": cleaned_text,
             }
         ]
@@ -95,7 +101,7 @@ def chunk_text(
             chunks.append(
                 {
                     "chunk_index": chunk_idx,
-                    "section_name": section_name,
+                    "section_name": clean_sec,
                     "content": chunk_content,
                 }
             )
@@ -252,11 +258,15 @@ async def store_paper_chunks(
             raise ValueError(
                 f"Embedding dimension mismatch: expected {EMBEDDING_DIMENSION}, got {len(emb)}"
             )
+        clean_content = str(c["content"]).replace("\x00", "")
+        clean_section = str(c["section_name"]).replace("\x00", "")[:150] or "Full Text"
+        if not clean_content.strip():
+            continue
         chunk_obj = PaperChunk(
             paper_id=paper_id,
             chunk_index=c["chunk_index"],
-            section_name=c["section_name"],
-            content=c["content"],
+            section_name=clean_section,
+            content=clean_content,
             embedding=emb,
         )
         db.add(chunk_obj)
