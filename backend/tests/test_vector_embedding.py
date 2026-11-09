@@ -548,9 +548,17 @@ async def test_embedding_dimensions_exactly_384():
 def test_normalization_helpers():
     """Unit tests for identifier and title normalization helpers."""
     assert _normalize_identifier("arXiv:2301.12345v3") == "2301.12345v3"
+    assert _normalize_identifier("arxiv_2301.12345v3") == "2301.12345v3"
     assert _strip_version("2301.12345v3") == "2301.12345"
     assert _normalize_identifier("DOI:10.1000/182") == "10.1000/182"
+    assert _normalize_identifier("doi_10.1000/182") == "10.1000/182"
+    assert (
+        _normalize_identifier("doi_10.36227/techrxiv.176739505.59488074/v1")
+        == "10.36227/techrxiv.176739505.59488074/v1"
+    )
     assert _normalize_identifier("PMID:12345678") == "12345678"
+    assert _normalize_identifier("pmid_12345678") == "12345678"
+    assert _normalize_identifier("pubmed_12345678") == "12345678"
     assert _normalize_title("Attention Is All You Need!!!\n\t") == "attention is all you need"
 
 

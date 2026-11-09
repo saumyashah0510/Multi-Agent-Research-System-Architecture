@@ -53,7 +53,16 @@ def _normalize_identifier(val: Optional[str]) -> str:
             s = s[len(doi_prefix) :].rstrip("/").strip()
             break
 
-    for prefix in ("arxiv:", "doi:", "pmid:"):
+    for prefix in (
+        "arxiv:",
+        "arxiv_",
+        "doi:",
+        "doi_",
+        "pmid:",
+        "pmid_",
+        "pubmed:",
+        "pubmed_",
+    ):
         if s.startswith(prefix):
             s = s[len(prefix) :].strip()
     return s
