@@ -53,22 +53,12 @@ jobs:
             sudo apt-get clean 2>/dev/null || true
             sudo journalctl --vacuum-size=50M 2>/dev/null || true
 
-            # 2. Check available disk space after deep cleanup
-            FREE_DISK_MB=$(df -m / | awk 'NR==2 {print $4}')
-            echo "Available disk space after deep cleanup: ${FREE_DISK_MB} MB"
+            # 2. Automatically extend filesystem if EBS volume was expanded in AWS Console
+            sudo growpart /dev/xvda 1 2>/dev/null || sudo growpart /dev/nvme0n1 1 2>/dev/null || true
+            sudo resize2fs /dev/xvda1 2>/dev/null || sudo resize2fs /dev/nvme0n1p1 2>/dev/null || true
 
-            # 3. Configure a conservative 512M swapfile only if at least 1500MB free disk is available
-            if [ "$FREE_DISK_MB" -gt 1500 ] && sudo -n true 2>/dev/null && [ $(swapon --show | wc -l) -le 1 ]; then
-              echo "Configuring 512M swap space for build stability..."
-              (sudo fallocate -l 512M /swapfile 2>/dev/null || sudo dd if=/dev/zero of=/swapfile bs=1M count=512) || true
-              if [ -f /swapfile ] && [ -s /swapfile ]; then
-                sudo chmod 600 /swapfile
-                sudo mkswap /swapfile
-                sudo swapon /swapfile || true
-                grep -q '/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
-                echo "Swap space active!"
-              fi
-            fi
+            FREE_DISK_MB=$(df -m / | awk 'NR==2 {print $4}')
+            echo "Available disk space: ${FREE_DISK_MB} MB"
 
             if [ ! -d "/home/ubuntu/app" ]; then
               git clone https://github.com/saumyashah0510/Multi-Agent-Research-System-Architecture.git /home/ubuntu/app
@@ -78,5 +68,16 @@ jobs:
             if [ ! -f "/home/ubuntu/app/.env" ]; then
               cp /home/ubuntu/app/.env.example /home/ubuntu/app/.env
             fi
-            docker compose up --build -d
+
+            # 3. Build containers sequentially to minimize peak disk footprint
+            echo "Building frontend container..."
+            docker compose build frontend
+            docker builder prune -f 2>/dev/null || true
+
+            echo "Building backend container..."
+            docker compose build backend
+            docker builder prune -f 2>/dev/null || true
+
+            echo "Starting application stack..."
+            docker compose up -d
             echo "DEPLOYMENT COMPLETE! Application running cleanly on EC2!"
