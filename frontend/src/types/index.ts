@@ -108,26 +108,50 @@ export interface HealthStatusResponse {
   };
 }
 
-export interface SourceChunk {
-  chunk_id: number;
-  paper_id?: number;
-  title: string;
-  text: string;
-  relevance_score: number;
+/**
+ * Single turn in conversation history sent to the backend RAG chat API.
+ */
+export interface ChatHistoryMessage {
+  role: "user" | "assistant";
+  content: string;
 }
 
+/**
+ * Retrieved source chunk citation from the pgvector literature database.
+ */
+export interface CitationSource {
+  paper_id: number;
+  title?: string | null;
+  section_name: string;
+  chunk_index: number;
+  snippet: string;
+}
+
+/**
+ * Chat message rendered in the ReviewChat UI, representing user queries,
+ * grounded assistant answers, or error notifications.
+ */
 export interface ChatMessage {
-  id?: string;
+  id: string;
   role: "user" | "assistant";
   content: string;
   timestamp?: string;
-  sources?: SourceChunk[];
+  citations?: CitationSource[];
+  isError?: boolean;
+  turnId?: string;
+  status?: "pending" | "success" | "error";
 }
 
+/**
+ * Response payload returned by POST /api/v1/reviews/{reviewId}/chat.
+ */
 export interface ChatResponse {
-  response: string;
-  sources: SourceChunk[];
+  answer: string;
+  citations: CitationSource[];
 }
+
+/** Backward compatibility alias for CitationSource */
+export type SourceChunk = CitationSource;
 
 export interface ReviewHistoryItem {
   id: string;
