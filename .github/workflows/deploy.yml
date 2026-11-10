@@ -42,6 +42,19 @@ jobs:
           command_timeout: 30m
           timeout: 60s
           script: |
+            set -euo pipefail
+
+            # Ensure swap space is active on EC2 to prevent OOM kills during Docker builds
+            if sudo -n true 2>/dev/null && [ $(swapon --show | wc -l) -le 1 ]; then
+              echo "Configuring 2G swap space for Docker build stability..."
+              sudo fallocate -l 2G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=2048
+              sudo chmod 600 /swapfile
+              sudo mkswap /swapfile
+              sudo swapon /swapfile || true
+              grep -q '/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+              echo "Swap space successfully configured!"
+            fi
+
             if [ ! -d "/home/ubuntu/app" ]; then
               git clone https://github.com/saumyashah0510/Multi-Agent-Research-System-Architecture.git /home/ubuntu/app
             fi
