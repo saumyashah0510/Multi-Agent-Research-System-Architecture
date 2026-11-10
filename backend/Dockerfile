@@ -11,9 +11,11 @@ ENV PYTHONPATH=/app
 # Pre-install lightweight CPU-only PyTorch (~150MB instead of 2.5GB CUDA) with layer caching
 RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 
-# Copy requirements and install python packages
+# Copy requirements and install runtime python packages (excluding dev/test tools in production)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN grep -vE "^(ruff|black|bandit|pre-commit|pytest)" requirements.txt > req-prod.txt && \
+    pip install --no-cache-dir -r req-prod.txt && \
+    rm req-prod.txt
 
 # Copy backend application code
 COPY app/ app/
