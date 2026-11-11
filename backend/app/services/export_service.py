@@ -8,10 +8,10 @@ Assignee Task (Issue BE-11):
 """
 
 import asyncio
-from datetime import datetime, timezone
 import html
 import io
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import boto3
@@ -233,7 +233,9 @@ def compile_literature_review_pdf(
     story: List[Any] = []
 
     # 1. Header & Title (Page 1)
-    story.append(Paragraph("SCHOLARIS MULTI-AGENT RESEARCH SYSTEM • SYNTHESIS REPORT", kicker_style))
+    story.append(
+        Paragraph("SCHOLARIS MULTI-AGENT RESEARCH SYSTEM • SYNTHESIS REPORT", kicker_style)
+    )
     title_text = synthesized_review.get("title") or "Academic Literature Review Synthesis"
     story.append(Paragraph(_escape(title_text), title_style))
 
@@ -370,7 +372,7 @@ def compile_literature_review_pdf(
 
             papers_formatted = "<br/>".join(f"• {_escape(p)}" for p in papers) or "—"
             strengths_formatted = "<br/>".join(f"• {_escape(s)}" for s in strengths) or "—"
-            limits_formatted = "<br/>".join(f"• {_escape(l)}" for l in limitations) or "—"
+            limits_formatted = "<br/>".join(f"• {_escape(lim)}" for lim in limitations) or "—"
 
             matrix_rows.append(
                 [
@@ -393,7 +395,12 @@ def compile_literature_review_pdf(
                     ("LEFTPADDING", (0, 0), (-1, -1), 6),
                     ("RIGHTPADDING", (0, 0), (-1, -1), 6),
                     ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
-                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
+                    (
+                        "ROWBACKGROUNDS",
+                        (0, 1),
+                        (-1, -1),
+                        [colors.white, colors.HexColor("#F8FAFC")],
+                    ),
                 ]
             )
         )
@@ -472,11 +479,15 @@ def compile_literature_review_pdf(
                 )
             if url:
                 ref_entry.append(
-                    Paragraph(f"<b>URL:</b> <font color='#4338CA'>{_escape(url)}</font>", table_cell_style)
+                    Paragraph(
+                        f"<b>URL:</b> <font color='#4338CA'>{_escape(url)}</font>", table_cell_style
+                    )
                 )
             if passage:
                 ref_entry.append(
-                    Paragraph(f"<b>Verbatim Passage:</b> &ldquo;{_escape(passage)}&rdquo;", quote_style)
+                    Paragraph(
+                        f"<b>Verbatim Passage:</b> &ldquo;{_escape(passage)}&rdquo;", quote_style
+                    )
                 )
 
             ref_entry.append(Spacer(1, 6))
@@ -584,4 +595,3 @@ def generate_presigned_download_url(
         Params=params,
         ExpiresIn=expiration,
     )
-

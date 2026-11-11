@@ -17,7 +17,6 @@ from app.models.review import LiteratureReview
 from app.services.export_service import compile_literature_review_pdf
 from fastapi.testclient import TestClient
 
-
 SAMPLE_SYNTHESIZED_REVIEW = {
     "title": "A Survey on Multi-Agent Systems for Academic Research",
     "executive_summary": "This literature review examines recent advances in multi-agent AI.",
@@ -154,9 +153,7 @@ class TestExportEndpoint:
         app.dependency_overrides[get_db] = override_get_db
         try:
             with TestClient(app, raise_server_exceptions=False) as test_client:
-                response = test_client.get(
-                    "/api/v1/reviews/10/export", follow_redirects=False
-                )
+                response = test_client.get("/api/v1/reviews/10/export", follow_redirects=False)
             assert response.status_code == 400
             assert "not yet completed" in response.json()["detail"].lower()
         finally:
@@ -179,7 +176,9 @@ class TestExportEndpoint:
         mock_s3_exists.return_value = False
         mock_compile.return_value = b"%PDF-1.4 fake pdf bytes"
         mock_s3_upload.return_value = "exports/literature_review_5.pdf"
-        mock_presigned.return_value = "https://s3.amazonaws.com/bucket/exports/literature_review_5.pdf?signed=1"
+        mock_presigned.return_value = (
+            "https://s3.amazonaws.com/bucket/exports/literature_review_5.pdf?signed=1"
+        )
 
         async def override_get_db():
             mock_session = AsyncMock()
@@ -189,9 +188,7 @@ class TestExportEndpoint:
         app.dependency_overrides[get_db] = override_get_db
         try:
             with TestClient(app, raise_server_exceptions=False) as test_client:
-                response = test_client.get(
-                    "/api/v1/reviews/5/export", follow_redirects=False
-                )
+                response = test_client.get("/api/v1/reviews/5/export", follow_redirects=False)
             assert response.status_code == 302
             assert "s3.amazonaws.com" in response.headers["location"]
 
@@ -212,7 +209,9 @@ class TestExportEndpoint:
         completed_review = _make_mock_review(review_id=7, status="completed")
 
         mock_s3_exists.return_value = True
-        mock_presigned.return_value = "https://s3.amazonaws.com/bucket/exports/literature_review_7.pdf?signed=1"
+        mock_presigned.return_value = (
+            "https://s3.amazonaws.com/bucket/exports/literature_review_7.pdf?signed=1"
+        )
 
         async def override_get_db():
             mock_session = AsyncMock()
@@ -222,14 +221,9 @@ class TestExportEndpoint:
         app.dependency_overrides[get_db] = override_get_db
         try:
             with TestClient(app, raise_server_exceptions=False) as test_client:
-                with patch(
-                    "app.api.v1.reviews.compile_literature_review_pdf"
-                ) as mock_compile:
-                    response = test_client.get(
-                        "/api/v1/reviews/7/export", follow_redirects=False
-                    )
+                with patch("app.api.v1.reviews.compile_literature_review_pdf") as mock_compile:
+                    response = test_client.get("/api/v1/reviews/7/export", follow_redirects=False)
                     mock_compile.assert_not_called()
             assert response.status_code == 302
         finally:
             app.dependency_overrides.clear()
-
