@@ -111,7 +111,10 @@ async def screening_node(state: AgentState) -> Dict[str, Any]:
         )
 
         # 4. Call Google Gemini LLM with structured Pydantic schema and model fallback cascade
-        client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        client = genai.Client(
+            api_key=settings.GEMINI_API_KEY,
+            http_options={"api_version": "v1beta"},
+        )
         candidate_models = settings.gemini_model_candidates
 
         parsed_output = None

@@ -280,12 +280,20 @@ def _normalize_doi(doi: Optional[str]) -> str:
 
 
 def _is_safe_pdf_url(url: Optional[str]) -> bool:
-    """Validate that candidate URL meets SSRF policy and is not an anti-bot challenge domain."""
+    """Validate that candidate URL meets SSRF policy and is not an anti-bot challenge domain or image asset."""
     if not url or not isinstance(url, str) or not url.strip().startswith("https://"):
         return False
     # Exclude known Proof-of-Work JS challenge endpoints that block automated HTTP clients
     if "pmc.ncbi.nlm.nih.gov" in url:
         return False
+
+    clean_url = url.strip().lower().split("?")[0]
+    # Filter out image/HTML assets mistakenly returned by commercial publishers as PDFs
+    if clean_url.endswith((".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".html", ".htm")):
+        return False
+    if "ars.els-cdn.com" in clean_url or "/content/image/" in clean_url:
+        return False
+
     validation = validate_pdf_url(url.strip())
     return validation.is_safe
 

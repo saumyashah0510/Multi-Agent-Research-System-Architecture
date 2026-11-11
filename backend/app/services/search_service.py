@@ -7,9 +7,11 @@ from typing import Any, Dict, List
 import defusedxml.ElementTree as ET
 import httpx
 
+from app.core.config import Settings
 from app.services.redis_service import get_cached_query, set_cached_query
 
 logger = logging.getLogger(__name__)
+settings = Settings()
 
 ARXIV_API_URL = "https://export.arxiv.org/api/query"
 PUBMED_SEARCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
@@ -32,11 +34,16 @@ async def _request_with_retries(
     url: str,
     params: dict[str, Any],
     retries: int = 3,
+    headers: dict[str, str] | None = None,
 ) -> httpx.Response:
     """Make an HTTP request with retries for rate limits and network errors."""
+    req_kwargs: dict[str, Any] = {"params": params}
+    if headers:
+        req_kwargs["headers"] = headers
+
     for attempt in range(retries):
         try:
-            response = await client.get(url, params=params)
+            response = await client.get(url, **req_kwargs)
 
             if response.status_code == 429:
                 if attempt == retries - 1:
@@ -247,6 +254,10 @@ async def _search_semantic_scholar(
     max_results: int,
 ) -> List[Dict[str, Any]]:
     """Search Semantic Scholar API and return structured paper dictionaries."""
+    s2_headers: Dict[str, str] = {}
+    if getattr(settings, "SEMANTIC_SCHOLAR_API_KEY", ""):
+        s2_headers["x-api-key"] = settings.SEMANTIC_SCHOLAR_API_KEY.strip()
+
     try:
         response = await _request_with_retries(
             client,
@@ -256,6 +267,7 @@ async def _search_semantic_scholar(
                 "limit": max_results,
                 "fields": "title,authors,abstract,year,externalIds,openAccessPdf",
             },
+            headers=s2_headers or None,
         )
         data = response.json()
         results: List[Dict[str, Any]] = []
@@ -287,6 +299,15 @@ async def _search_semantic_scholar(
             )
 
         return results
+    except httpx.HTTPStatusError as err:
+        if err.response.status_code == 429:
+            logger.warning(
+                "Semantic Scholar API rate limit reached (HTTP 429). "
+                "Set SEMANTIC_SCHOLAR_API_KEY in .env for unthrottled access."
+            )
+        else:
+            logger.warning(f"Semantic Scholar API HTTP error: {err}")
+        return []
     except Exception as err:
         logger.warning(f"Semantic Scholar API search error: {err}")
         return []
@@ -368,9 +389,7 @@ async def search_academic_papers(
 
     sources = [source.lower() for source in sources]
 
-    cache_key = (
-        f"academic_search:{query.strip().lower()}:" f"{max_results}:{','.join(sorted(sources))}"
-    )
+    cache_key = f"academic_search:{query.strip().lower()}:{max_results}:{','.join(sorted(sources))}"
 
     cached_results = await get_cached_query(cache_key, as_json=True)
     if cached_results is not None:

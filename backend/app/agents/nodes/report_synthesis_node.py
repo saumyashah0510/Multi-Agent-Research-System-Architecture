@@ -9,7 +9,9 @@ Assignee Task (Issue AI-10):
 - Update state["synthesized_review"] and set current_step to "synthesis_completed"
 """
 
+import asyncio
 import logging
+import re
 from typing import Any, Dict, List, Optional, Set
 
 from google import genai
@@ -485,6 +487,18 @@ def _enrich_bibliography_with_approved_papers(
     return enriched
 
 
+def _extract_retry_delay(err: Exception) -> float:
+    """Extract recommended retry delay seconds from Google RPC 429 quota failure, defaulting to 42.0s."""
+    err_str = str(err)
+    match = re.search(r"retry in (\d+(?:\.\d+)?)s", err_str, re.IGNORECASE)
+    if match:
+        return float(match.group(1)) + 2.0
+    match = re.search(r"retryDelay': '(\d+)s'", err_str)
+    if match:
+        return float(match.group(1)) + 2.0
+    return 42.0
+
+
 async def report_synthesis_node(state: AgentState) -> Dict[str, Any]:
     """Generate final comprehensive literature review report using structured LLM output."""
     user_query = state.get("user_query", "Academic Research Review")
@@ -547,7 +561,8 @@ async def report_synthesis_node(state: AgentState) -> Dict[str, Any]:
             header_parts.append(f"URL: {url}")
 
         header = " | ".join(header_parts)
-        paper_block = [header, f"Abstract: {abstract or 'No abstract provided.'}"]
+        abstract_excerpt = str(abstract)[:1200] if abstract else "No abstract provided."
+        paper_block = [header, f"Abstract: {abstract_excerpt}"]
 
         # Attach extracted section excerpts directly to this paper
         content = _resolve_paper_extracted_content(p, extracted_pdf_contents)
@@ -560,9 +575,9 @@ async def report_synthesis_node(state: AgentState) -> Dict[str, Any]:
             )
             results = content.get("results") or (content.get("sections") or {}).get("results", "")
             if methodology:
-                paper_block.append(f"Methodology Excerpt: {str(methodology)[:800]}")
+                paper_block.append(f"Methodology Excerpt: {str(methodology)[:500]}")
             if results:
-                paper_block.append(f"Results Excerpt: {str(results)[:800]}")
+                paper_block.append(f"Results Excerpt: {str(results)[:500]}")
 
         papers_context.append("\n".join(paper_block))
 
@@ -637,7 +652,10 @@ async def report_synthesis_node(state: AgentState) -> Dict[str, Any]:
 
     try:
         # 4. Call Google Gemini LLM with structured Pydantic schema and model fallback cascade
-        client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        client = genai.Client(
+            api_key=settings.GEMINI_API_KEY,
+            http_options={"api_version": "v1beta"},
+        )
         candidate_models = settings.gemini_model_candidates
 
         parsed_output = None
@@ -645,24 +663,42 @@ async def report_synthesis_node(state: AgentState) -> Dict[str, Any]:
         model_errors: list[str] = []
 
         for model_name in candidate_models:
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=[SYNTHESIS_SYSTEM_PROMPT, user_content],
-                    config={
-                        "response_mime_type": "application/json",
-                        "response_schema": SynthesizedReviewOutput,
-                        "max_output_tokens": 8192,
-                    },
-                )
-                parsed_output = SynthesizedReviewOutput.model_validate_json(response.text)
+            max_model_retries = 2
+            for attempt in range(max_model_retries + 1):
+                try:
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=[SYNTHESIS_SYSTEM_PROMPT, user_content],
+                        config={
+                            "response_mime_type": "application/json",
+                            "response_schema": SynthesizedReviewOutput,
+                            "max_output_tokens": 8192,
+                        },
+                    )
+                    parsed_output = SynthesizedReviewOutput.model_validate_json(response.text)
+                    break
+                except Exception as model_err:
+                    err_str = str(model_err)
+                    is_rate_limit = "429" in err_str or "RESOURCE_EXHAUSTED" in err_str
+                    if is_rate_limit and attempt < max_model_retries:
+                        delay = _extract_retry_delay(model_err)
+                        logger.warning(
+                            f"Gemini Free Tier TPM rate limit reached on '{model_name}' "
+                            f"(attempt {attempt + 1}/{max_model_retries + 1}). "
+                            f"Pausing for {delay:.1f}s until token quota resets..."
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+
+                    logger.warning(
+                        f"Gemini model '{model_name}' failed during report synthesis ({model_err}); trying fallback."
+                    )
+                    model_errors.append(f"{model_name}: {model_err}")
+                    last_model_error = model_err
+                    break
+
+            if parsed_output is not None:
                 break
-            except Exception as model_err:
-                logger.warning(
-                    f"Gemini model '{model_name}' failed during report synthesis ({model_err}); trying fallback."
-                )
-                model_errors.append(f"{model_name}: {model_err}")
-                last_model_error = model_err
 
         if parsed_output is None:
             details_str = " | ".join(model_errors) if model_errors else str(last_model_error)

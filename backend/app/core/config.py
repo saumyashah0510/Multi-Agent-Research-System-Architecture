@@ -47,6 +47,12 @@ class Settings(BaseSettings):
     AWS_REGION: str = os.getenv("AWS_REGION", "ap-south-1")
     AWS_S3_BUCKET: str = os.getenv("AWS_S3_BUCKET", "multi-agent-research-pdf-bucket")
 
+    # Hugging Face Hub (Authenticated weights download & high rate limits)
+    HF_TOKEN: str = os.getenv("HF_TOKEN", "")
+
+    # Academic Search Providers
+    SEMANTIC_SCHOLAR_API_KEY: str = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
+
     @property
     def gemini_model_candidates(self) -> list[str]:
         """Return ordered list of Gemini models: primary first, followed by fallbacks."""
