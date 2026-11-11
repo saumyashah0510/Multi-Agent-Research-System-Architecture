@@ -29,6 +29,23 @@ export default function PaperGrid({
 }: PaperGridProps) {
   const selectedCount = selectedPaperIds.length;
 
+  // Sort candidate papers by relevance score descending (most relevant first)
+  const sortedPapers = [...papers].sort((a, b) => {
+    const scoreA =
+      typeof a.relevanceScore === "number"
+        ? a.relevanceScore <= 1
+          ? a.relevanceScore * 100
+          : a.relevanceScore
+        : 0;
+    const scoreB =
+      typeof b.relevanceScore === "number"
+        ? b.relevanceScore <= 1
+          ? b.relevanceScore * 100
+          : b.relevanceScore
+        : 0;
+    return scoreB - scoreA;
+  });
+
   return (
     <div className={cn("w-full space-y-5 animate-in fade-in duration-300", className)}>
       {/* Main Candidate Papers Card Container */}
@@ -40,9 +57,15 @@ export default function PaperGrid({
           </h2>
 
           {/* Selected Badge */}
-          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-[var(--color-pill-sky)] text-neutral-800">
+          <div
+            style={{ borderRadius: "var(--radius-sm)" }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-[var(--color-pill-sky)] text-neutral-800"
+          >
             <span>Selected</span>
-            <span className="bg-white px-2 py-0.5 rounded-full text-neutral-900 font-bold shadow-xs">
+            <span
+              style={{ borderRadius: "calc(var(--radius-sm) - 2px)" }}
+              className="bg-white px-2 py-0.5 text-neutral-900 font-bold shadow-xs"
+            >
               {selectedCount}
             </span>
             <span>of {papers.length}</span>
@@ -95,9 +118,9 @@ export default function PaperGrid({
           </div>
         )}
 
-        {/* Reusable Paper Summary Cards List */}
+        {/* Reusable Paper Summary Cards List (Sorted Most Relevant First) */}
         <div className="space-y-4">
-          {papers.length === 0 ? (
+          {sortedPapers.length === 0 ? (
             <div className="p-8 text-center border border-dashed border-neutral-200 rounded-2xl bg-neutral-50/50">
               <p className="text-sm font-medium text-neutral-600">No candidate papers found</p>
               <p className="text-xs text-neutral-400 mt-1">
@@ -105,7 +128,7 @@ export default function PaperGrid({
               </p>
             </div>
           ) : (
-            papers.map((paper) => {
+            sortedPapers.map((paper) => {
               const isSelected = selectedPaperIds.includes(paper.id);
               return (
                 <PaperSummaryCard
@@ -122,64 +145,60 @@ export default function PaperGrid({
         </div>
 
         {/* Action Footer for Selected Papers */}
-        <div className="pt-4 border-t border-neutral-100 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <span className="text-xs text-neutral-500">
-            {selectedCount} {selectedCount === 1 ? "paper" : "papers"} ready for automated literature synthesis &amp; citation analysis.
-          </span>
-
-          <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
-            {onFindMore && (
-              <button
-                type="button"
-                onClick={onFindMore}
-                disabled={isFindingMore || isProceeding}
-                className={cn(
-                  "px-4 py-2.5 rounded-lg text-sm font-semibold tracking-compact border border-neutral-200 transition-all shadow-xs flex items-center justify-center gap-2",
-                  isFindingMore || isProceeding
-                    ? "bg-neutral-100 text-neutral-400 cursor-not-allowed"
-                    : "text-neutral-700 bg-white hover:bg-neutral-50 hover:text-neutral-900 cursor-pointer active:scale-95"
-                )}
-              >
-                {isFindingMore ? (
-                  <>
-                    <svg className="animate-spin h-4 w-4 text-neutral-600" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-                    </svg>
-                    <span>Searching...</span>
-                  </>
-                ) : (
-                  <span>Find More Papers</span>
-                )}
-              </button>
-            )}
-
+        <div className="pt-4 border-t border-neutral-100 flex items-center justify-center gap-3 sm:gap-4">
+          {onFindMore && (
             <button
               type="button"
-              disabled={isProceeding}
-              onClick={onProceed}
+              onClick={onFindMore}
+              disabled={isFindingMore || isProceeding}
+              style={{ borderRadius: "var(--radius-sm)" }}
               className={cn(
-                "px-6 py-2.5 rounded-lg text-sm font-semibold tracking-compact transition-all shadow-sm flex items-center justify-center gap-2",
-                isProceeding
-                  ? "bg-neutral-200 text-neutral-400 cursor-not-allowed"
-                  : selectedCount > 0
-                  ? "bg-neutral-900 hover:bg-black text-white hover:shadow-md cursor-pointer active:scale-95"
-                  : "bg-neutral-800 hover:bg-neutral-900 text-white cursor-pointer active:scale-95"
+                "px-4 py-2.5 text-sm font-semibold tracking-compact border border-neutral-200 transition-all shadow-xs flex items-center justify-center gap-2",
+                isFindingMore || isProceeding
+                  ? "bg-neutral-100 text-neutral-400 cursor-not-allowed"
+                  : "text-neutral-700 bg-white hover:bg-neutral-50 hover:text-neutral-900 cursor-pointer active:scale-95"
               )}
             >
-              {isProceeding ? (
+              {isFindingMore ? (
                 <>
-                  <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                  <svg className="animate-spin h-4 w-4 text-neutral-600" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
                   </svg>
-                  <span>Submitting Approval...</span>
+                  <span>Searching...</span>
                 </>
               ) : (
-                <span>Proceed with Selected Papers ({selectedCount}) →</span>
+                <span>Find More Papers</span>
               )}
             </button>
-          </div>
+          )}
+
+          <button
+            type="button"
+            disabled={isProceeding}
+            onClick={onProceed}
+            style={{ borderRadius: "var(--radius-sm)" }}
+            className={cn(
+              "px-6 py-2.5 text-sm font-semibold tracking-compact transition-all shadow-sm flex items-center justify-center gap-2",
+              isProceeding
+                ? "bg-neutral-200 text-neutral-400 cursor-not-allowed"
+                : selectedCount > 0
+                ? "bg-neutral-900 hover:bg-black text-white hover:shadow-md cursor-pointer active:scale-95"
+                : "bg-neutral-800 hover:bg-neutral-900 text-white cursor-pointer active:scale-95"
+            )}
+          >
+            {isProceeding ? (
+              <>
+                <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                </svg>
+                <span>Submitting Approval...</span>
+              </>
+            ) : (
+              <span>Proceed with Selected Papers ({selectedCount}) →</span>
+            )}
+          </button>
         </div>
       </div>
     </div>

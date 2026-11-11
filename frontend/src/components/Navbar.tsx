@@ -22,9 +22,8 @@ const GitHubIcon = () => (
 export default function Navbar() {
   const location = useLocation();
   const [searchParams] = useSearchParams();
-  const currentTab = searchParams.get("tab") || "research";
-  const isDashboard =
-    location.pathname === "/dashboard" || location.pathname === "/research";
+  const currentTab = (searchParams.get("tab") || "").toLowerCase();
+  const isHome = location.pathname === "/";
 
   const [isScrolled, setIsScrolled] = useState(false);
 
@@ -37,27 +36,42 @@ export default function Navbar() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  // All four options are clickable and land on the same research page (/dashboard)
+  const isPapers = currentTab === "papers" || location.pathname === "/papers";
+  const isReport =
+    currentTab === "report" ||
+    currentTab === "reports" ||
+    location.pathname === "/report" ||
+    location.pathname === "/reports" ||
+    location.pathname.startsWith("/review");
+  const isChat = currentTab === "chat" || location.pathname === "/chat";
+  const isHistory = currentTab === "history" || location.pathname === "/history";
+  const isResearch = !isPapers && !isReport && !isChat && !isHistory;
+
   const navLinks = [
     {
       name: "Research",
       href: "/dashboard?tab=research",
-      isActive: isDashboard && currentTab === "research",
+      isActive: isResearch,
     },
     {
       name: "Papers",
       href: "/dashboard?tab=papers",
-      isActive: isDashboard && currentTab === "papers",
+      isActive: isPapers,
+    },
+    {
+      name: "Report",
+      href: "/dashboard?tab=report",
+      isActive: isReport,
     },
     {
       name: "Chat",
       href: "/dashboard?tab=chat",
-      isActive: isDashboard && currentTab === "chat",
+      isActive: isChat,
     },
     {
-      name: "Reports",
-      href: "/dashboard?tab=reports",
-      isActive: isDashboard && currentTab === "reports",
+      name: "History",
+      href: "/dashboard?tab=history",
+      isActive: isHistory,
     },
   ];
 
@@ -74,6 +88,7 @@ export default function Navbar() {
         className="w-full max-w-[var(--container-max-width)] mx-auto px-6 md:px-12 py-2.5 sm:py-3 flex items-center justify-between gap-4"
         aria-label="Main Navigation"
       >
+        {/* Brand / Logo */}
         <Link
           to="/"
           className="inline-flex items-center gap-2.5 text-black no-underline select-none outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 rounded-md shrink-0"
@@ -91,38 +106,65 @@ export default function Navbar() {
           </span>
         </Link>
 
-        {/* All 4 options are active and clickable, landing on the same research page */}
-        <div className="flex items-center gap-1 sm:gap-2">
-          {navLinks.map((link) => (
-            <Link
-              key={link.name}
-              to={link.href}
-              className={cn(
-                "px-3.5 sm:px-4 py-1.5 rounded-full text-sm sm:text-base font-medium tracking-compact transition-colors no-underline",
-                link.isActive
-                  ? "bg-white text-black font-semibold shadow-xs border border-black/10"
-                  : "text-neutral-700 hover:text-black hover:bg-black/5"
-              )}
+        {/* Home Screen Actions: View Repository + Login (both with small border radius) */}
+        {isHome && (
+          <div className="flex items-center gap-2.5 sm:gap-3.5">
+            <Button
+              href="https://github.com/saumyashah0510/Multi-Agent-Research-System-Architecture"
+              target="_blank"
+              rel="noopener noreferrer"
+              icon={<GitHubIcon />}
+              iconPosition="right"
+              radius="sm"
+              ariaLabel="View Repository on GitHub"
+              className="text-sm sm:text-base py-2 sm:py-2.5 px-4 sm:px-6"
             >
-              {link.name}
-            </Link>
-          ))}
-        </div>
+              <span className="hidden sm:inline">View Repository</span>
+              <span className="sm:hidden">GitHub</span>
+            </Button>
 
-        <div className="hidden lg:block">
-          <Button
-            href="https://github.com/saumyashah0510/Multi-Agent-Research-System-Architecture"
-            target="_blank"
-            rel="noopener noreferrer"
-            icon={<GitHubIcon />}
-            iconPosition="right"
-            ariaLabel="View Repository on GitHub"
-            className="text-sm sm:text-base py-1.5 sm:py-2"
-          >
-            <span className="hidden sm:inline">View Repository</span>
-            <span className="sm:hidden">GitHub</span>
-          </Button>
-        </div>
+            <Button
+              type="button"
+              radius="sm"
+              ariaLabel="Login"
+              className="text-sm sm:text-base py-2 sm:py-2.5 px-5 sm:px-7"
+            >
+              Login
+            </Button>
+          </div>
+        )}
+
+        {/* All Other Pages: Nav Links + Login on the right (no View Repository, small border radius) */}
+        {!isHome && (
+          <div className="flex items-center gap-2 sm:gap-3 md:gap-4 shrink-0">
+            <div className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+              {navLinks.map((link) => (
+                <Link
+                  key={link.name}
+                  to={link.href}
+                  style={{ borderRadius: "var(--radius-sm)" }}
+                  className={cn(
+                    "px-3 sm:px-3.5 py-1.5 text-sm sm:text-base tracking-compact transition-all duration-150 no-underline shrink-0 select-none",
+                    link.isActive
+                      ? "bg-white text-black font-semibold shadow-xs border border-black/10"
+                      : "text-neutral-700 hover:text-black hover:bg-black/5 font-medium"
+                  )}
+                >
+                  {link.name}
+                </Link>
+              ))}
+            </div>
+
+            <Button
+              type="button"
+              radius="sm"
+              ariaLabel="Login"
+              className="text-sm sm:text-base py-1.5 sm:py-2 px-4 sm:px-5 ml-1 sm:ml-2 shrink-0"
+            >
+              Login
+            </Button>
+          </div>
+        )}
       </nav>
     </header>
   );

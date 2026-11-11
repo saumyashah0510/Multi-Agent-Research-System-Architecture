@@ -31,7 +31,9 @@ export default function Dashboard() {
   // Synchronize actual screened papers from WebSocket when available for active review session
   useEffect(() => {
     if (reviewId) {
-      const candidateList = ws.screenedPapers || [];
+      const candidateList = [...(ws.screenedPapers || [])].sort(
+        (a, b) => (b.relevanceScore ?? 0) - (a.relevanceScore ?? 0)
+      );
       setPapers(candidateList);
       setSelectedPaperIds(
         candidateList.filter((p) => p.isSelected !== false).map((p) => p.id)
@@ -163,52 +165,40 @@ export default function Dashboard() {
       className="w-full max-w-4xl mx-auto flex flex-col items-center px-3 sm:px-6 min-h-[calc(100vh-3.75rem)] pb-16"
     >
       {!hasSearched ? (
-        /* Initial Screen: covers 100vh with Research Input positioned ~75% vh down and footer starting after 100vh */
-        <div className="w-full flex-1 flex flex-col justify-between pt-[14vh] sm:pt-[16vh] pb-[10vh] sm:pb-[12vh]">
+        /* Initial Screen: Headline and Search Input positioned with balanced upper spacing */
+        <div className="w-full flex-1 flex flex-col items-center justify-start pt-[16vh] sm:pt-[18vh] pb-16">
           {/* Welcome Headline */}
-          <div className="text-center max-w-3xl mx-auto px-4 flex flex-col items-center">
+          <div className="text-center max-w-3xl mx-auto px-4 flex flex-col items-center mb-16 sm:mb-24">
             <h1 className="font-serif text-3xl sm:text-5xl md:text-6xl font-normal text-neutral-900 tracking-tight leading-none">
               Welcome,
             </h1>
-            <p className="font-serif text-2xl sm:text-3xl md:text-4xl font-normal text-neutral-800 tracking-tight leading-none mt-2">
+            <p className="font-serif text-2xl sm:text-3xl md:text-4xl font-normal text-neutral-800 tracking-tight leading-none mt-2 sm:mt-3">
               What are you curious about?
             </p>
           </div>
 
-          {/* Main Research Search Card positioned ~75% vh down */}
+          {/* Main Research Search Card */}
           <div className="w-full">
             <ResearchInput
               initialQuery={activeQuery}
-              initialNumPapers="6"
               onSearch={handleSearch}
               isLoading={false}
             />
           </div>
         </div>
       ) : (
-        /* Workflow State: Compact header followed by Pipeline and Paper Approval Grid */
+        /* Workflow State: Search Input at the top followed by Pipeline and Paper Approval Grid */
         <div className="w-full flex flex-col items-center pt-6 sm:pt-8">
-          {/* Welcome Headline */}
-          <div className="text-center pb-5 sm:pb-6 max-w-3xl px-4 flex flex-col items-center">
-            <h1 className="font-serif text-2xl sm:text-4xl font-normal text-neutral-900 tracking-tight leading-none">
-              Welcome,
-            </h1>
-            <p className="font-serif text-xl sm:text-2xl font-normal text-neutral-800 tracking-tight leading-none mt-1.5">
-              What are you curious about?
-            </p>
-          </div>
-
           {/* Main Research Search Card */}
           <div className="w-full mb-5">
             <ResearchInput
               initialQuery={activeQuery}
-              initialNumPapers="6"
               onSearch={handleSearch}
               isLoading={false}
             />
           </div>
 
-          {/* Research Progress Pipeline (only triggered upon search click) */}
+          {/* Research Progress Pipeline */}
           <div className="w-full mb-5">
             <ResearchProgress
               key={`pipeline-session-${pipelineSession}-${activeQuery}`}
@@ -216,6 +206,8 @@ export default function Dashboard() {
               stages={reviewId ? ws.stages : undefined}
               isRunning={reviewId ? (ws.isConnected && ws.status !== "COMPLETED") : undefined}
               isCompleted={reviewId ? (ws.isPausedForInput || ws.status === "COMPLETED") : isPipelineDone}
+              screenedCount={papers.length}
+              relevantCount={selectedPaperIds.length}
               isMock={Boolean(!reviewId)}
               autoStart={!reviewId}
               onComplete={() => setIsPipelineDone(true)}
