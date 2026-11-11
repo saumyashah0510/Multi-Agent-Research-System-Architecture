@@ -36,6 +36,8 @@ def human_interrupt_node(state: AgentState) -> Dict[str, Any]:
             p
             for p in screened_papers
             if (p.get("arxiv_id") or p.get("title")) in approved_paper_ids
+            or p.get("id") in approved_paper_ids
+            or str(p.get("id", "")) in approved_paper_ids
         ]
 
     return {

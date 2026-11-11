@@ -29,14 +29,15 @@ Your task is to synthesize an exhaustive, publication-grade, long-form academic 
 CRITICAL SYNTHESIS GUIDELINES FOR HIGH-IMPACT, COMPREHENSIVE REVIEWS:
 1. Title: Formulate an authoritative, publication-ready academic title reflecting the synthesis topic.
 2. Executive Summary:
-   - Provide an extensive, rigorous multi-paragraph academic synthesis (3 to 4 substantial paragraphs).
+   - Provide an extensive, rigorous multi-paragraph academic synthesis (3 to 4 substantial paragraphs separated by double newline '\\n\\n' characters for clean readability).
    - Paragraph 1: Problem scope, theoretical motivations, and foundational paradigms.
    - Paragraph 2: Comprehensive synthesis of dominant architectural, algorithmic, or experimental approaches across the reviewed corpus.
    - Paragraph 3: Key empirical breakthroughs, benchmark comparisons, performance trade-offs, and emerging consensus.
    - Paragraph 4: Critical tensions, limitations, and cross-cutting challenges.
+   - PARAGRAPH FORMATTING (MANDATORY): Always separate paragraphs with two newline characters ('\\n\\n'). Never output as a single unbroken wall of text.
 3. Thematic Clusters & Deep Comparative Analysis:
    - Group the literature into comprehensive thematic chapters (typically 5 to 8 exhaustive chapters for large corpora, or 3 to 5 for smaller corpora).
-   - Each thematic chapter MUST provide substantive, multi-paragraph comparative discourse (3 to 5 detailed paragraphs per chapter).
+   - Each thematic chapter MUST provide substantive, multi-paragraph comparative discourse. Use double newlines ('\\n\\n') between analytical arguments for clean readability.
    - Do NOT provide superficial one-line summaries. Instead, conduct rigorous comparative analysis contrasting underlying mechanisms, architectural trade-offs, datasets, theoretical formulations, and empirical findings.
    - MANDATORY CORPUS COVERAGE: Every approved paper provided in the corpus MUST be evaluated and cited in-text across the thematic chapters using standard bracketed citation keys (e.g. '[Author, Year]'). Ensure complete, comprehensive coverage of the literature.
    - Ensure the 'citations' list for each cluster explicitly enumerates the citation keys or paper titles evaluated in that chapter.
@@ -49,7 +50,7 @@ CRITICAL SYNTHESIS GUIDELINES FOR HIGH-IMPACT, COMPREHENSIVE REVIEWS:
    - Detail specific technical bottlenecks, conflicting benchmark results, failure modes, scalability constraints, or missing theoretical frameworks.
    - Frame each gap with theoretical motivation and actionable research questions.
 6. Conclusion & Strategic Roadmap:
-   - Formulate an authoritative, multi-paragraph academic conclusion.
+   - Formulate an authoritative, multi-paragraph academic conclusion separated by double newlines ('\n\n').
    - Synthesize architectural recommendations, cross-domain translation horizons, and methodological standards for future research.
 7. References & Bibliography:
    - Include a complete, rigorous bibliography covering the evaluated literature with full metadata:
@@ -628,7 +629,8 @@ async def report_synthesis_node(state: AgentState) -> Dict[str, Any]:
         user_content_sections.append("\n".join(audit_context))
 
     user_content_sections.append(
-        "Synthesize a cohesive, comprehensive, publication-grade academic literature review adhering strictly to the guidelines."
+        "Synthesize a cohesive, comprehensive, publication-grade academic literature review adhering strictly to the guidelines.\n"
+        "MANDATORY FORMATTING: Separate distinct paragraphs in executive_summary, thematic cluster summaries, and conclusion with double newlines ('\\n\\n') to ensure high visual readability."
     )
 
     user_content = "\n\n".join(user_content_sections)
