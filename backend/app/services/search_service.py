@@ -1,4 +1,4 @@
-"""Academic literature search service wrapper (ArXiv, PubMed, Semantic Scholar & Crossref APIs)."""
+"""Academic literature search service wrapper (ArXiv, PubMed & Crossref APIs)."""
 
 import asyncio
 import logging
@@ -16,7 +16,6 @@ settings = Settings()
 ARXIV_API_URL = "https://export.arxiv.org/api/query"
 PUBMED_SEARCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
 PUBMED_FETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
-SEMANTIC_SCHOLAR_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
 CROSSREF_API_URL = "https://api.crossref.org/works"
 
 REQUEST_TIMEOUT = 10.0
@@ -248,71 +247,6 @@ async def _search_pubmed(
         return []
 
 
-async def _search_semantic_scholar(
-    client: httpx.AsyncClient,
-    query: str,
-    max_results: int,
-) -> List[Dict[str, Any]]:
-    """Search Semantic Scholar API and return structured paper dictionaries."""
-    s2_headers: Dict[str, str] = {}
-    if getattr(settings, "SEMANTIC_SCHOLAR_API_KEY", ""):
-        s2_headers["x-api-key"] = settings.SEMANTIC_SCHOLAR_API_KEY.strip()
-
-    try:
-        response = await _request_with_retries(
-            client,
-            SEMANTIC_SCHOLAR_URL,
-            params={
-                "query": query,
-                "limit": max_results,
-                "fields": "title,authors,abstract,year,externalIds,openAccessPdf",
-            },
-            headers=s2_headers or None,
-        )
-        data = response.json()
-        results: List[Dict[str, Any]] = []
-
-        for item in data.get("data", []):
-            title = (item.get("title") or "").strip()
-            abstract = (item.get("abstract") or "").strip()
-            year = item.get("year")
-            authors_list = [a.get("name", "") for a in item.get("authors", []) if a.get("name")]
-            ext_ids = item.get("externalIds") or {}
-            arxiv_id = ext_ids.get("ArXiv")
-            doi = ext_ids.get("DOI")
-
-            pdf_info = item.get("openAccessPdf") or {}
-            pdf_url = pdf_info.get("url")
-
-            results.append(
-                {
-                    "title": title,
-                    "authors": authors_list,
-                    "abstract": abstract,
-                    "publication_date": str(year) if year else "",
-                    "published_year": year,
-                    "arxiv_id": arxiv_id,
-                    "doi": doi,
-                    "pdf_url": pdf_url,
-                    "source": "semanticscholar",
-                }
-            )
-
-        return results
-    except httpx.HTTPStatusError as err:
-        if err.response.status_code == 429:
-            logger.warning(
-                "Semantic Scholar API rate limit reached (HTTP 429). "
-                "Set SEMANTIC_SCHOLAR_API_KEY in .env for unthrottled access."
-            )
-        else:
-            logger.warning(f"Semantic Scholar API HTTP error: {err}")
-        return []
-    except Exception as err:
-        logger.warning(f"Semantic Scholar API search error: {err}")
-        return []
-
-
 async def _search_crossref(
     client: httpx.AsyncClient,
     query: str,
@@ -385,7 +319,7 @@ async def search_academic_papers(
         return []
 
     if sources is None:
-        sources = ["arxiv", "pubmed", "semanticscholar", "crossref"]
+        sources = ["arxiv", "pubmed", "crossref"]
 
     sources = [source.lower() for source in sources]
 
@@ -408,9 +342,6 @@ async def search_academic_papers(
 
         if "pubmed" in sources:
             tasks.append(_search_pubmed(client, query, max_results))
-
-        if "semanticscholar" in sources:
-            tasks.append(_search_semantic_scholar(client, query, max_results))
 
         if "crossref" in sources:
             tasks.append(_search_crossref(client, query, max_results))

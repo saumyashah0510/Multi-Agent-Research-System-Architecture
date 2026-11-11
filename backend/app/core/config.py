@@ -50,8 +50,24 @@ class Settings(BaseSettings):
     # Hugging Face Hub (Authenticated weights download & high rate limits)
     HF_TOKEN: str = os.getenv("HF_TOKEN", "")
 
-    # Academic Search Providers
-    SEMANTIC_SCHOLAR_API_KEY: str = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
+    # Groq Cloud Fallback LLM
+    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
+    GROQ_MODEL: str = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+    GROQ_FALLBACK_MODELS: str = os.getenv(
+        "GROQ_FALLBACK_MODELS",
+        "openai/gpt-oss-20b,llama-3.3-70b-versatile,llama-3.1-8b-instant",
+    )
+
+    @property
+    def groq_model_candidates(self) -> list[str]:
+        """Return ordered list of Groq models: primary first, followed by fallbacks."""
+        primary = self.GROQ_MODEL.strip() if self.GROQ_MODEL else "openai/gpt-oss-120b"
+        fallbacks = [
+            m.strip()
+            for m in self.GROQ_FALLBACK_MODELS.split(",")
+            if m.strip() and m.strip() != primary
+        ]
+        return [primary] + fallbacks
 
     @property
     def gemini_model_candidates(self) -> list[str]:
