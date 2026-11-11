@@ -55,6 +55,15 @@ export function getWebSocketUrl(reviewId: string): string {
     return `${wsBase}/ws/reviews/${encodeURIComponent(reviewId)}`;
   }
 
+  if (typeof window !== "undefined" && window.location) {
+    const { hostname, port, protocol } = window.location;
+    const wsProto = protocol === "https:" ? "wss:" : "ws:";
+    if (port === "5173" || port === "5174") {
+      return `ws://localhost:8000/api/v1/ws/reviews/${encodeURIComponent(reviewId)}`;
+    }
+    return `${wsProto}//${hostname}${port ? `:${port}` : ""}/api/v1/ws/reviews/${encodeURIComponent(reviewId)}`;
+  }
+
   return `ws://localhost:8000/api/v1/ws/reviews/${encodeURIComponent(reviewId)}`;
 }
 

@@ -1,12 +1,27 @@
 // API Client Helper for Scholaris Multi-Agent Research System
 import { ChatHistoryMessage, ChatResponse } from "../types";
 
-const API_BASE_URL =
-  (import.meta.env && import.meta.env.VITE_API_URL) ||
-  "http://localhost:8000/api/v1";
+export function getApiBaseUrl(): string {
+  const envApiUrl = import.meta.env?.VITE_API_URL;
+  if (envApiUrl && typeof envApiUrl === "string" && envApiUrl.trim()) {
+    return envApiUrl.trim().replace(/\/+$/, "");
+  }
+
+  if (typeof window !== "undefined" && window.location) {
+    const { hostname, port, protocol } = window.location;
+    // When running Vite dev server locally on port 5173 / 5174
+    if (port === "5173" || port === "5174") {
+      return "http://localhost:8000/api/v1";
+    }
+    // In production, use same-origin relative URL proxied by Nginx
+    return `${protocol}//${hostname}${port ? `:${port}` : ""}/api/v1`;
+  }
+
+  return "http://localhost:8000/api/v1";
+}
 
 export async function fetchHealthStatus() {
-  const res = await fetch(`${API_BASE_URL}/health`);
+  const res = await fetch(`${getApiBaseUrl()}/health`);
   if (!res.ok) {
     throw new Error(`Health check failed with status ${res.status}`);
   }
@@ -14,7 +29,7 @@ export async function fetchHealthStatus() {
 }
 
 export async function createReviewTask(query: string, maxPapers: number = 10) {
-  const res = await fetch(`${API_BASE_URL}/reviews/`, {
+  const res = await fetch(`${getApiBaseUrl()}/reviews/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ query, max_papers: maxPapers }),
@@ -26,7 +41,7 @@ export async function createReviewTask(query: string, maxPapers: number = 10) {
 }
 
 export async function getReviewStatus(reviewId: string) {
-  const res = await fetch(`${API_BASE_URL}/reviews/${reviewId}`);
+  const res = await fetch(`${getApiBaseUrl()}/reviews/${reviewId}`);
   if (!res.ok) {
     throw new Error(`Failed to fetch review status: ${res.statusText}`);
   }
@@ -38,7 +53,7 @@ export async function submitHumanDecision(
   approvedPaperIds: string[],
   decision: "continue" | "find_more"
 ) {
-  const res = await fetch(`${API_BASE_URL}/reviews/${reviewId}/approve`, {
+  const res = await fetch(`${getApiBaseUrl()}/reviews/${reviewId}/approve`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -84,7 +99,7 @@ export async function sendReviewChatMessage(
   history: ChatHistoryMessage[] = [],
   signal?: AbortSignal
 ): Promise<ChatResponse> {
-  const res = await fetch(`${API_BASE_URL}/reviews/${encodeURIComponent(reviewId)}/chat`, {
+  const res = await fetch(`${getApiBaseUrl()}/reviews/${encodeURIComponent(reviewId)}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ question, history }),
@@ -106,7 +121,7 @@ export async function sendReviewChatMessage(
 }
 
 export async function fetchPastReviews(limit: number = 20) {
-  const res = await fetch(`${API_BASE_URL}/reviews/?limit=${limit}`);
+  const res = await fetch(`${getApiBaseUrl()}/reviews/?limit=${limit}`);
   if (!res.ok) {
     throw new Error(`Failed to fetch past reviews: ${res.statusText}`);
   }
@@ -114,5 +129,5 @@ export async function fetchPastReviews(limit: number = 20) {
 }
 
 export function getReviewPdfDownloadUrl(reviewId: string): string {
-  return `${API_BASE_URL}/reviews/${reviewId}/export`;
+  return `${getApiBaseUrl()}/reviews/${reviewId}/export`;
 }
