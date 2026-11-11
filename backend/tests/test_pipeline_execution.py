@@ -10,22 +10,18 @@ Assignee Task (Issue TEST-02):
 
 import json
 from types import SimpleNamespace
-from typing import cast
 from unittest.mock import MagicMock
-from app.agents.orchestrator import route_after_human_interval
 
-import pytest
-
-import app.agents.nodes.gap_analysis_node as gap_module
 import app.agents.nodes.citation_verifier_node as citation_module
+import app.agents.nodes.gap_analysis_node as gap_module
 import app.agents.nodes.report_synthesis_node as report_module
-
+import pytest
+from app.agents.orchestrator import route_after_human_interval
 from app.agents.state import AgentState
 
 # ==========================================
 # 1. State Memory & Initialization Tests
 # ==========================================
-
 
 
 def test_agent_state_initialization():
@@ -54,12 +50,24 @@ def test_agent_state_initialization():
 
     # Verify all 18 required state keys
     expected_keys = {
-        "review_id", "user_query", "target_domains", "search_queries",
-        "discovered_papers", "screened_papers", "approved_papers",
-        "extracted_pdf_contents", "chunks_stored_count",
-        "methodology_matrix", "research_gaps", "verified_references",
-        "rejected_claims", "has_hallucinations", "verification_summary",
-        "user_decision", "synthesized_review", "current_step",
+        "review_id",
+        "user_query",
+        "target_domains",
+        "search_queries",
+        "discovered_papers",
+        "screened_papers",
+        "approved_papers",
+        "extracted_pdf_contents",
+        "chunks_stored_count",
+        "methodology_matrix",
+        "research_gaps",
+        "verified_references",
+        "rejected_claims",
+        "has_hallucinations",
+        "verification_summary",
+        "user_decision",
+        "synthesized_review",
+        "current_step",
     }
 
     assert expected_keys.issubset(state.keys())
@@ -89,8 +97,8 @@ def test_agent_state_initialization():
 # ==========================================
 
 
-
 # 2. HITL Conditional Routing Tests (Agent 04)
+
 
 def test_hitl_conditional_routing_approval():
     """Verify routing to PDF extraction when user chooses continue."""
@@ -113,9 +121,11 @@ def test_hitl_conditional_routing_find_more():
 
     assert route_after_human_interval(state_more) == "query_expansion"
 
+
 # ==========================================
 # 3. Downstream Node Synthesis & Matrix Tests
 # ==========================================
+
 
 @pytest.mark.asyncio
 async def test_methodology_matrix_schema_generation(monkeypatch):
@@ -184,7 +194,6 @@ async def test_methodology_matrix_schema_generation(monkeypatch):
     fake_client.models.generate_content.assert_called_once()
 
 
-
 @pytest.mark.asyncio
 async def test_citation_verification_anti_hallucination(monkeypatch):
     """Verify Agent 08 identifies supported and unsupported claims."""
@@ -240,8 +249,7 @@ async def test_citation_verification_anti_hallucination(monkeypatch):
             }
         ],
         "extracted_pdf_contents": {
-            "Surface Codes for QEC":
-                "Surface codes provide fault-tolerant quantum computation."
+            "Surface Codes for QEC": "Surface codes provide fault-tolerant quantum computation."
         },
         "methodology_matrix": [
             {
@@ -263,8 +271,6 @@ async def test_citation_verification_anti_hallucination(monkeypatch):
     assert result["current_step"] == "citation_verification_completed"
 
     fake_client.models.generate_content.assert_called_once()
-
-
 
 
 @pytest.mark.asyncio
@@ -292,9 +298,7 @@ async def test_report_synthesis_final_structure(monkeypatch):
                 "limitations": ["High physical qubit overhead"],
             }
         ],
-        "research_gaps": [
-            "Reducing physical qubit overhead."
-        ],
+        "research_gaps": ["Reducing physical qubit overhead."],
         "conclusion": "Further research is needed to improve scalability.",
         "references": [],
     }

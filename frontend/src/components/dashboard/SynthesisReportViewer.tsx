@@ -153,9 +153,9 @@ export const SynthesisReportViewer: React.FC<SynthesisReportViewerProps> = ({
             <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
             <span>Executive Summary</span>
           </div>
-          <p className="text-neutral-700 leading-relaxed font-sans text-[13px] sm:text-sm">
+          <div className="text-neutral-700 leading-relaxed font-sans text-[13px] sm:text-sm whitespace-pre-line space-y-3">
             {report.executive_summary}
-          </p>
+          </div>
         </div>
       </div>
 
@@ -187,7 +187,7 @@ export const SynthesisReportViewer: React.FC<SynthesisReportViewerProps> = ({
                       {cluster.theme}
                     </h4>
                   </div>
-                  <p className="text-xs sm:text-[13px] text-neutral-600 leading-relaxed">
+                  <p className="text-xs sm:text-[13px] text-neutral-600 leading-relaxed whitespace-pre-line">
                     {cluster.summary}
                   </p>
                 </div>
@@ -247,9 +247,9 @@ export const SynthesisReportViewer: React.FC<SynthesisReportViewerProps> = ({
             <FileCheck2 className="w-5 h-5 text-emerald-600" />
             <span>Conclusion & Future Directions</span>
           </h3>
-          <p className="text-xs sm:text-[13px] text-neutral-700 leading-relaxed font-sans">
+          <div className="text-xs sm:text-[13px] text-neutral-700 leading-relaxed font-sans whitespace-pre-line space-y-3">
             {report.conclusion}
-          </p>
+          </div>
         </div>
       )}
 
