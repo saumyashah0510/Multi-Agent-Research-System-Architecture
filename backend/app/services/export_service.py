@@ -463,7 +463,9 @@ def compile_literature_review_pdf(
             ref_title = ref.get("title") or f"Reference {idx}"
             authors_list = ref.get("authors") or []
             authors_str = (
-                ", ".join(authors_list) if isinstance(authors_list, list) else str(authors_list)
+                ", ".join(str(a) for a in authors_list)
+                if isinstance(authors_list, list)
+                else str(authors_list)
             )
             year = ref.get("year")
             year_str = f" ({year})" if year else ""
