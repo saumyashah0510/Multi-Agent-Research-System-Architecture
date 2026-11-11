@@ -47,6 +47,7 @@ backend/app/
 | Purpose | Model Identifier | Provider | Config Location |
 | :--- | :--- | :--- | :--- |
 | **LLM Reasoning & Synthesis** | `gemini-3.1-flash-lite` | Google Gemini AI Studio | [backend/app/core/config.py](../backend/app/core/config.py#L21) |
+| **LLM Quota Fallback Cascade** | `llama-3.3-70b-versatile` / `llama-3.1-8b-instant` | Groq Cloud | [backend/app/services/groq_service.py](../backend/app/services/groq_service.py) |
 | **Abstract Relevance Screening** | `gemini-3.1-flash-lite` | Google Gemini AI Studio | [backend/app/agents/nodes/screening_node.py](../backend/app/agents/nodes/screening_node.py#L12) |
 | **Vector Passage Embeddings** | `all-MiniLM-L6-v2` (384D) | HuggingFace (`sentence-transformers`) | [backend/app/services/vector_service.py](../backend/app/services/vector_service.py#L27) |
 | **TF-IDF Fallback Scoring** | Scikit-Learn TF-IDF | Local CPU Runtime | [backend/app/services/vector_service.py](../backend/app/services/vector_service.py#L127) |
@@ -146,7 +147,7 @@ flowchart TD
 | # | Agent Name | Input State | Output State | Checkpoint Description |
 | :---: | :--- | :--- | :--- | :--- |
 | **01** | **Query Expansion & Classifier** | `user_query` | `target_domains`, `search_queries` | Deconstructs topic into 3-5 domain sub-queries |
-| **02** | **Multi-Source Discovery** | `search_queries`, `target_domains` | `discovered_papers` | Fetches papers across ArXiv, PubMed, Semantic Scholar, Crossref, bioRxiv |
+| **02** | **Multi-Source Discovery** | `search_queries`, `target_domains` | `discovered_papers` | Fetches papers across ArXiv, PubMed, and Crossref |
 | **03** | **Screening & Full-Text Gatekeeper**| `discovered_papers`, `user_query` | `screened_papers` | Scores abstracts ($\ge 0.6$) via Gemini LLM and filters out paywalled abstract-only papers |
 | **04** | **Human Approval Interrupt** | `screened_papers` | `approved_papers`, `user_decision` | Pauses graph for user paper selection on frontend (100% full-text guaranteed) |
 | **05** | **Multi-Source PDF Extractor** | `approved_papers` | `extracted_pdf_contents` | Resolves arXiv, PMC, bioRxiv, Unpaywall & OA HTML, caches to S3, parses sections |

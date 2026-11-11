@@ -451,7 +451,7 @@ async def resolve_biorxiv_pdf_url(doi: str) -> Optional[str]:
 
 
 async def resolve_unpaywall_pdf_url(doi: str) -> Optional[str]:
-    """Resolve an open-access full-text PDF URL for a Crossref or Semantic Scholar DOI.
+    """Resolve an open-access full-text PDF URL for a Crossref or external DOI.
 
     Queries Unpaywall API first, then falls back to OpenAlex DOI lookup.
     Returns a verified HTTPS PDF URL or None if paywalled/restricted.

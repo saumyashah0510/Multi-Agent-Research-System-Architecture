@@ -22,6 +22,7 @@ from app.schemas.agent_outputs import (
     ReferenceItem,
     SynthesizedReviewOutput,
 )
+from app.services.groq_service import call_groq_structured
 
 logger = logging.getLogger(__name__)
 
@@ -530,9 +531,15 @@ async def report_synthesis_node(state: AgentState) -> Dict[str, Any]:
             "current_step": "synthesis_completed",
         }
 
-    # 2. Strict Fail-Fast if GEMINI_API_KEY is not configured
-    if not settings.GEMINI_API_KEY:
-        error_msg = "GEMINI_API_KEY is not configured; cannot generate synthesis report."
+    gemini_key = getattr(settings, "GEMINI_API_KEY", "")
+    groq_key = getattr(settings, "GROQ_API_KEY", "")
+
+    # 2. Strict Fail-Fast if neither Gemini nor Groq API key is configured
+    if not gemini_key and not groq_key:
+        error_msg = (
+            "GEMINI_API_KEY is not configured (and GROQ_API_KEY fallback not configured); "
+            "cannot generate synthesis report."
+        )
         logger.error(error_msg)
         raise RuntimeError(error_msg)
 
@@ -651,60 +658,83 @@ async def report_synthesis_node(state: AgentState) -> Dict[str, Any]:
     user_content = "\n\n".join(user_content_sections)
 
     try:
-        # 4. Call Google Gemini LLM with structured Pydantic schema and model fallback cascade
-        client = genai.Client(
-            api_key=settings.GEMINI_API_KEY,
-            http_options={"api_version": "v1beta"},
-        )
-        candidate_models = settings.gemini_model_candidates
-
         parsed_output = None
         last_model_error = None
         model_errors: list[str] = []
 
-        for model_name in candidate_models:
-            max_model_retries = 2
-            for attempt in range(max_model_retries + 1):
-                try:
-                    response = client.models.generate_content(
-                        model=model_name,
-                        contents=[SYNTHESIS_SYSTEM_PROMPT, user_content],
-                        config={
-                            "response_mime_type": "application/json",
-                            "response_schema": SynthesizedReviewOutput,
-                            "max_output_tokens": 8192,
-                        },
-                    )
-                    parsed_output = SynthesizedReviewOutput.model_validate_json(response.text)
-                    break
-                except Exception as model_err:
-                    err_str = str(model_err)
-                    is_rate_limit = "429" in err_str or "RESOURCE_EXHAUSTED" in err_str
-                    if is_rate_limit and attempt < max_model_retries:
-                        delay = _extract_retry_delay(model_err)
-                        logger.warning(
-                            f"Gemini Free Tier TPM rate limit reached on '{model_name}' "
-                            f"(attempt {attempt + 1}/{max_model_retries + 1}). "
-                            f"Pausing for {delay:.1f}s until token quota resets..."
-                        )
-                        await asyncio.sleep(delay)
-                        continue
+        # 4a. Attempt Google Gemini LLM cascade if configured
+        if gemini_key:
+            try:
+                client = genai.Client(
+                    api_key=gemini_key,
+                    http_options={"api_version": "v1beta"},
+                )
+                candidate_models = getattr(
+                    settings, "gemini_model_candidates", ["gemini-3.1-flash-lite"]
+                )
 
-                    logger.warning(
-                        f"Gemini model '{model_name}' failed during report synthesis ({model_err}); trying fallback."
-                    )
-                    model_errors.append(f"{model_name}: {model_err}")
-                    last_model_error = model_err
-                    break
+                for model_name in candidate_models:
+                    max_model_retries = 2
+                    for attempt in range(max_model_retries + 1):
+                        try:
+                            response = client.models.generate_content(
+                                model=model_name,
+                                contents=[SYNTHESIS_SYSTEM_PROMPT, user_content],
+                                config={
+                                    "response_mime_type": "application/json",
+                                    "response_schema": SynthesizedReviewOutput,
+                                    "max_output_tokens": 8192,
+                                },
+                            )
+                            parsed_output = SynthesizedReviewOutput.model_validate_json(
+                                response.text
+                            )
+                            break
+                        except Exception as model_err:
+                            err_str = str(model_err)
+                            is_rate_limit = "429" in err_str or "RESOURCE_EXHAUSTED" in err_str
+                            if is_rate_limit and attempt < max_model_retries:
+                                delay = _extract_retry_delay(model_err)
+                                logger.warning(
+                                    f"Gemini Free Tier TPM rate limit reached on '{model_name}' "
+                                    f"(attempt {attempt + 1}/{max_model_retries + 1}). "
+                                    f"Pausing for {delay:.1f}s until token quota resets..."
+                                )
+                                await asyncio.sleep(delay)
+                                continue
 
-            if parsed_output is not None:
-                break
+                            logger.warning(
+                                f"Gemini model '{model_name}' failed during report synthesis ({model_err}); trying fallback."
+                            )
+                            model_errors.append(f"{model_name}: {model_err}")
+                            last_model_error = model_err
+                            break
+
+                    if parsed_output is not None:
+                        break
+            except Exception as client_err:
+                logger.warning(f"Gemini client initialization failed: {client_err}")
+                model_errors.append(f"client_init: {client_err}")
+                last_model_error = client_err
+
+        # 4b. Fallback to Groq Cloud LLM if Gemini failed or was unconfigured
+        if parsed_output is None and groq_key:
+            logger.info("Attempting report synthesis via Groq fallback LLM...")
+            try:
+                parsed_output = await call_groq_structured(
+                    system_prompt=SYNTHESIS_SYSTEM_PROMPT,
+                    user_prompt=user_content,
+                    response_schema=SynthesizedReviewOutput,
+                    max_tokens=8192,
+                )
+            except Exception as groq_err:
+                logger.warning(f"Groq fallback failed during report synthesis: {groq_err}")
+                model_errors.append(f"groq: {groq_err}")
+                last_model_error = groq_err
 
         if parsed_output is None:
             details_str = " | ".join(model_errors) if model_errors else str(last_model_error)
-            raise RuntimeError(
-                f"All configured Gemini models {candidate_models} failed during report synthesis. Details: {details_str}"
-            )
+            raise RuntimeError(f"All configured LLM providers failed. Details: {details_str}")
 
         # 5. Validate and ground references before publishing
         sanitized_refs = _sanitize_references(

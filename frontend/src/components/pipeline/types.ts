@@ -40,7 +40,7 @@ export const INITIAL_DEMO_STAGES: PipelineStage[] = [
     id: "academic-search",
     title: "Academic Search",
     description: "Searching multiple academic sources for relevant literature.",
-    supportingStatus: "Searching arXiv, Semantic Scholar and Crossref...",
+    supportingStatus: "Searching arXiv, PubMed, and Crossref...",
     status: "pending",
     message: null,
     detail: null,

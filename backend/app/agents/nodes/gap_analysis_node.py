@@ -8,6 +8,7 @@ from google import genai
 from app.agents.state import AgentState
 from app.core.config import settings
 from app.schemas.agent_outputs import GapAnalysisOutput
+from app.services.groq_service import call_groq_structured
 
 logger = logging.getLogger(__name__)
 
@@ -74,9 +75,15 @@ async def gap_analysis_node(state: AgentState) -> Dict[str, Any]:
             "current_step": "gap_analysis_completed",
         }
 
-    # 2. Strict Fail-Fast if GEMINI_API_KEY is not configured
-    if not settings.GEMINI_API_KEY:
-        error_msg = "GEMINI_API_KEY is not configured; cannot execute gap analysis."
+    gemini_key = getattr(settings, "GEMINI_API_KEY", "")
+    groq_key = getattr(settings, "GROQ_API_KEY", "")
+
+    # 2. Strict Fail-Fast if neither Gemini nor Groq API key is configured
+    if not gemini_key and not groq_key:
+        error_msg = (
+            "GEMINI_API_KEY is not configured (and GROQ_API_KEY fallback not configured); "
+            "cannot execute gap analysis."
+        )
         logger.error(error_msg)
         raise RuntimeError(error_msg)
 
@@ -124,38 +131,61 @@ async def gap_analysis_node(state: AgentState) -> Dict[str, Any]:
     )
 
     try:
-        # 4. Call Google Gemini LLM with structured Pydantic schema and model fallback cascade
-        client = genai.Client(
-            api_key=settings.GEMINI_API_KEY,
-            http_options={"api_version": "v1beta"},
-        )
-        candidate_models = settings.gemini_model_candidates
-
         parsed_output = None
         last_model_error = None
+        model_errors: list[str] = []
 
-        for model_name in candidate_models:
+        # 4a. Attempt Google Gemini LLM cascade if configured
+        if gemini_key:
             try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=[GAP_ANALYSIS_SYSTEM_PROMPT, user_content],
-                    config={
-                        "response_mime_type": "application/json",
-                        "response_schema": GapAnalysisOutput,
-                    },
+                client = genai.Client(
+                    api_key=gemini_key,
+                    http_options={"api_version": "v1beta"},
                 )
-                parsed_output = GapAnalysisOutput.model_validate_json(response.text)
-                break
-            except Exception as model_err:
-                logger.warning(
-                    f"Gemini model '{model_name}' failed during gap analysis ({model_err}); trying fallback."
+                candidate_models = getattr(
+                    settings, "gemini_model_candidates", ["gemini-3.1-flash-lite"]
                 )
-                last_model_error = model_err
+
+                for model_name in candidate_models:
+                    try:
+                        response = client.models.generate_content(
+                            model=model_name,
+                            contents=[GAP_ANALYSIS_SYSTEM_PROMPT, user_content],
+                            config={
+                                "response_mime_type": "application/json",
+                                "response_schema": GapAnalysisOutput,
+                            },
+                        )
+                        parsed_output = GapAnalysisOutput.model_validate_json(response.text)
+                        break
+                    except Exception as model_err:
+                        logger.warning(
+                            f"Gemini model '{model_name}' failed during gap analysis ({model_err}); trying fallback."
+                        )
+                        model_errors.append(f"{model_name}: {model_err}")
+                        last_model_error = model_err
+            except Exception as client_err:
+                logger.warning(f"Gemini client initialization failed: {client_err}")
+                model_errors.append(f"client_init: {client_err}")
+                last_model_error = client_err
+
+        # 4b. Fallback to Groq Cloud LLM if Gemini failed or was unconfigured
+        if parsed_output is None and groq_key:
+            logger.info("Attempting gap analysis via Groq fallback LLM...")
+            try:
+                parsed_output = await call_groq_structured(
+                    system_prompt=GAP_ANALYSIS_SYSTEM_PROMPT,
+                    user_prompt=user_content,
+                    response_schema=GapAnalysisOutput,
+                )
+            except Exception as groq_err:
+                logger.warning(f"Groq fallback failed during gap analysis: {groq_err}")
+                model_errors.append(f"groq: {groq_err}")
+                last_model_error = groq_err
 
         if parsed_output is None:
-            raise RuntimeError(
-                f"All configured Gemini models {candidate_models} failed during gap analysis. Last error: {last_model_error}"
-            )
+            details_str = " | ".join(model_errors) if model_errors else str(last_model_error)
+            raise RuntimeError(f"All configured LLM providers failed. Details: {details_str}")
 
         matrix_dicts = [item.model_dump() for item in parsed_output.methodology_matrix]
         gaps_list = parsed_output.research_gaps
