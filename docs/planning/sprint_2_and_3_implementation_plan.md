@@ -186,3 +186,8 @@ flowchart LR
 3. **Interactive D3.js Citation Knowledge Graph**: 3D visual network graph connecting papers by shared authors, themes, and methodologies.
 4. **In-App PDF Reader with Inline Citation Highlighting**: Clicking a reference opens the PDF side-by-side and highlights the exact cited passage.
 5. **One-Click Multi-Format Exporter**: Export report as **PDF**, **Markdown (`.md`)**, or **BibTeX (`.bib`)**.
+6. **Persistent State Checkpointing & Mid-Pipeline Resume (`POST /api/v1/reviews/{id}/retry`)**:
+   - Replace in-memory checkpointer with persistent `AsyncPostgresSaver` in Neon PostgreSQL so LangGraph state snapshots survive server restarts and deployments.
+   - Surface a **"Retry from Failed Step"** button on the UI to resume directly at the paused or failed node (e.g., Report Synthesis) without re-downloading PDFs or re-computing vector embeddings.
+7. **Comprehensive Audit & Checkpoint Persistence in Neon DB**:
+   - Populate `review_logs` and `execution_logs` tables on every agent stage completion event alongside Redis Pub/Sub events for permanent timeline queryability and auditing.

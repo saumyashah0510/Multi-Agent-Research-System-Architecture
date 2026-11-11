@@ -12,13 +12,15 @@ logger = logging.getLogger(__name__)
 
 
 def _normalize_identifier(value: Any) -> str:
-    """Normalize DOI or arXiv identifiers."""
+    """Normalize DOI, PubMed, or arXiv identifiers."""
     if not value:
         return ""
 
     identifier = str(value).strip().lower()
     identifier = re.sub(r"^https?://(dx\.)?doi\.org/", "", identifier)
     identifier = re.sub(r"^doi:\s*", "", identifier)
+    identifier = re.sub(r"^pmid:\s*", "", identifier)
+    identifier = re.sub(r"^pubmed:\s*", "", identifier)
 
     return identifier.rstrip("/")
 
@@ -61,6 +63,12 @@ def _normalize_paper(paper: Any) -> dict[str, Any] | None:
         match = re.search(r"\b\d{4}\b", str(publication_date))
         year = int(match.group()) if match else None
 
+    pubmed_id = paper.get("pubmed_id")
+    if pubmed_id is not None:
+        pubmed_id = str(pubmed_id).strip()
+        if not pubmed_id:
+            pubmed_id = None
+
     return {
         "title": title,
         "authors": authors,
@@ -70,6 +78,7 @@ def _normalize_paper(paper: Any) -> dict[str, Any] | None:
         "doi": paper.get("doi"),
         "pdf_url": paper.get("pdf_url"),
         "source": paper.get("source", "unknown"),
+        "pubmed_id": pubmed_id,
     }
 
 
@@ -79,6 +88,7 @@ def _get_deduplication_keys(paper: dict[str, Any]) -> set[str]:
 
     arxiv_id = _normalize_identifier(paper.get("arxiv_id"))
     doi = _normalize_identifier(paper.get("doi"))
+    pubmed_id = _normalize_identifier(paper.get("pubmed_id"))
     title = _normalize_title(paper.get("title"))
 
     if arxiv_id:
@@ -86,6 +96,9 @@ def _get_deduplication_keys(paper: dict[str, Any]) -> set[str]:
 
     if doi:
         keys.add(f"doi:{doi}")
+
+    if pubmed_id:
+        keys.add(f"pubmed:{pubmed_id}")
 
     if title:
         keys.add(f"title:{title}")

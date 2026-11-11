@@ -74,8 +74,7 @@ async def generate_rag_chat_response(
     if not contexts:
         return {
             "answer": (
-                "No relevant information was found in the retrieved papers "
-                "to answer your question."
+                "No relevant information was found in the retrieved papers to answer your question."
             ),
             "citations": [],
         }
@@ -131,7 +130,10 @@ Follow the system instructions and provide citations using the citation indices.
     if not settings.GEMINI_API_KEY:
         raise RuntimeError("GEMINI_API_KEY is not configured.")
 
-    client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    client = genai.Client(
+        api_key=settings.GEMINI_API_KEY,
+        http_options={"api_version": "v1beta"},
+    )
 
     # 6. Generate response using configured Gemini models
     candidate_models = settings.gemini_model_candidates

@@ -3,15 +3,18 @@
 import asyncio
 import hashlib
 import logging
+import os
 from typing import Any, Optional
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import Settings
 from app.models.chunk import PaperChunk
 from app.models.paper import Paper
 
 logger = logging.getLogger(__name__)
+settings = Settings()
 
 EMBEDDING_DIMENSION = 384
 
@@ -25,7 +28,17 @@ def _get_embedding_model():
         try:
             from sentence_transformers import SentenceTransformer
 
-            _ST_MODEL = SentenceTransformer("all-MiniLM-L6-v2")
+            hf_token = getattr(settings, "HF_TOKEN", "") or os.environ.get("HF_TOKEN", "")
+            if hf_token:
+                os.environ["HF_TOKEN"] = hf_token
+                os.environ["HUGGINGFACE_HUB_TOKEN"] = hf_token
+
+            token_param = hf_token if hf_token else None
+            try:
+                _ST_MODEL = SentenceTransformer("all-MiniLM-L6-v2", token=token_param)
+            except TypeError:
+                _ST_MODEL = SentenceTransformer("all-MiniLM-L6-v2")
+
             logger.info("Loaded local sentence-transformers model: all-MiniLM-L6-v2 (384D)")
         except Exception as err:
             logger.warning(f"Could not load sentence-transformers model: {err}")
