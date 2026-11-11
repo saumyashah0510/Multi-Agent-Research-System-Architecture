@@ -19,6 +19,7 @@ CROSSREF_API_URL = "https://api.crossref.org/works"
 
 REQUEST_TIMEOUT = 10.0
 CACHE_EXPIRY = 3600
+ACADEMIC_USER_AGENT = "Scholaris-Academic-Assistant/1.0 (https://github.com/saumyashah0510/Multi-Agent-Research-System-Architecture; mailto:saumyashah0510@gmail.com)"
 
 ARXIV_NAMESPACE = {
     "atom": "http://www.w3.org/2005/Atom",
@@ -379,6 +380,7 @@ async def search_academic_papers(
         timeout=REQUEST_TIMEOUT,
         follow_redirects=True,
         max_redirects=5,
+        headers={"User-Agent": ACADEMIC_USER_AGENT},
     ) as client:
         tasks = []
 

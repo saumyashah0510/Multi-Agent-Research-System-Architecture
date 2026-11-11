@@ -642,6 +642,7 @@ async def report_synthesis_node(state: AgentState) -> Dict[str, Any]:
 
         parsed_output = None
         last_model_error = None
+        model_errors: list[str] = []
 
         for model_name in candidate_models:
             try:
@@ -660,11 +661,13 @@ async def report_synthesis_node(state: AgentState) -> Dict[str, Any]:
                 logger.warning(
                     f"Gemini model '{model_name}' failed during report synthesis ({model_err}); trying fallback."
                 )
+                model_errors.append(f"{model_name}: {model_err}")
                 last_model_error = model_err
 
         if parsed_output is None:
+            details_str = " | ".join(model_errors) if model_errors else str(last_model_error)
             raise RuntimeError(
-                f"All configured Gemini models {candidate_models} failed during report synthesis. Last error: {last_model_error}"
+                f"All configured Gemini models {candidate_models} failed during report synthesis. Details: {details_str}"
             )
 
         # 5. Validate and ground references before publishing

@@ -133,7 +133,6 @@ export default function ResearchInput({
   initialNumPapers = "6",
 }: ResearchInputProps) {
   const [query, setQuery] = useState(initialQuery);
-  const [loading, setLoading] = useState(false);
   const [numPapers, setNumPapers] = useState(initialNumPapers);
   const [citationFormat, setCitationFormat] = useState("APA");
 
@@ -143,9 +142,9 @@ export default function ResearchInput({
     }
   }, [initialQuery]);
 
-  const isSubmitting = isLoading || loading;
+  const isSubmitting = isLoading;
 
-  const handleSubmit = async (e?: React.FormEvent) => {
+  const handleSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (isSubmitting) return;
 
@@ -158,36 +157,12 @@ export default function ResearchInput({
 
     const parsedMaxPapers = Math.min(parseInt(numPapers, 10) || 10, 20);
 
-    // Trigger onSearch once so pipeline begins with zero latency
+    // Delegate review task creation exclusively to parent handler (prevents duplicate runs)
     onSearch?.({
       query: finalQuery,
       max_papers: parsedMaxPapers,
       citation_format: citationFormat,
     });
-
-    setLoading(true);
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 1000);
-
-    try {
-      await fetch("/api/v1/reviews/", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          query: finalQuery,
-          citation_format: citationFormat,
-          max_papers: parsedMaxPapers,
-        }),
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-    } catch {
-      // Standalone / mock demonstration fallback
-    } finally {
-      setLoading(false);
-    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
