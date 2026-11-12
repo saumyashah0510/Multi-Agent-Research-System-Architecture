@@ -53,6 +53,4 @@ class ReviewLog(Base):
     )
 
     def __repr__(self) -> str:
-        return (
-            f"<ReviewLog(id={self.id}, review_id={self.review_id}, " f"agent='{self.agent_name}')>"
-        )
+        return f"<ReviewLog(id={self.id}, review_id={self.review_id}, agent='{self.agent_name}')>"

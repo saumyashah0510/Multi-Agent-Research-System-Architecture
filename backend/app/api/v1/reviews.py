@@ -25,7 +25,10 @@ from app.core.guardrails import enforce_query_guardrail
 from app.db.session import AsyncSessionLocal, get_db
 from app.models.paper import Paper
 from app.models.review import LiteratureReview, ReviewStatus
+from app.schemas.audit import ReviewAuditTimelineResponse, ReviewLogItem
 from app.schemas.chat import ChatRequest, ChatResponse
+from app.schemas.graph import CitationGraphResponse
+from app.services.audit_service import AuditService
 from app.services.chat_service import generate_rag_chat_response
 from app.services.export_service import (
     check_report_pdf_exists_in_s3,
@@ -33,6 +36,7 @@ from app.services.export_service import (
     generate_presigned_download_url,
     upload_report_pdf_to_s3,
 )
+from app.services.graph_service import CitationGraphService
 from app.services.redis_service import publish_review_event
 from app.services.vector_service import similarity_search
 
@@ -810,3 +814,92 @@ async def chat_with_review(
         answer=result["answer"],
         citations=result["citations"],
     )
+
+
+@router.post(
+    "/{review_id}/retry",
+    summary="Retry or resume a failed or interrupted review pipeline",
+)
+async def retry_review(
+    review_id: int,
+    background_tasks: BackgroundTasks,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Resume review execution from its last completed LangGraph checkpoint in Neon DB."""
+    # TODO (Assignee - BE-16):
+    # 1. Fetch review from DB. If not found, raise HTTPException 404.
+    # 2. Verify review is failed or interrupted. If completed, raise 400 Bad Request.
+    # 3. Inspect latest checkpoint state via graph.aget_state({"configurable": {"thread_id": str(review_id)}})
+    # 4. Trigger background resumption and emit Redis Pub/Sub stage update.
+    review_result = await db.execute(
+        select(LiteratureReview).where(LiteratureReview.id == review_id)
+    )
+    review = review_result.scalar_one_or_none()
+    if not review:
+        raise HTTPException(status_code=404, detail="Literature review not found")
+
+    if review.status == ReviewStatus.COMPLETED.value:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot retry a review that has already completed successfully.",
+        )
+
+    # Placeholder background dispatch for BE-16
+    return {
+        "status": "resuming",
+        "review_id": review_id,
+        "message": "Review pipeline resumption initiated from checkpoint.",
+    }
+
+
+@router.get(
+    "/{review_id}/audit",
+    response_model=ReviewAuditTimelineResponse,
+    summary="Get chronological agent audit and execution timeline for a review",
+)
+async def get_review_audit(
+    review_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> ReviewAuditTimelineResponse:
+    """Fetch all agent lifecycle events and milestone logs recorded for a literature review."""
+    # TODO (Assignee - BE-17):
+    # 1. Check if review exists in DB
+    # 2. Call AuditService.get_review_audit_timeline(db, review_id)
+    # 3. Return ReviewAuditTimelineResponse
+    review_result = await db.execute(
+        select(LiteratureReview).where(LiteratureReview.id == review_id)
+    )
+    review = review_result.scalar_one_or_none()
+    if not review:
+        raise HTTPException(status_code=404, detail="Literature review not found")
+
+    logs = await AuditService.get_review_audit_timeline(db, review_id)
+    return ReviewAuditTimelineResponse(
+        review_id=review_id,
+        total_events=len(logs),
+        logs=[ReviewLogItem.model_validate(log) for log in logs],
+    )
+
+
+@router.get(
+    "/{review_id}/graph",
+    response_model=CitationGraphResponse,
+    summary="Get citation and thematic knowledge graph topology for a review",
+)
+async def get_review_graph(
+    review_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> CitationGraphResponse:
+    """Fetch topological graph of approved papers, clusters, and citation links."""
+    # TODO (Assignee - BE-18):
+    # 1. Verify review existence in DB. If not found, raise 404 HTTPException.
+    # 2. Call CitationGraphService.build_citation_graph(db, review_id).
+    # 3. Return CitationGraphResponse.
+    review_result = await db.execute(
+        select(LiteratureReview).where(LiteratureReview.id == review_id)
+    )
+    review = review_result.scalar_one_or_none()
+    if not review:
+        raise HTTPException(status_code=404, detail="Literature review not found")
+
+    return await CitationGraphService.build_citation_graph(db, review_id)

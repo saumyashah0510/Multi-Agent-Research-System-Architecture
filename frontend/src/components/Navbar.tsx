@@ -3,6 +3,7 @@ import { Link, useLocation, useSearchParams } from "react-router-dom";
 import Button from "./Button";
 import scholarisLogo from "../images/Scholaris_logo.png";
 import { cn } from "../lib/utils";
+import { useAuth } from "../context/AuthContext";
 
 const GitHubIcon = () => (
   <svg
@@ -24,6 +25,7 @@ export default function Navbar() {
   const [searchParams] = useSearchParams();
   const currentTab = (searchParams.get("tab") || "").toLowerCase();
   const isHome = location.pathname === "/";
+  const { user, isAuthenticated, logout } = useAuth();
 
   const [isScrolled, setIsScrolled] = useState(false);
 
@@ -119,7 +121,7 @@ export default function Navbar() {
           </div>
         )}
 
-        {/* All Other Pages: Nav Links + Login on the right (no View Repository, small border radius) */}
+        {/* All Other Pages: Nav Links */}
         {!isHome && (
           <div className="flex items-center gap-2 sm:gap-3 md:gap-4 min-w-0">
             <div className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar py-0.5">
@@ -141,6 +143,30 @@ export default function Navbar() {
             </div>
           </div>
         )}
+
+        {/* User Auth Action (Issue FE-11) */}
+        <div className="flex items-center gap-2 shrink-0">
+          {isAuthenticated && user ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-neutral-700 hidden sm:inline">
+                {user.name || user.email.split("@")[0]}
+              </span>
+              <button
+                onClick={logout}
+                className="text-xs py-1 px-2.5 rounded-lg border border-neutral-300 hover:bg-neutral-100 text-neutral-800 transition"
+              >
+                Sign Out
+              </button>
+            </div>
+          ) : (
+            <Link
+              to="/login"
+              className="text-xs sm:text-sm font-medium py-1.5 px-3 rounded-lg bg-neutral-900 text-white hover:bg-neutral-800 transition no-underline"
+            >
+              Sign In
+            </Link>
+          )}
+        </div>
       </nav>
     </header>
   );
