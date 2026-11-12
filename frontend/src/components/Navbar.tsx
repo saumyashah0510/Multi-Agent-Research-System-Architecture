@@ -44,8 +44,7 @@ export default function Navbar() {
     location.pathname === "/reports" ||
     location.pathname.startsWith("/review");
   const isChat = currentTab === "chat" || location.pathname === "/chat";
-  const isHistory = currentTab === "history" || location.pathname === "/history";
-  const isResearch = !isPapers && !isReport && !isChat && !isHistory;
+  const isResearch = !isPapers && !isReport && !isChat;
 
   const navLinks = [
     {
@@ -67,11 +66,6 @@ export default function Navbar() {
       name: "Chat",
       href: "/dashboard?tab=chat",
       isActive: isChat,
-    },
-    {
-      name: "History",
-      href: "/dashboard?tab=history",
-      isActive: isHistory,
     },
   ];
 
@@ -122,21 +116,12 @@ export default function Navbar() {
               <span className="hidden sm:inline">View Repository</span>
               <span className="sm:hidden">GitHub</span>
             </Button>
-
-            <Button
-              type="button"
-              radius="sm"
-              ariaLabel="Login"
-              className="text-sm sm:text-base py-2 sm:py-2.5 px-5 sm:px-7"
-            >
-              Login
-            </Button>
           </div>
         )}
 
         {/* All Other Pages: Nav Links + Login on the right (no View Repository, small border radius) */}
         {!isHome && (
-          <div className="flex items-center gap-2 sm:gap-3 md:gap-4 shrink-0">
+          <div className="flex items-center gap-2 sm:gap-3 md:gap-4 min-w-0">
             <div className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar py-0.5">
               {navLinks.map((link) => (
                 <Link
@@ -154,15 +139,6 @@ export default function Navbar() {
                 </Link>
               ))}
             </div>
-
-            <Button
-              type="button"
-              radius="sm"
-              ariaLabel="Login"
-              className="text-sm sm:text-base py-1.5 sm:py-2 px-4 sm:px-5 ml-1 sm:ml-2 shrink-0"
-            >
-              Login
-            </Button>
           </div>
         )}
       </nav>

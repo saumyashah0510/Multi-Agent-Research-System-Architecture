@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { FileText, Check, X, ExternalLink } from "lucide-react";
 import { cn } from "../lib/utils";
@@ -11,30 +11,90 @@ export interface ExpandedPaperModalProps {
   onToggleSelect?: (id: string) => void;
 }
 
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])';
+
 export default function ExpandedPaperModal({
   paper,
   isOpen,
   onClose,
   onToggleSelect,
 }: ExpandedPaperModalProps) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
+
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+
+      if (e.key === "Tab" && dialogRef.current) {
+        const focusable = Array.from(
+          dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
+        );
+        if (focusable.length === 0) return;
+
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (!first || !last) return;
+
+        if (e.shiftKey) {
+          if (
+            document.activeElement === first ||
+            !dialogRef.current.contains(document.activeElement)
+          ) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else {
+          if (
+            document.activeElement === last ||
+            !dialogRef.current.contains(document.activeElement)
+          ) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      }
+    },
+    [onClose]
+  );
+
   useEffect(() => {
     if (!isOpen) return;
 
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onClose();
-      }
-    };
+    // Capture the element that opened the modal for focus restore
+    openerRef.current = document.activeElement as HTMLElement | null;
 
     document.addEventListener("keydown", handleKeyDown);
     const originalOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
+    // Move focus into the dialog on next frame
+    requestAnimationFrame(() => {
+      if (dialogRef.current) {
+        const firstFocusable =
+          dialogRef.current.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
+        if (firstFocusable) {
+          firstFocusable.focus();
+        } else {
+          dialogRef.current.focus();
+        }
+      }
+    });
+
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
       document.body.style.overflow = originalOverflow;
+
+      // Restore focus to the opener
+      if (openerRef.current && typeof openerRef.current.focus === "function") {
+        openerRef.current.focus();
+      }
     };
-  }, [isOpen, onClose]);
+  }, [isOpen, handleKeyDown]);
 
   if (!isOpen || !paper) return null;
 
@@ -64,10 +124,12 @@ export default function ExpandedPaperModal({
 
   const modalContent = (
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby="paper-modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/40 backdrop-blur-xs animate-in fade-in duration-200"
+      tabIndex={-1}
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/40 backdrop-blur-xs animate-in fade-in duration-200 outline-none"
       onClick={onClose}
     >
       <div
