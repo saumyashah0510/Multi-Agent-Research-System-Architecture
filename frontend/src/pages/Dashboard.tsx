@@ -3,9 +3,9 @@ import { useNavigate } from "react-router-dom";
 import ResearchInput, { type ResearchSearchParams } from "../components/ResearchInput";
 import PaperGrid from "../components/dashboard/paper-grid";
 import { type PaperSummary } from "../components/PaperSummaryCard";
-import { createReviewTask, submitHumanDecision } from "../lib/api";
+import { createReviewTask, submitHumanDecision, getReviewStatus } from "../lib/api";
 import ResearchProgress from "../components/pipeline/ResearchProgress";
-import useReviewWebSocket from "../hooks/useReviewWebSocket";
+import useReviewWebSocket, { normalizePaper } from "../hooks/useReviewWebSocket";
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -28,10 +28,61 @@ export default function Dashboard() {
   // Single source of truth for selected paper IDs
   const [selectedPaperIds, setSelectedPaperIds] = useState<string[]>([]);
 
-  // Synchronize actual screened papers from WebSocket when available for active review session
+  // Restore session from query parameters on mount (if explicitly navigated via ?review_id=...)
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlReviewId = urlParams.get("review_id");
+      if (urlReviewId && !reviewId) {
+        setReviewId(urlReviewId);
+        setHasSearched(true);
+      }
+    }
+  }, []);
+
+  // Fetch persisted review status and candidate papers from REST API as fallback/cache
   useEffect(() => {
     if (reviewId) {
-      const candidateList = [...(ws.screenedPapers || [])].sort(
+      if (typeof window !== "undefined") {
+        localStorage.setItem("scholaris_active_review_id", reviewId);
+      }
+      getReviewStatus(reviewId)
+        .then((res) => {
+          if (res) {
+            if (res.user_query) {
+              setActiveQuery(res.user_query);
+            }
+            if (Array.isArray(res.screened_papers) && res.screened_papers.length > 0) {
+              const normalized = res.screened_papers
+                .map((p: any, idx: number) => normalizePaper(p, idx))
+                .sort((a: PaperSummary, b: PaperSummary) => (b.relevanceScore ?? 0) - (a.relevanceScore ?? 0));
+              setPapers((prev) => (prev.length === 0 ? normalized : prev));
+              setSelectedPaperIds((prev) =>
+                prev.length === 0
+                  ? normalized.filter((p: any) => p.isSelected !== false).map((p: any) => p.id)
+                  : prev
+              );
+            }
+            const statusUpper = String(res.status || "").toUpperCase();
+            if (
+              statusUpper === "AWAITING_USER_INPUT" ||
+              statusUpper === "COMPLETED" ||
+              statusUpper === "PDF_EXTRACTION"
+            ) {
+              setIsPipelineDone(true);
+            }
+          }
+        })
+        .catch((err) => {
+          console.debug("Could not restore past review status from REST API:", err);
+        });
+    }
+  }, [reviewId]);
+
+  // Synchronize actual screened papers from WebSocket when available for active review session
+  useEffect(() => {
+    if (reviewId && ws.screenedPapers && ws.screenedPapers.length > 0) {
+      const candidateList = [...ws.screenedPapers].sort(
         (a, b) => (b.relevanceScore ?? 0) - (a.relevanceScore ?? 0)
       );
       setPapers(candidateList);
@@ -71,8 +122,14 @@ export default function Dashboard() {
       const res = await createReviewTask(params.query, params.max_papers || 10);
       if (res && res.review_id) {
         setReviewId(res.review_id);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("scholaris_active_review_id", res.review_id);
+        }
       } else if (params.review_id) {
         setReviewId(params.review_id);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("scholaris_active_review_id", params.review_id);
+        }
       } else {
         setReviewId(null);
         setApprovalError("Failed to initialize review session. Please try searching again.");
@@ -209,7 +266,7 @@ export default function Dashboard() {
               screenedCount={papers.length}
               relevantCount={selectedPaperIds.length}
               isMock={Boolean(!reviewId)}
-              autoStart={!reviewId}
+              autoStart={false}
               onComplete={() => setIsPipelineDone(true)}
               onFindMore={handleFindMore}
               isFindingMore={isFindingMore}

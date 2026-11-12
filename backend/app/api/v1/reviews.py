@@ -14,6 +14,7 @@ import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi.responses import RedirectResponse
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -26,6 +27,12 @@ from app.models.paper import Paper
 from app.models.review import LiteratureReview, ReviewStatus
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.services.chat_service import generate_rag_chat_response
+from app.services.export_service import (
+    check_report_pdf_exists_in_s3,
+    compile_literature_review_pdf,
+    generate_presigned_download_url,
+    upload_report_pdf_to_s3,
+)
 from app.services.redis_service import publish_review_event
 from app.services.vector_service import similarity_search
 
@@ -167,6 +174,7 @@ async def _run_initial_graph(
                         rev = await session.get(LiteratureReview, review_id)
                         if rev:
                             rev.status = ReviewStatus.AWAITING_USER_INPUT.value
+                        paper_pairs = []
                         for p in screened:
                             paper_obj = Paper(
                                 title=p.get("title") or "Untitled Paper",
@@ -183,7 +191,12 @@ async def _run_initial_graph(
                                 review_id=review_id,
                             )
                             session.add(paper_obj)
+                            paper_pairs.append((p, paper_obj))
                         await session.commit()
+                        for p, paper_obj in paper_pairs:
+                            if getattr(paper_obj, "id", None) is not None:
+                                p["id"] = str(paper_obj.id)
+                                p["paper_id"] = str(paper_obj.id)
                 except Exception as db_exc:
                     logger.debug("DB paper persistence error: %s", db_exc)
 
@@ -569,6 +582,41 @@ async def list_reviews(
         return []
 
 
+@router.get("/{review_id}/export", summary="Download compiled literature review PDF")
+async def export_review_pdf(
+    review_id: str,
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+) -> Any:
+    """Generate or retrieve a compiled PDF export and redirect to a presigned S3 download URL.
+
+    Returns 404 when the review does not exist, 400 when it has not yet completed,
+    and 302 redirect to the presigned S3 URL on success.
+    """
+    if not str(review_id).isdigit():
+        raise HTTPException(status_code=404, detail="Review not found.")
+    num_id = int(review_id)
+    review = await db.get(LiteratureReview, num_id)
+    if review is None:
+        raise HTTPException(status_code=404, detail="Review not found.")
+
+    if review.status != "completed" or not review.synthesized_review:
+        raise HTTPException(status_code=400, detail="Review is not yet completed.")
+
+    s3_key = f"exports/literature_review_{num_id}.pdf"
+    exists = await check_report_pdf_exists_in_s3(s3_key)
+    if not exists:
+        pdf_bytes = compile_literature_review_pdf(
+            synthesized_review=review.synthesized_review,
+            review_id=num_id,
+            user_query=review.user_query,
+            created_at=review.created_at,
+        )
+        await upload_report_pdf_to_s3(pdf_bytes, num_id)
+
+    presigned_url = generate_presigned_download_url(s3_key)
+    return RedirectResponse(url=presigned_url, status_code=302)
+
+
 @router.get("/{review_id}", summary="Get literature review status & report")
 async def get_review_status(
     review_id: str,
@@ -636,6 +684,10 @@ async def approve_papers(
     if request.user_decision == "continue" and not request.approved_paper_ids:
         raise HTTPException(status_code=400, detail="Approve at least 1 paper.")
 
+    approved_graph_ids: set[str] = set()
+    if request.approved_paper_ids:
+        approved_graph_ids.update(str(x).strip() for x in request.approved_paper_ids if x)
+
     # Move status on from 'awaiting_user_input' in the database and mark approved papers.
     if str(review_id).isdigit():
         num_id = int(review_id)
@@ -651,13 +703,59 @@ async def approve_papers(
                     paper_stmt = select(Paper).where(Paper.review_id == num_id)
                     res = await db.execute(paper_stmt)
                     db_papers = res.scalars().all()
+                    approved_set = set()
+                    for item in request.approved_paper_ids:
+                        if item and str(item).strip():
+                            val = str(item).strip().lower()
+                            approved_set.add(val)
+                            if "doi.org/" in val:
+                                approved_set.add(val.split("doi.org/", 1)[-1].strip("/"))
+
                     for p in db_papers:
-                        if (
-                            str(p.id) in request.approved_paper_ids
-                            or (p.arxiv_id and p.arxiv_id in request.approved_paper_ids)
-                            or p.title in request.approved_paper_ids
-                        ):
+                        paper_identifiers = {
+                            str(p.id),
+                            p.arxiv_id or "",
+                            p.doi or "",
+                            str(p.pubmed_id or ""),
+                            p.title or "",
+                            p.pdf_url or "",
+                        }
+                        if p.doi:
+                            clean_doi = (
+                                str(p.doi)
+                                .strip()
+                                .lower()
+                                .replace("https://doi.org/", "")
+                                .replace("http://doi.org/", "")
+                                .strip("/")
+                            )
+                            paper_identifiers.add(clean_doi)
+                            paper_identifiers.add(f"https://doi.org/{clean_doi}")
+                            paper_identifiers.add(f"http://doi.org/{clean_doi}")
+                        clean_ids = {str(x).strip().lower() for x in paper_identifiers if x}
+                        if bool(clean_ids & approved_set):
                             p.is_approved = True
+                        elif not p.is_approved and p.title:
+                            p_title_norm = p.title.strip().lower()
+                            if any(
+                                p_title_norm in app_id or app_id in p_title_norm
+                                for app_id in approved_set
+                                if len(app_id) > 10
+                            ):
+                                p.is_approved = True
+
+                        if p.is_approved:
+                            for ident in (
+                                str(p.id),
+                                p.title,
+                                p.arxiv_id,
+                                p.doi,
+                                str(p.pubmed_id or ""),
+                                p.pdf_url,
+                            ):
+                                if ident and str(ident).strip():
+                                    approved_graph_ids.add(str(ident).strip())
+
                 await db.commit()
         except Exception as exc:
             logger.warning("Could not update status for review %s: %s", review_id, exc)
@@ -667,7 +765,7 @@ async def approve_papers(
         review_id,
         {
             "user_decision": request.user_decision,
-            "approved_paper_ids": request.approved_paper_ids,
+            "approved_paper_ids": list(approved_graph_ids or request.approved_paper_ids),
         },
     )
     return {"status": "resumed", "review_id": review_id}

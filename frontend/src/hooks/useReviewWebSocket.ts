@@ -71,7 +71,13 @@ export function getWebSocketUrl(reviewId: string): string {
  * Normalizes raw paper dicts from LangGraph screening node into UI PaperSummary items.
  */
 export function normalizePaper(raw: any, index: number): PaperSummary {
-  const rawId = raw.id ?? raw.paper_id ?? raw.arxiv_id ?? raw.doi ?? `paper-${index + 1}`;
+  const rawId =
+    raw.id ??
+    raw.paper_id ??
+    raw.pubmed_id ??
+    raw.arxiv_id ??
+    raw.doi ??
+    `paper-${index + 1}`;
 
   let authors = "Unknown Authors";
   if (typeof raw.authors === "string" && raw.authors.trim()) {
