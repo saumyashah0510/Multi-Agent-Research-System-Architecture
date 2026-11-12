@@ -46,57 +46,67 @@ export default function Dashboard() {
   // Single source of truth for selected paper IDs
   const [selectedPaperIds, setSelectedPaperIds] = useState<string[]>([]);
 
-  // Restore session from query parameters when ?review_id=... is present
+  // Restore session from query parameters when ?review_id=... changes in the URL
   useEffect(() => {
     const urlReviewId = searchParams.get("review_id");
-    if (urlReviewId && urlReviewId !== reviewId) {
-      setReviewId(urlReviewId);
+    if (urlReviewId) {
+      setReviewId((prev) => (prev === urlReviewId ? prev : urlReviewId));
       setHasSearched(true);
     }
-  }, [searchParams, reviewId]);
+  }, [searchParams]);
 
   // Fetch persisted review status and candidate papers from REST API as fallback/cache
   useEffect(() => {
-    if (reviewId) {
-      if (typeof window !== "undefined") {
-        localStorage.setItem("scholaris_active_review_id", reviewId);
-      }
-      getReviewStatus(reviewId)
-        .then((res) => {
-          if (res) {
-            if (res.user_query) {
-              setActiveQuery(res.user_query);
-            }
-            if (Array.isArray(res.screened_papers) && res.screened_papers.length > 0) {
-              const normalized = res.screened_papers
-                .map((p: any, idx: number) => normalizePaper(p, idx))
-                .sort((a: PaperSummary, b: PaperSummary) => (b.relevanceScore ?? 0) - (a.relevanceScore ?? 0));
-              setPapers((prev) => (prev.length === 0 ? normalized : prev));
-              setSelectedPaperIds((prev) =>
-                prev.length === 0
-                  ? normalized.filter((p: any) => p.isSelected !== false).map((p: any) => p.id)
-                  : prev
-              );
-            }
-            const statusUpper = String(res.status || "").toUpperCase();
-            if (
-              statusUpper === "AWAITING_USER_INPUT" ||
-              statusUpper === "COMPLETED" ||
-              statusUpper === "PDF_EXTRACTION"
-            ) {
-              setIsPipelineDone(true);
-            }
-          }
-        })
-        .catch((err) => {
-          console.debug("Could not restore past review status from REST API:", err);
-        });
+    if (!reviewId) return;
+
+    let isActive = true;
+    if (typeof window !== "undefined") {
+      localStorage.setItem("scholaris_active_review_id", reviewId);
     }
+    getReviewStatus(reviewId)
+      .then((res) => {
+        if (!isActive || !res) return;
+        if (res.user_query) {
+          setActiveQuery(res.user_query);
+        }
+        if (Array.isArray(res.screened_papers) && res.screened_papers.length > 0) {
+          const normalized = res.screened_papers
+            .map((p: any, idx: number) => normalizePaper(p, idx))
+            .sort((a: PaperSummary, b: PaperSummary) => (b.relevanceScore ?? 0) - (a.relevanceScore ?? 0));
+          setPapers((prev) => (prev.length === 0 ? normalized : prev));
+          setSelectedPaperIds((prev) =>
+            prev.length === 0
+              ? normalized.filter((p: any) => p.isSelected !== false).map((p: any) => p.id)
+              : prev
+          );
+        }
+        const statusUpper = String(res.status || "").toUpperCase();
+        if (
+          statusUpper === "AWAITING_USER_INPUT" ||
+          statusUpper === "COMPLETED" ||
+          statusUpper === "PDF_EXTRACTION"
+        ) {
+          setIsPipelineDone(true);
+        }
+      })
+      .catch((err) => {
+        if (!isActive) return;
+        console.debug("Could not restore past review status from REST API:", err);
+      });
+
+    return () => {
+      isActive = false;
+    };
   }, [reviewId]);
 
   // Synchronize actual screened papers from WebSocket when available for active review session
   useEffect(() => {
-    if (reviewId && ws.screenedPapers && ws.screenedPapers.length > 0) {
+    if (
+      reviewId &&
+      ws.reviewId === reviewId &&
+      ws.screenedPapers &&
+      ws.screenedPapers.length > 0
+    ) {
       const candidateList = [...ws.screenedPapers].sort(
         (a, b) => (b.relevanceScore ?? 0) - (a.relevanceScore ?? 0)
       );
@@ -105,14 +115,18 @@ export default function Dashboard() {
         candidateList.filter((p) => p.isSelected !== false).map((p) => p.id)
       );
     }
-  }, [reviewId, ws.screenedPapers]);
+  }, [reviewId, ws.reviewId, ws.screenedPapers]);
 
   // Synchronize pipeline completion / pause state
   useEffect(() => {
-    if (ws.isPausedForInput || ws.status === "COMPLETED") {
+    if (
+      reviewId &&
+      ws.reviewId === reviewId &&
+      (ws.isPausedForInput || ws.status === "COMPLETED")
+    ) {
       setIsPipelineDone(true);
     }
-  }, [ws.isPausedForInput, ws.status]);
+  }, [reviewId, ws.reviewId, ws.isPausedForInput, ws.status]);
 
   // Approval submission state
   const [isProceeding, setIsProceeding] = useState(false);
@@ -233,13 +247,15 @@ export default function Dashboard() {
 
   const handleSelectPastReview = (review: ReviewHistoryItem) => {
     if (targetSection === "papers" || review.status === "awaiting_approval") {
-      setActiveQuery(review.query);
-      setPapers([]);
-      setSelectedPaperIds([]);
-      setApprovalError(null);
-      setApprovalSuccess(null);
-      setIsPipelineDone(false);
-      setReviewId(review.id);
+      if (review.id !== reviewId) {
+        setActiveQuery(review.query);
+        setPapers([]);
+        setSelectedPaperIds([]);
+        setApprovalError(null);
+        setApprovalSuccess(null);
+        setIsPipelineDone(false);
+        setReviewId(review.id);
+      }
       setHasSearched(true);
       navigate(`/dashboard?review_id=${encodeURIComponent(review.id)}`);
       return;

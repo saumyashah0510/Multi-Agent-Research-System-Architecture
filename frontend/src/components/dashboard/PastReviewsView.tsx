@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo } from "react";
-import { Search, Loader2, ArrowRight, Download } from "lucide-react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { Search, Loader2, ArrowRight, Download, RefreshCw } from "lucide-react";
 import { fetchPastReviews, getReviewPdfDownloadUrl } from "../../lib/api";
 import { ReviewHistoryItem } from "../../types";
 import { cn } from "../../lib/utils";
@@ -39,14 +39,16 @@ export default function PastReviewsView({
   const [reviews, setReviews] = useState<ReviewHistoryItem[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const isMountedRef = useRef(true);
 
-  useEffect(() => {
-    let isMounted = true;
+  const loadReviews = useCallback(() => {
     setIsLoading(true);
+    setFetchError(null);
 
     fetchPastReviews(20)
       .then((data) => {
-        if (!isMounted) return;
+        if (!isMountedRef.current) return;
         const list = Array.isArray(data)
           ? data.map((item: any) => ({
               ...item,
@@ -57,18 +59,26 @@ export default function PastReviewsView({
           : [];
         setReviews(list);
       })
-      .catch(() => {
-        if (!isMounted) return;
-        setReviews([]);
+      .catch((err) => {
+        if (!isMountedRef.current) return;
+        setFetchError(
+          err instanceof Error && err.message
+            ? err.message
+            : "Unable to load past reviews right now."
+        );
       })
       .finally(() => {
-        if (isMounted) setIsLoading(false);
+        if (isMountedRef.current) setIsLoading(false);
       });
-
-    return () => {
-      isMounted = false;
-    };
   }, []);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    loadReviews();
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, [loadReviews]);
 
   const filteredReviews = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -163,6 +173,24 @@ export default function PastReviewsView({
           <div className="w-full bg-white rounded-2xl border border-neutral-200/80 p-10 flex items-center justify-center gap-2.5 text-sm text-neutral-500 shadow-xs">
             <Loader2 className="w-4 h-4 animate-spin text-[var(--color-sky-dark)]" />
             <span>Loading past reviews...</span>
+          </div>
+        ) : fetchError ? (
+          <div className="w-full bg-white rounded-2xl border border-red-200/80 p-10 text-center space-y-3 shadow-xs">
+            <p className="text-sm font-medium text-neutral-900">
+              Could not load past reviews
+            </p>
+            <p className="text-xs text-neutral-500 max-w-md mx-auto">
+              {fetchError}
+            </p>
+            <button
+              type="button"
+              onClick={loadReviews}
+              style={{ borderRadius: "var(--radius-sm)" }}
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-neutral-900 hover:bg-black text-white transition-colors cursor-pointer mt-1"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Retry</span>
+            </button>
           </div>
         ) : filteredReviews.length === 0 ? (
           <div className="w-full bg-white rounded-2xl border border-dashed border-neutral-200 p-10 text-center space-y-3">

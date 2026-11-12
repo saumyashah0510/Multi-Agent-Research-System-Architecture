@@ -15,6 +15,7 @@ import { PaperSummary } from "../components/PaperSummaryCard";
 import { ReviewStatus, WebSocketStageUpdateEvent } from "../types";
 
 export interface ReviewWebSocketState {
+  reviewId: string | null;
   stages: PipelineStage[];
   screenedPapers: PaperSummary[];
   status: ReviewStatus;
@@ -164,6 +165,7 @@ function getStageIndex(stageName: string): number | null {
 }
 
 export function useReviewWebSocket(reviewId: string | null): ReviewWebSocketState {
+  const [sessionReviewId, setSessionReviewId] = useState<string | null>(reviewId);
   const [stages, setStages] = useState<PipelineStage[]>(() =>
     INITIAL_DEMO_STAGES.map((s) => ({ ...s }))
   );
@@ -444,9 +446,13 @@ export function useReviewWebSocket(reviewId: string | null): ReviewWebSocketStat
   }, [reviewId]);
 
   useEffect(() => {
-    if (!reviewId) return;
+    if (!reviewId) {
+      setSessionReviewId(null);
+      return;
+    }
 
     // Reset lifecycle state on new reviewId
+    setSessionReviewId(reviewId);
     isManualCloseRef.current = false;
     isPausedForInputRef.current = false;
     isCompletedRef.current = false;
@@ -477,6 +483,7 @@ export function useReviewWebSocket(reviewId: string | null): ReviewWebSocketStat
   }, [reviewId, connect]);
 
   return {
+    reviewId: sessionReviewId,
     stages,
     screenedPapers,
     status,

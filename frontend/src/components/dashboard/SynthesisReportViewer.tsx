@@ -36,14 +36,18 @@ export function formatReportAsMarkdown(report: SynthesizedReview): string {
   }
 
   if (report.methodology_matrix && report.methodology_matrix.length > 0) {
+    const escapeMarkdownCell = (value: string): string =>
+      String(value).replace(/\|/g, "\\|").replace(/\r?\n+/g, " ").trim();
+
     md += `## Comparative Methodology Matrix\n\n`;
     md += `| Methodology | Papers Evaluated | Strengths | Limitations |\n`;
     md += `| :--- | :--- | :--- | :--- |\n`;
     report.methodology_matrix.forEach((item) => {
-      const papers = item.papers_used?.join("<br>") || "";
-      const strengths = item.strengths?.join("<br>") || "";
-      const limitations = item.limitations?.join("<br>") || "";
-      md += `| **${item.method_name}** | ${papers} | ${strengths} | ${limitations} |\n`;
+      const methodName = escapeMarkdownCell(item.method_name || "");
+      const papers = item.papers_used?.map(escapeMarkdownCell).join("<br>") || "";
+      const strengths = item.strengths?.map(escapeMarkdownCell).join("<br>") || "";
+      const limitations = item.limitations?.map(escapeMarkdownCell).join("<br>") || "";
+      md += `| **${methodName}** | ${papers} | ${strengths} | ${limitations} |\n`;
     });
     md += "\n";
   }

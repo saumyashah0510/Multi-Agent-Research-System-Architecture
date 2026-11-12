@@ -30,19 +30,53 @@ function findReferenceHref(paper: string, references?: ReferenceItem[]): string 
     .split(/[^a-z0-9]+/)
     .filter((t) => t.length >= 4 && t !== "2024" && t !== "2025" && t !== "2026" && t !== "arxiv");
 
-  const idx = references.findIndex((ref) => {
-    const title = (ref.title || "").toLowerCase();
-    const authors = (ref.authors || []).join(" ").toLowerCase();
-    const refYear = ref.year ? String(ref.year) : "";
+  // 1. Search all references for an exact or normalized title match first
+  if (coreName.length >= 4) {
+    const exactTitleIdx = references.findIndex(
+      (ref) => (ref.title || "").toLowerCase().trim() === coreName
+    );
+    if (exactTitleIdx >= 0) return `#reference-${exactTitleIdx + 1}`;
 
-    if (coreName.length >= 4 && title.includes(coreName)) return true;
-    if (year && refYear === year && tokens.some((t) => authors.includes(t) || title.includes(t))) {
-      return true;
+    const titleMatches = references.reduce<number[]>((acc, ref, idx) => {
+      if ((ref.title || "").toLowerCase().includes(coreName)) acc.push(idx);
+      return acc;
+    }, []);
+    if (titleMatches.length === 1 && titleMatches[0] !== undefined) {
+      return `#reference-${titleMatches[0] + 1}`;
     }
-    return tokens.some((t) => title.includes(t) || authors.includes(t));
-  });
+  }
 
-  return idx >= 0 ? `#reference-${idx + 1}` : "#section-references";
+  // 2. Fall back to token matching only when no title match exists; reject ambiguous matches
+  if (tokens.length > 0) {
+    if (year) {
+      const yearTokenMatches = references.reduce<number[]>((acc, ref, idx) => {
+        const title = (ref.title || "").toLowerCase();
+        const authors = (ref.authors || []).join(" ").toLowerCase();
+        const refYear = ref.year ? String(ref.year) : "";
+        if (refYear === year && tokens.some((t) => authors.includes(t) || title.includes(t))) {
+          acc.push(idx);
+        }
+        return acc;
+      }, []);
+      if (yearTokenMatches.length === 1 && yearTokenMatches[0] !== undefined) {
+        return `#reference-${yearTokenMatches[0] + 1}`;
+      }
+    }
+
+    const tokenMatches = references.reduce<number[]>((acc, ref, idx) => {
+      const title = (ref.title || "").toLowerCase();
+      const authors = (ref.authors || []).join(" ").toLowerCase();
+      if (tokens.some((t) => title.includes(t) || authors.includes(t))) {
+        acc.push(idx);
+      }
+      return acc;
+    }, []);
+    if (tokenMatches.length === 1 && tokenMatches[0] !== undefined) {
+      return `#reference-${tokenMatches[0] + 1}`;
+    }
+  }
+
+  return "#section-references";
 }
 
 export const MethodologyMatrix: React.FC<MethodologyMatrixProps> = ({
