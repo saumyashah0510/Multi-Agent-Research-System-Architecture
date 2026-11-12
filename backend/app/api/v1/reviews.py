@@ -684,6 +684,10 @@ async def approve_papers(
     if request.user_decision == "continue" and not request.approved_paper_ids:
         raise HTTPException(status_code=400, detail="Approve at least 1 paper.")
 
+    approved_graph_ids: set[str] = set()
+    if request.approved_paper_ids:
+        approved_graph_ids.update(str(x).strip() for x in request.approved_paper_ids if x)
+
     # Move status on from 'awaiting_user_input' in the database and mark approved papers.
     if str(review_id).isdigit():
         num_id = int(review_id)
@@ -715,7 +719,6 @@ async def approve_papers(
                             str(p.pubmed_id or ""),
                             p.title or "",
                             p.pdf_url or "",
-                            p.url or "",
                         }
                         if p.doi:
                             clean_doi = (
@@ -740,6 +743,19 @@ async def approve_papers(
                                 if len(app_id) > 10
                             ):
                                 p.is_approved = True
+
+                        if p.is_approved:
+                            for ident in (
+                                str(p.id),
+                                p.title,
+                                p.arxiv_id,
+                                p.doi,
+                                str(p.pubmed_id or ""),
+                                p.pdf_url,
+                            ):
+                                if ident and str(ident).strip():
+                                    approved_graph_ids.add(str(ident).strip())
+
                 await db.commit()
         except Exception as exc:
             logger.warning("Could not update status for review %s: %s", review_id, exc)
@@ -749,7 +765,7 @@ async def approve_papers(
         review_id,
         {
             "user_decision": request.user_decision,
-            "approved_paper_ids": request.approved_paper_ids,
+            "approved_paper_ids": list(approved_graph_ids or request.approved_paper_ids),
         },
     )
     return {"status": "resumed", "review_id": review_id}
