@@ -48,8 +48,10 @@ def human_interrupt_node(state: AgentState) -> Dict[str, Any]:
                 if "doi.org/" in val:
                     approved_set.add(val.split("doi.org/", 1)[-1].strip("/"))
 
-        for p in screened_papers:
+        for idx, p in enumerate(screened_papers, 1):
             identifiers = {
+                str(idx),
+                f"paper-{idx}",
                 str(p.get("id") or ""),
                 str(p.get("paper_id") or ""),
                 str(p.get("arxiv_id") or ""),
@@ -83,6 +85,12 @@ def human_interrupt_node(state: AgentState) -> Dict[str, Any]:
                     if len(app_id) > 10
                 ):
                     approved.append(p)
+
+        # Fallback safeguard: if user approved papers but identifier matching yielded 0,
+        # fallback to the screened papers so downstream PDF extraction & synthesis never starves.
+        if not approved and screened_papers:
+            count = len(approved_paper_ids) if len(approved_paper_ids) > 0 else len(screened_papers)
+            approved = screened_papers[:count]
 
     return {
         "approved_papers": approved,

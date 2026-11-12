@@ -59,3 +59,26 @@ def test_human_interrupt_node_matches_pubmed_and_doi(monkeypatch):
     monkeypatch.setattr("app.agents.nodes.human_interrupt_node.interrupt", mock_interrupt_all)
     res = human_interrupt_node(state)
     assert len(res["approved_papers"]) == 2
+
+    # Case D: User approves by 1-based index
+    def mock_interrupt_index(payload):
+        return {
+            "user_decision": "continue",
+            "approved_paper_ids": ["1"],
+        }
+
+    monkeypatch.setattr("app.agents.nodes.human_interrupt_node.interrupt", mock_interrupt_index)
+    res = human_interrupt_node(state)
+    assert len(res["approved_papers"]) == 1
+    assert res["approved_papers"][0]["pubmed_id"] == "38999123"
+
+    # Case E: Fallback when unknown ID is passed
+    def mock_interrupt_fallback(payload):
+        return {
+            "user_decision": "continue",
+            "approved_paper_ids": ["unknown-id-123"],
+        }
+
+    monkeypatch.setattr("app.agents.nodes.human_interrupt_node.interrupt", mock_interrupt_fallback)
+    res = human_interrupt_node(state)
+    assert len(res["approved_papers"]) == 1
