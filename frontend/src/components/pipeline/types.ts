@@ -66,7 +66,7 @@ export const DOWNSTREAM_PIPELINE_STAGES: PipelineStage[] = [
   {
     id: "pdf-extraction",
     title: "Full-Text PDF Extraction",
-    description: "Parsing full-text paper sections and caching to AWS S3.",
+    description: "Parsing full-text paper sections and caching extracted text.",
     supportingStatus: "Extracting methodology, results, and discussion sections...",
     status: "pending",
     message: null,
@@ -78,7 +78,7 @@ export const DOWNSTREAM_PIPELINE_STAGES: PipelineStage[] = [
   {
     id: "vector-embedding",
     title: "Vector Chunking & Embedding",
-    description: "Segmenting sections and saving 384D pgvector embeddings to Neon DB.",
+    description: "Segmenting sections and indexing 384D semantic vector embeddings.",
     supportingStatus: "Generating 384-dimensional dense semantic vectors...",
     status: "pending",
     message: null,

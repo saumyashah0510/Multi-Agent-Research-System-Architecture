@@ -53,14 +53,14 @@ export default function Navbar() {
       isActive: isResearch,
     },
     {
-      name: "Papers",
-      href: "/dashboard?tab=papers",
-      isActive: isPapers,
-    },
-    {
       name: "Report",
       href: "/dashboard?tab=report",
       isActive: isReport,
+    },
+    {
+      name: "Papers",
+      href: "/dashboard?tab=papers",
+      isActive: isPapers,
     },
     {
       name: "Chat",

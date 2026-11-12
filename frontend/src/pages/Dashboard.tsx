@@ -1,17 +1,35 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import ResearchInput, { type ResearchSearchParams } from "../components/ResearchInput";
 import PaperGrid from "../components/dashboard/paper-grid";
+import PastReviewsView, { type TargetSection } from "../components/dashboard/PastReviewsView";
 import { type PaperSummary } from "../components/PaperSummaryCard";
 import { createReviewTask, submitHumanDecision, getReviewStatus } from "../lib/api";
 import ResearchProgress from "../components/pipeline/ResearchProgress";
 import useReviewWebSocket, { normalizePaper } from "../hooks/useReviewWebSocket";
+import { type ReviewHistoryItem } from "../types";
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const [activeQuery, setActiveQuery] = useState<string>(
-    "How does generative AI affect student learning and academic performance?"
-  );
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+
+  const currentTab = (searchParams.get("tab") || "").toLowerCase();
+  const pathname = location.pathname.toLowerCase();
+  const isPapersRoute = currentTab === "papers" || pathname === "/papers";
+  const isReportRoute =
+    currentTab === "report" ||
+    currentTab === "reports" ||
+    pathname === "/report" ||
+    pathname === "/reports";
+  const isChatRoute = currentTab === "chat" || pathname === "/chat";
+  const isNonResearchView = isPapersRoute || isReportRoute || isChatRoute;
+  const targetSection: TargetSection = isChatRoute
+    ? "chat"
+    : isPapersRoute
+    ? "papers"
+    : "report";
+  const [activeQuery, setActiveQuery] = useState<string>("");
   const [hasSearched, setHasSearched] = useState(false);
   const [isPipelineDone, setIsPipelineDone] = useState(false);
   const [pipelineSession, setPipelineSession] = useState(0);
@@ -28,17 +46,14 @@ export default function Dashboard() {
   // Single source of truth for selected paper IDs
   const [selectedPaperIds, setSelectedPaperIds] = useState<string[]>([]);
 
-  // Restore session from query parameters on mount (if explicitly navigated via ?review_id=...)
+  // Restore session from query parameters when ?review_id=... is present
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const urlParams = new URLSearchParams(window.location.search);
-      const urlReviewId = urlParams.get("review_id");
-      if (urlReviewId && !reviewId) {
-        setReviewId(urlReviewId);
-        setHasSearched(true);
-      }
+    const urlReviewId = searchParams.get("review_id");
+    if (urlReviewId && urlReviewId !== reviewId) {
+      setReviewId(urlReviewId);
+      setHasSearched(true);
     }
-  }, []);
+  }, [searchParams, reviewId]);
 
   // Fetch persisted review status and candidate papers from REST API as fallback/cache
   useEffect(() => {
@@ -216,12 +231,40 @@ export default function Dashboard() {
     }
   };
 
+  const handleSelectPastReview = (review: ReviewHistoryItem) => {
+    if (targetSection === "papers" || review.status === "awaiting_approval") {
+      setActiveQuery(review.query);
+      setPapers([]);
+      setSelectedPaperIds([]);
+      setApprovalError(null);
+      setApprovalSuccess(null);
+      setIsPipelineDone(false);
+      setReviewId(review.id);
+      setHasSearched(true);
+      navigate(`/dashboard?review_id=${encodeURIComponent(review.id)}`);
+      return;
+    }
+
+    if (targetSection === "chat") {
+      navigate(`/review/${encodeURIComponent(review.id)}?tab=chat`);
+      return;
+    }
+
+    navigate(`/review/${encodeURIComponent(review.id)}`);
+  };
+
   return (
     <div
       id="dashboard-page"
       className="w-full max-w-4xl mx-auto flex flex-col items-center px-3 sm:px-6 min-h-[calc(100vh-3.75rem)] pb-16"
     >
-      {!hasSearched ? (
+      {isNonResearchView ? (
+        <PastReviewsView
+          targetSection={targetSection}
+          onSelectReview={handleSelectPastReview}
+          onStartNewResearch={() => navigate("/dashboard?tab=research")}
+        />
+      ) : !hasSearched ? (
         /* Initial Screen: Headline and Search Input positioned with balanced upper spacing */
         <div className="w-full flex-1 flex flex-col items-center justify-start pt-[16vh] sm:pt-[18vh] pb-16">
           {/* Welcome Headline */}
@@ -261,11 +304,17 @@ export default function Dashboard() {
               key={`pipeline-session-${pipelineSession}-${activeQuery}`}
               query={activeQuery}
               stages={reviewId ? ws.stages : undefined}
-              isRunning={reviewId ? (ws.isConnected && ws.status !== "COMPLETED") : undefined}
-              isCompleted={reviewId ? (ws.isPausedForInput || ws.status === "COMPLETED") : isPipelineDone}
+              isRunning={
+                reviewId ? ws.isConnected && ws.status !== "COMPLETED" : undefined
+              }
+              isCompleted={
+                reviewId
+                  ? ws.isPausedForInput || ws.status === "COMPLETED"
+                  : isPipelineDone
+              }
               screenedCount={papers.length}
               relevantCount={selectedPaperIds.length}
-              isMock={Boolean(!reviewId)}
+              isMock={!reviewId}
               autoStart={false}
               onComplete={() => setIsPipelineDone(true)}
               onFindMore={handleFindMore}

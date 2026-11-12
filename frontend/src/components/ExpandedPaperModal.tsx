@@ -105,9 +105,7 @@ export default function ExpandedPaperModal({
 
   const relevanceScore =
     typeof paper.relevanceScore === "number"
-      ? paper.relevanceScore <= 1
-        ? Math.round(paper.relevanceScore * 100)
-        : Math.round(paper.relevanceScore)
+      ? Math.round(paper.relevanceScore)
       : null;
 
   const summaryContent =

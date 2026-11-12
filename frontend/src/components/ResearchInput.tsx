@@ -33,14 +33,8 @@ export default function ResearchInput({
 
   const handleSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (isSubmitting) return;
-
-    const finalQuery =
-      query.trim() || "Adaptive Retrieval Augmented Generation (Self-RAG)";
-
-    if (!query.trim()) {
-      setQuery(finalQuery);
-    }
+    const finalQuery = query.trim();
+    if (isSubmitting || !finalQuery) return;
 
     // Delegate review task creation exclusively to parent handler (prevents duplicate runs)
     onSearch?.({
@@ -76,7 +70,7 @@ export default function ResearchInput({
       {/* Black Squircle Submit Button with White Arrow Up */}
       <button
         type="submit"
-        disabled={isSubmitting}
+        disabled={isSubmitting || !query.trim()}
         aria-label="Start Research"
         style={{ borderRadius: "var(--radius-sm)" }}
         className={cn(

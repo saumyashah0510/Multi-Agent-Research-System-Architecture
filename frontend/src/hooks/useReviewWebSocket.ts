@@ -103,7 +103,7 @@ export function normalizePaper(raw: any, index: number): PaperSummary {
   const venue = raw.venue || raw.source || raw.journal || "Academic Repository";
   const abstract = raw.abstract || raw.summary || "No abstract available.";
 
-  let relevanceScore = 95;
+  let relevanceScore: number | undefined;
   const scoreVal = raw.relevance_score ?? raw.relevanceScore ?? raw.score;
   if (typeof scoreVal === "number") {
     relevanceScore = scoreVal <= 1 ? Math.round(scoreVal * 100) : Math.round(scoreVal);
