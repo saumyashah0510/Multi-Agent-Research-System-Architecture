@@ -14,6 +14,7 @@ import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi.responses import RedirectResponse
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -26,6 +27,12 @@ from app.models.paper import Paper
 from app.models.review import LiteratureReview, ReviewStatus
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.services.chat_service import generate_rag_chat_response
+from app.services.export_service import (
+    check_report_pdf_exists_in_s3,
+    compile_literature_review_pdf,
+    generate_presigned_download_url,
+    upload_report_pdf_to_s3,
+)
 from app.services.redis_service import publish_review_event
 from app.services.vector_service import similarity_search
 
@@ -567,6 +574,41 @@ async def list_reviews(
     except Exception as exc:
         logger.warning("Could not query past reviews: %s", exc)
         return []
+
+
+@router.get("/{review_id}/export", summary="Download compiled literature review PDF")
+async def export_review_pdf(
+    review_id: str,
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+) -> Any:
+    """Generate or retrieve a compiled PDF export and redirect to a presigned S3 download URL.
+
+    Returns 404 when the review does not exist, 400 when it has not yet completed,
+    and 302 redirect to the presigned S3 URL on success.
+    """
+    if not str(review_id).isdigit():
+        raise HTTPException(status_code=404, detail="Review not found.")
+    num_id = int(review_id)
+    review = await db.get(LiteratureReview, num_id)
+    if review is None:
+        raise HTTPException(status_code=404, detail="Review not found.")
+
+    if review.status != "completed" or not review.synthesized_review:
+        raise HTTPException(status_code=400, detail="Review is not yet completed.")
+
+    s3_key = f"exports/literature_review_{num_id}.pdf"
+    exists = await check_report_pdf_exists_in_s3(s3_key)
+    if not exists:
+        pdf_bytes = compile_literature_review_pdf(
+            synthesized_review=review.synthesized_review,
+            review_id=num_id,
+            user_query=review.user_query,
+            created_at=review.created_at,
+        )
+        await upload_report_pdf_to_s3(pdf_bytes, num_id)
+
+    presigned_url = generate_presigned_download_url(s3_key)
+    return RedirectResponse(url=presigned_url, status_code=302)
 
 
 @router.get("/{review_id}", summary="Get literature review status & report")
