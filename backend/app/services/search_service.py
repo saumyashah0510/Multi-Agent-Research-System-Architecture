@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 from typing import Any, Dict, List
 
 import defusedxml.ElementTree as ET
@@ -28,6 +29,10 @@ ARXIV_NAMESPACE = {
 }
 
 
+_arxiv_lock = asyncio.Lock()
+_last_arxiv_time = 0.0
+
+
 async def _request_with_retries(
     client: httpx.AsyncClient,
     url: str,
@@ -44,11 +49,20 @@ async def _request_with_retries(
         try:
             response = await client.get(url, **req_kwargs)
 
-            if response.status_code == 429:
+            if response.status_code == 429 or "Rate exceeded" in getattr(response, "text", ""):
                 if attempt == retries - 1:
                     response.raise_for_status()
 
-                await asyncio.sleep(2**attempt)
+                retry_after_hdr = (
+                    response.headers.get("Retry-After") if hasattr(response, "headers") else None
+                )
+                try:
+                    retry_after = float(retry_after_hdr) if retry_after_hdr else None
+                except (ValueError, TypeError):
+                    retry_after = None
+
+                backoff = retry_after if retry_after is not None else max(3.5, 2.0**attempt)
+                await asyncio.sleep(backoff)
                 continue
 
             response.raise_for_status()
@@ -58,7 +72,8 @@ async def _request_with_retries(
             if attempt == retries - 1:
                 raise
 
-            await asyncio.sleep(2**attempt)
+            backoff = max(3.5, 2.0**attempt)
+            await asyncio.sleep(backoff)
 
     raise httpx.HTTPError("Request failed after retries")
 
@@ -69,16 +84,29 @@ async def _search_arxiv(
     max_results: int,
 ) -> List[Dict[str, Any]]:
     """Search ArXiv and convert the Atom response into paper dictionaries."""
+    global _last_arxiv_time
     try:
-        response = await _request_with_retries(
-            client,
-            ARXIV_API_URL,
-            params={
-                "search_query": f"all:{query}",
-                "start": 0,
-                "max_results": max_results,
-            },
-        )
+        async with _arxiv_lock:
+            now = time.monotonic()
+            elapsed = now - _last_arxiv_time
+            if elapsed < 3.2:
+                await asyncio.sleep(3.2 - elapsed)
+            _last_arxiv_time = time.monotonic()
+
+            response = await _request_with_retries(
+                client,
+                ARXIV_API_URL,
+                params={
+                    "search_query": f"all:{query}",
+                    "start": 0,
+                    "max_results": max_results,
+                },
+                headers={"User-Agent": ACADEMIC_USER_AGENT},
+            )
+
+        if "Rate exceeded" in response.text:
+            logger.warning("ArXiv rate limit hit ('Rate exceeded.') for query: %s", query)
+            return []
 
         root = ET.fromstring(response.text)
         results: List[Dict[str, Any]] = []
@@ -147,8 +175,9 @@ async def _search_arxiv(
 
         return results
 
-    except (httpx.HTTPError, ET.ParseError):
-        return []
+    except (httpx.HTTPError, ET.ParseError) as exc:
+        logger.warning("ArXiv search failed for query '%s': %s", query, exc)
+        raise
 
 
 async def _search_pubmed(
@@ -243,8 +272,9 @@ async def _search_pubmed(
 
         return results
 
-    except (httpx.HTTPError, ET.ParseError):
-        return []
+    except (httpx.HTTPError, ET.ParseError) as exc:
+        logger.warning("PubMed search failed for query '%s': %s", query, exc)
+        raise
 
 
 async def _search_crossref(
@@ -306,7 +336,7 @@ async def _search_crossref(
         return results
     except Exception as err:
         logger.warning(f"Crossref API search error: {err}")
-        return []
+        raise
 
 
 async def search_academic_papers(
@@ -323,7 +353,9 @@ async def search_academic_papers(
 
     sources = [source.lower() for source in sources]
 
-    cache_key = f"academic_search:{query.strip().lower()}:{max_results}:{','.join(sorted(sources))}"
+    cache_key = (
+        f"academic_search:v2:{query.strip().lower()}:{max_results}:{','.join(sorted(sources))}"
+    )
 
     cached_results = await get_cached_query(cache_key, as_json=True)
     if cached_results is not None:
@@ -335,30 +367,55 @@ async def search_academic_papers(
         max_redirects=5,
         headers={"User-Agent": ACADEMIC_USER_AGENT},
     ) as client:
-        tasks = []
+        source_tasks = {}
 
         if "arxiv" in sources:
-            tasks.append(_search_arxiv(client, query, max_results))
+            source_tasks["arxiv"] = _search_arxiv(client, query, max_results)
 
         if "pubmed" in sources:
-            tasks.append(_search_pubmed(client, query, max_results))
+            source_tasks["pubmed"] = _search_pubmed(client, query, max_results)
 
         if "crossref" in sources:
-            tasks.append(_search_crossref(client, query, max_results))
+            source_tasks["crossref"] = _search_crossref(client, query, max_results)
 
-        if not tasks:
+        if not source_tasks:
             return []
 
-        search_results = await asyncio.gather(*tasks, return_exceptions=True)
+        search_results = await asyncio.gather(*source_tasks.values(), return_exceptions=True)
 
     papers: List[Dict[str, Any]] = []
-    for result in search_results:
+    failed_sources: List[str] = []
+
+    for source, result in zip(source_tasks.keys(), search_results, strict=True):
+        if isinstance(result, BaseException):
+            failed_sources.append(source)
+            logger.error(
+                "Academic source '%s' failed for query '%s': %s",
+                source,
+                query,
+                result,
+            )
+            continue
         if isinstance(result, list):
+            logger.info(
+                "Academic source '%s' returned %d papers for query '%s'",
+                source,
+                len(result),
+                query,
+            )
             papers.extend(result)
 
-    try:
-        await set_cached_query(cache_key, papers, expire_seconds=CACHE_EXPIRY)
-    except Exception:
-        pass
+    # Only cache complete multi-source results; never cache partial failures
+    if not failed_sources and papers:
+        try:
+            await set_cached_query(cache_key, papers, expire_seconds=CACHE_EXPIRY)
+        except Exception:
+            pass
+    elif failed_sources:
+        logger.warning(
+            "Skipping Redis search cache for query '%s' due to failed sources: %s",
+            query,
+            failed_sources,
+        )
 
     return papers

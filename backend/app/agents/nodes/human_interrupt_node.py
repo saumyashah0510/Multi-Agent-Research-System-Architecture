@@ -16,10 +16,18 @@ def human_interrupt_node(state: AgentState) -> Dict[str, Any]:
         {
             "candidate_papers": [
                 {
-                    "id": p.get("arxiv_id") or p.get("title"),
+                    "id": p.get("id")
+                    or p.get("paper_id")
+                    or p.get("arxiv_id")
+                    or p.get("doi")
+                    or (str(p.get("pubmed_id")) if p.get("pubmed_id") else None)
+                    or p.get("title"),
                     "title": p.get("title"),
                     "abstract": p.get("abstract"),
                     "relevance_score": p.get("relevance_score"),
+                    "arxiv_id": p.get("arxiv_id"),
+                    "doi": p.get("doi"),
+                    "pubmed_id": p.get("pubmed_id"),
                 }
                 for p in screened_papers
             ]
@@ -32,13 +40,49 @@ def human_interrupt_node(state: AgentState) -> Dict[str, Any]:
 
     approved = []
     if user_decision == "continue":
-        approved = [
-            p
-            for p in screened_papers
-            if (p.get("arxiv_id") or p.get("title")) in approved_paper_ids
-            or p.get("id") in approved_paper_ids
-            or str(p.get("id", "")) in approved_paper_ids
-        ]
+        approved_set = set()
+        for item in approved_paper_ids:
+            if item and str(item).strip():
+                val = str(item).strip().lower()
+                approved_set.add(val)
+                if "doi.org/" in val:
+                    approved_set.add(val.split("doi.org/", 1)[-1].strip("/"))
+
+        for p in screened_papers:
+            identifiers = {
+                str(p.get("id") or ""),
+                str(p.get("paper_id") or ""),
+                str(p.get("arxiv_id") or ""),
+                str(p.get("doi") or ""),
+                str(p.get("pubmed_id") or ""),
+                str(p.get("title") or ""),
+                str(p.get("pdf_url") or ""),
+                str(p.get("url") or ""),
+            }
+            doi = p.get("doi")
+            if doi:
+                clean_doi = (
+                    str(doi)
+                    .strip()
+                    .lower()
+                    .replace("https://doi.org/", "")
+                    .replace("http://doi.org/", "")
+                    .strip("/")
+                )
+                identifiers.add(clean_doi)
+                identifiers.add(f"https://doi.org/{clean_doi}")
+                identifiers.add(f"http://doi.org/{clean_doi}")
+            clean_ids = {str(x).strip().lower() for x in identifiers if x}
+            if bool(clean_ids & approved_set):
+                approved.append(p)
+            elif p.get("title"):
+                p_title_norm = str(p.get("title")).strip().lower()
+                if any(
+                    p_title_norm in app_id or app_id in p_title_norm
+                    for app_id in approved_set
+                    if len(app_id) > 10
+                ):
+                    approved.append(p)
 
     return {
         "approved_papers": approved,
