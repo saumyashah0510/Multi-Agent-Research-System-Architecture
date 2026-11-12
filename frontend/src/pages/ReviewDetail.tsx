@@ -12,7 +12,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
+import { useParams, useSearchParams, Link } from "react-router-dom";
 import {
   FileText,
   Download,
@@ -20,14 +20,17 @@ import {
   Loader2,
   RefreshCw,
   AlertCircle,
+  Network,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import DownstreamProgress from "../components/pipeline/DownstreamProgress";
+import RetryBanner from "../components/pipeline/RetryBanner";
 import SynthesisReportViewer, {
   formatReportAsMarkdown,
 } from "../components/dashboard/SynthesisReportViewer";
 import ReviewChat from "../components/chat/ReviewChat";
-import { getReviewStatus, getReviewPdfDownloadUrl } from "../lib/api";
+import CitationKnowledgeGraph from "../components/graph/CitationKnowledgeGraph";
+import { getReviewStatus, getReviewPdfDownloadUrl, retryReviewPipeline } from "../lib/api";
 import { SynthesizedReview } from "../types";
 
 const SAMPLE_FALLBACK_REPORT: SynthesizedReview = {
@@ -454,7 +457,10 @@ const ReviewDetailInner: React.FC = () => {
   const tabParam = (searchParams.get("tab") || "").toLowerCase();
 
   const [isCompleted, setIsCompleted] = useState(false);
+  const [isFailed, setIsFailed] = useState(false);
+  const [failedMessage, setFailedMessage] = useState<string | null>(null);
   const isChatView = tabParam === "chat";
+  const isGraphView = tabParam === "graph";
   const [copiedMarkdown, setCopiedMarkdown] = useState(false);
   const [reviewTopic, setReviewTopic] = useState<string | null>(null);
   const [synthesizedReport, setSynthesizedReport] = useState<SynthesizedReview | null>(null);
@@ -473,10 +479,19 @@ const ReviewDetailInner: React.FC = () => {
       const normStatus = String(data?.status || "").toLowerCase();
       if (normStatus === "completed" || normStatus === "synthesis_completed") {
         setIsCompleted(true);
+        setIsFailed(false);
         if (data?.synthesized_review) {
           setSynthesizedReport(data.synthesized_review);
           setFetchError(null);
         }
+      } else if (normStatus === "failed") {
+        setIsFailed(true);
+        setFailedMessage(
+          data?.error_message ||
+            "Pipeline was interrupted. Click 'Retry from Failed Step' to resume from your latest checkpoint."
+        );
+      } else {
+        setIsFailed(false);
       }
       return data;
     } catch (err) {
@@ -592,21 +607,22 @@ const ReviewDetailInner: React.FC = () => {
           </h1>
         </div>
 
-        {isCompleted && !isChatView && (
-          <div className="flex items-center gap-2 shrink-0">
-            <a
-              href={getReviewPdfDownloadUrl(reviewId || "")}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ borderRadius: "var(--radius-sm)" }}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-neutral-900 text-white text-xs font-semibold hover:bg-neutral-800 transition-colors shadow-xs"
-              title="Download PDF Synthesis Report"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>PDF</span>
-            </a>
+        <div className="flex items-center gap-2 shrink-0">
+          {isCompleted && !isChatView && (
+            <>
+              <a
+                href={getReviewPdfDownloadUrl(reviewId || "")}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ borderRadius: "var(--radius-sm)" }}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-neutral-900 text-white text-xs font-semibold hover:bg-neutral-800 transition-colors shadow-xs"
+                title="Download PDF Synthesis Report"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>PDF</span>
+              </a>
 
-            {activeReport && (
+              {activeReport && (
               <button
                 type="button"
                 onClick={handleExportMarkdown}
@@ -627,9 +643,25 @@ const ReviewDetailInner: React.FC = () => {
                 )}
               </button>
             )}
-          </div>
+          </>
         )}
+        </div>
       </div>
+
+      {/* Mid-Pipeline Retry Banner (Issue FE-13) */}
+      {isFailed && (
+        <RetryBanner
+          reviewId={reviewId || ""}
+          errorMessage={failedMessage || undefined}
+          onRetry={async () => {
+            if (!reviewId) return;
+            await retryReviewPipeline(reviewId);
+            setIsFailed(false);
+            loadReviewData();
+          }}
+          className="mb-6"
+        />
+      )}
 
       {/* Downstream Checkpoints Tracker (Stages 5 to 9) */}
       <DownstreamProgress
@@ -639,9 +671,48 @@ const ReviewDetailInner: React.FC = () => {
         isMock={isMockParam}
       />
 
-      {/* Synthesis Report or Interactive RAG Chat View */}
+      {/* Synthesis Report, Interactive RAG Chat, or Citation Graph View */}
       {isCompleted && (
-        <div className="animate-in fade-in duration-300">
+        <div className="space-y-5 animate-in fade-in duration-300">
+          {/* Tab Switcher */}
+          <div className="flex items-center gap-2 border-b border-neutral-200/80 pb-3">
+            <Link
+              to={`/review/${reviewId}`}
+              className={cn(
+                "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors",
+                !isChatView && !isGraphView
+                  ? "bg-neutral-900 text-white shadow-2xs"
+                  : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
+              )}
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>Synthesis Report</span>
+            </Link>
+            <Link
+              to={`/review/${reviewId}?tab=graph`}
+              className={cn(
+                "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors",
+                isGraphView
+                  ? "bg-neutral-900 text-white shadow-2xs"
+                  : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
+              )}
+            >
+              <Network className="w-3.5 h-3.5" />
+              <span>Knowledge Graph</span>
+            </Link>
+            <Link
+              to={`/review/${reviewId}?tab=chat`}
+              className={cn(
+                "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors",
+                isChatView
+                  ? "bg-neutral-900 text-white shadow-2xs"
+                  : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
+              )}
+            >
+              <span>Q&A Chat</span>
+            </Link>
+          </div>
+
           {isChatView ? (
             reviewId ? (
               <ReviewChat reviewId={reviewId} />
@@ -650,6 +721,8 @@ const ReviewDetailInner: React.FC = () => {
                 No literature review ID provided in the route.
               </div>
             )
+          ) : isGraphView ? (
+            <CitationKnowledgeGraph reviewId={reviewId || ""} />
           ) : activeReport ? (
             <SynthesisReportViewer report={activeReport} />
           ) : (
@@ -688,6 +761,7 @@ const ReviewDetailInner: React.FC = () => {
           )}
         </div>
       )}
+
     </div>
   );
 };

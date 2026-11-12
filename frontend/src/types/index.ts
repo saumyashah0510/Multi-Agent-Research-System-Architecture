@@ -191,3 +191,57 @@ export interface WebSocketStageUpdateEvent {
   timestamp?: string;
   [key: string]: any;
 }
+
+
+// Authentication & User Profile Types (Issue FE-11)
+export interface UserProfile {
+  id: number;
+  email: string;
+  name?: string | null;
+  avatar_url?: string | null;
+  auth_provider: "local" | "google" | "github" | string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface AuthResponse {
+  access_token: string;
+  token_type: string;
+  user: UserProfile;
+}
+
+
+// Citation Knowledge Graph Types (Issue FE-14)
+export interface GraphNode {
+  id: string;
+  label: string;
+  type?: "paper" | "theme" | string;
+  year?: number | null;
+  authors?: string[] | null;
+  relevance_score?: number | null;
+  cluster?: string | null;
+  url?: string | null;
+  citation_count?: number | null;
+  // D3 force simulation positioning fields
+  x?: number;
+  y?: number;
+  vx?: number;
+  vy?: number;
+  fx?: number | null;
+  fy?: number | null;
+}
+
+export interface GraphLink {
+  source: string | GraphNode;
+  target: string | GraphNode;
+  type?: "thematic_similarity" | "co_authorship" | "direct_citation" | string;
+  weight?: number;
+}
+
+export interface CitationGraphResponse {
+  review_id: number;
+  nodes: GraphNode[];
+  links: GraphLink[];
+  total_nodes: number;
+  total_links: number;
+}

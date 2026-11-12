@@ -1,8 +1,11 @@
 """LangGraph pipeline graph orchestrator definition."""
 
-from langgraph.checkpoint.memory import MemorySaver
+from typing import Optional
+
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, StateGraph
 
+from app.agents.checkpointer import get_checkpointer
 from app.agents.nodes.citation_verifier_node import citation_verification_node
 from app.agents.nodes.discovery_node import discovery_node
 from app.agents.nodes.gap_analysis_node import gap_analysis_node
@@ -29,7 +32,7 @@ def route_after_human_interval(state: AgentState) -> str:
     return "pdf_extraction"
 
 
-def build_literature_review_graph():
+def build_literature_review_graph(checkpointer: Optional[BaseCheckpointSaver] = None):
     """Construct and compile the 9-Agent execution StateGraph."""
     workflow = StateGraph(AgentState)
 
@@ -61,5 +64,5 @@ def build_literature_review_graph():
     workflow.add_edge("citation_verification", "report_synthesis")
     workflow.add_edge("report_synthesis", END)
 
-    checkpointer = MemorySaver()
-    return workflow.compile(checkpointer=checkpointer)
+    saver = checkpointer if checkpointer is not None else get_checkpointer()
+    return workflow.compile(checkpointer=saver)

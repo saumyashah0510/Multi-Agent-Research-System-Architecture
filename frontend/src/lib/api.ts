@@ -1,5 +1,5 @@
 // API Client Helper for Scholaris Multi-Agent Research System
-import { ChatHistoryMessage, ChatResponse } from "../types";
+import { ChatHistoryMessage, ChatResponse, CitationGraphResponse } from "../types";
 
 export function getApiBaseUrl(): string {
   const envApiUrl = import.meta.env?.VITE_API_URL;
@@ -130,4 +130,131 @@ export async function fetchPastReviews(limit: number = 20) {
 
 export function getReviewPdfDownloadUrl(reviewId: string): string {
   return `${getApiBaseUrl()}/reviews/${reviewId}/export`;
+}
+
+
+// Auth API Helpers (Issue FE-11)
+export function getAuthToken(): string | null {
+  return localStorage.getItem("scholaris_token");
+}
+
+export function setAuthToken(token: string): void {
+  localStorage.setItem("scholaris_token", token);
+}
+
+export function clearAuthToken(): void {
+  localStorage.removeItem("scholaris_token");
+}
+
+export function getAuthHeaders(): HeadersInit {
+  const token = getAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+export async function loginUser(email: string, password: string): Promise<any> {
+  // TODO (Assignee - FE-11): POST to /auth/login with { email, password }
+  const res = await fetch(`${getApiBaseUrl()}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Login failed with status ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function registerUser(email: string, password: string, name?: string): Promise<any> {
+  // TODO (Assignee - FE-11): POST to /auth/register with { email, password, name }
+  const res = await fetch(`${getApiBaseUrl()}/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password, name }),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Registration failed with status ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function fetchCurrentUser(): Promise<any> {
+  // TODO (Assignee - FE-11): GET /auth/me with Bearer token
+  const res = await fetch(`${getApiBaseUrl()}/auth/me`, {
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(),
+    },
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to fetch current user: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+
+// OAuth API Helpers (Issue FE-12)
+export async function authWithGoogle(credential?: string, code?: string): Promise<any> {
+  // TODO (Assignee - FE-12): POST to /auth/google with { credential, code }
+  const res = await fetch(`${getApiBaseUrl()}/auth/google`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ credential, code }),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Google authentication failed: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function authWithGitHub(code: string): Promise<any> {
+  // TODO (Assignee - FE-12): POST to /auth/github with { code }
+  const res = await fetch(`${getApiBaseUrl()}/auth/github`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code }),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || `GitHub authentication failed: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+
+// Pipeline Retry API (Issue FE-13)
+export async function retryReviewPipeline(reviewId: string | number): Promise<any> {
+  // TODO (Assignee - FE-13): POST /reviews/{reviewId}/retry
+  const res = await fetch(`${getApiBaseUrl()}/reviews/${reviewId}/retry`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(),
+    },
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Retry failed with status ${res.status}`);
+  }
+  return res.json();
+}
+
+
+// Citation Knowledge Graph API (Issue FE-14)
+export async function fetchReviewGraph(
+  reviewId: string | number
+): Promise<CitationGraphResponse> {
+  // TODO (Assignee - FE-14): GET /reviews/{reviewId}/graph
+  const res = await fetch(`${getApiBaseUrl()}/reviews/${reviewId}/graph`, {
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(),
+    },
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to fetch citation knowledge graph: ${res.statusText}`);
+  }
+  return res.json();
 }
