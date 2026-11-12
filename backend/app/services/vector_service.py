@@ -211,9 +211,20 @@ async def generate_embeddings_batch(
     model = _get_embedding_model()
     if model:
         try:
-            vecs = await asyncio.to_thread(
-                model.encode, texts, convert_to_numpy=True, show_progress_bar=False
-            )
+            import inspect
+
+            encode_kwargs: dict[str, Any] = {
+                "convert_to_numpy": True,
+                "show_progress_bar": False,
+            }
+            try:
+                sig = inspect.signature(model.encode)
+                if "batch_size" in sig.parameters:
+                    encode_kwargs["batch_size"] = 16
+            except Exception:
+                pass
+
+            vecs = await asyncio.to_thread(model.encode, texts, **encode_kwargs)
             return [[round(float(x), 6) for x in vec] for vec in vecs]
         except Exception as err:
             logger.warning(f"SentenceTransformer batch encoding error: {err}")

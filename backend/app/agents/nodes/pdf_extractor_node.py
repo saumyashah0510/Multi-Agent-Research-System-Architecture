@@ -109,7 +109,7 @@ async def _extract_single_paper(
     return paper_key, sections
 
 
-MAX_CONCURRENT_PAPER_EXTRACTIONS = 5
+MAX_CONCURRENT_PAPER_EXTRACTIONS = 2
 
 
 async def pdf_extractor_node(state: AgentState) -> Dict[str, Any]:

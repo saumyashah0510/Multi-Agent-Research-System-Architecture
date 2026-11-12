@@ -53,7 +53,7 @@ from app.services.vector_service import (
 class MockSentenceTransformer:
     """Mock SentenceTransformer model generating deterministic 384D unit vectors."""
 
-    def encode(self, texts, convert_to_numpy=True, show_progress_bar=False):
+    def encode(self, texts, convert_to_numpy=True, show_progress_bar=False, **kwargs):
         single = isinstance(texts, str)
         text_list = [texts] if single else texts
 

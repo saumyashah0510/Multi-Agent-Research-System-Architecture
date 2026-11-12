@@ -28,15 +28,13 @@ export default function Dashboard() {
   // Single source of truth for selected paper IDs
   const [selectedPaperIds, setSelectedPaperIds] = useState<string[]>([]);
 
-  // Restore session from query parameters or localStorage on mount
+  // Restore session from query parameters on mount (if explicitly navigated via ?review_id=...)
   useEffect(() => {
     if (typeof window !== "undefined") {
       const urlParams = new URLSearchParams(window.location.search);
       const urlReviewId = urlParams.get("review_id");
-      const storedReviewId = localStorage.getItem("scholaris_active_review_id");
-      const candidateId = urlReviewId || storedReviewId;
-      if (candidateId && !reviewId) {
-        setReviewId(candidateId);
+      if (urlReviewId && !reviewId) {
+        setReviewId(urlReviewId);
         setHasSearched(true);
       }
     }

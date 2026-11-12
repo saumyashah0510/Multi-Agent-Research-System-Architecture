@@ -168,14 +168,16 @@ def _extract_sections(raw_text: str) -> Dict[str, str]:
     return sections
 
 
-def _extract_pdf_text(pdf_bytes: bytes) -> str:
-    """Extract text from every page of a PDF."""
+def _extract_pdf_text(pdf_bytes: bytes, max_pages: int = 40) -> str:
+    """Extract text from PDF pages up to max_pages to prevent memory exhaustion."""
 
     reader = PdfReader(io.BytesIO(pdf_bytes))
 
     page_texts: list[str] = []
 
-    for page in reader.pages:
+    for idx, page in enumerate(reader.pages):
+        if idx >= max_pages:
+            break
         text = (page.extract_text() or "").replace("\x00", "")
 
         if text.strip():
