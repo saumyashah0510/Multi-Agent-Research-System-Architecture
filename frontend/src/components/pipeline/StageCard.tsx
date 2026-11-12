@@ -124,18 +124,16 @@ export const StageCard: React.FC<StageCardProps> = ({ stage, index }) => {
         {stage.description}
       </p>
 
-      {/* Supporting Status / Activity Detail */}
+      {/* Supporting Status / Activity Detail: Strictly secondary grey text */}
       <p className="font-sans text-[11.5px] sm:text-[12px] text-neutral-500 mt-0.5 leading-normal">
-        {stage.status === "running" && stage.message
-          ? stage.message
-          : stage.supportingStatus}
+        {stage.supportingStatus}
       </p>
 
       {/* Genuine Progress Bar (rendered only if genuine 0-100 numerical progress exists) */}
       {stage.status === "running" && typeof stage.progress === "number" && (
-        <div className="mt-2.5 w-full bg-blue-200/60 rounded-full h-1 overflow-hidden">
+        <div className="mt-2.5 w-full bg-[var(--tint-sky)] rounded-full h-1 overflow-hidden border border-[var(--color-pill-sky)]">
           <div
-            className="bg-[var(--color-primary-blue)] h-full rounded-full transition-all duration-300"
+            className="bg-[var(--color-sky-dark)] h-full rounded-full transition-all duration-300"
             style={{ width: `${Math.min(Math.max(stage.progress, 0), 100)}%` }}
           />
         </div>
@@ -151,9 +149,9 @@ export const StageCard: React.FC<StageCardProps> = ({ stage, index }) => {
 
       {/* Running Animated Status Indicator */}
       {stage.status === "running" && (
-        <div className="mt-3 flex items-center gap-2 text-[12.5px] sm:text-[13px] font-medium text-blue-900">
+        <div className="mt-3 flex items-center gap-2 text-[12.5px] sm:text-[13px] font-semibold text-[var(--color-sky-dark)]">
           <LoaderCircle
-            className="w-4 h-4 text-blue-700 animate-spin shrink-0 stroke-[2.5]"
+            className="w-4 h-4 text-[var(--color-sky-dark)] animate-spin shrink-0 stroke-[2.5]"
             aria-hidden="true"
           />
           <span>{stage.message || stage.supportingStatus}</span>

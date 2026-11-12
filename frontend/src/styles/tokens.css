@@ -32,6 +32,15 @@
   --tint-lavender: #E3E4FA;
   --tint-sky: #DDEEFB;
 
+  /* Dark tint counterparts */
+  --lavender-dark: #4449AC;
+  --sky-dark: #007CDB;
+  --mint-dark: #549531;
+
+  --color-lavender-dark: #4449AC;
+  --color-sky-dark: #007CDB;
+  --color-mint-dark: #549531;
+
   /* Gradients */
   --gradient-card-mint: linear-gradient(135deg, #BFE8B2 0%, #D2F0C6 50%, #E2F6DB 100%);
   --gradient-card-lavender: linear-gradient(135deg, #C2C5F6 0%, #D4D7F8 50%, #E6E7FA 100%);
@@ -43,7 +52,7 @@
   /* 3.2 Typography */
   --font-serif: "Domine", Georgia, serif;
   --font-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --tracking-compact: -0.04em;
+
   --line-height-heading: 1.1;
   --line-height-body: 1.15;
 

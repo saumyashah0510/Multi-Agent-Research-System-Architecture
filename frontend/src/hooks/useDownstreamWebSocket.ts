@@ -110,7 +110,7 @@ export function getDownstreamStageIndex(stageName: string): number | null {
 export function getDefaultCompletedResult(index: number): string {
   switch (index) {
     case 0:
-      return "Full-text PDFs extracted and cached to AWS S3";
+      return "Full-text PDFs extracted and cached";
     case 1:
       return "384D dense semantic vector embeddings indexed";
     case 2:
@@ -129,7 +129,7 @@ export function getDynamicCompletedResult(index: number, data?: any): string {
   switch (index) {
     case 0:
       if (data.pdf_count || data.count) {
-        return `${data.pdf_count || data.count} full-text PDFs cached to S3`;
+        return `${data.pdf_count || data.count} full-text PDFs extracted and cached`;
       }
       return getDefaultCompletedResult(0);
     case 1:
@@ -361,7 +361,7 @@ export function useDownstreamWebSocket(
 
     const steps = [
       { stage: "PDF_EXTRACTION", status: "running", message: "Extracting methodology, results, and discussion sections..." },
-      { stage: "PDF_EXTRACTION", status: "completed", message: "Full-text PDFs extracted and cached to AWS S3" },
+      { stage: "PDF_EXTRACTION", status: "completed", message: "Full-text PDFs extracted and cached" },
       { stage: "VECTOR_EMBEDDING", status: "running", message: "Generating 384-dimensional dense semantic vectors..." },
       { stage: "VECTOR_EMBEDDING", status: "completed", message: "384D dense semantic vector embeddings indexed" },
       { stage: "GAP_ANALYSIS", status: "running", message: "Synthesizing cross-paper methodology matrix and 3-5 research gaps..." },

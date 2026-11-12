@@ -15,6 +15,7 @@ import { PaperSummary } from "../components/PaperSummaryCard";
 import { ReviewStatus, WebSocketStageUpdateEvent } from "../types";
 
 export interface ReviewWebSocketState {
+  reviewId: string | null;
   stages: PipelineStage[];
   screenedPapers: PaperSummary[];
   status: ReviewStatus;
@@ -103,7 +104,7 @@ export function normalizePaper(raw: any, index: number): PaperSummary {
   const venue = raw.venue || raw.source || raw.journal || "Academic Repository";
   const abstract = raw.abstract || raw.summary || "No abstract available.";
 
-  let relevanceScore = 95;
+  let relevanceScore: number | undefined;
   const scoreVal = raw.relevance_score ?? raw.relevanceScore ?? raw.score;
   if (typeof scoreVal === "number") {
     relevanceScore = scoreVal <= 1 ? Math.round(scoreVal * 100) : Math.round(scoreVal);
@@ -164,6 +165,7 @@ function getStageIndex(stageName: string): number | null {
 }
 
 export function useReviewWebSocket(reviewId: string | null): ReviewWebSocketState {
+  const [sessionReviewId, setSessionReviewId] = useState<string | null>(reviewId);
   const [stages, setStages] = useState<PipelineStage[]>(() =>
     INITIAL_DEMO_STAGES.map((s) => ({ ...s }))
   );
@@ -444,9 +446,13 @@ export function useReviewWebSocket(reviewId: string | null): ReviewWebSocketStat
   }, [reviewId]);
 
   useEffect(() => {
-    if (!reviewId) return;
+    if (!reviewId) {
+      setSessionReviewId(null);
+      return;
+    }
 
     // Reset lifecycle state on new reviewId
+    setSessionReviewId(reviewId);
     isManualCloseRef.current = false;
     isPausedForInputRef.current = false;
     isCompletedRef.current = false;
@@ -477,6 +483,7 @@ export function useReviewWebSocket(reviewId: string | null): ReviewWebSocketStat
   }, [reviewId, connect]);
 
   return {
+    reviewId: sessionReviewId,
     stages,
     screenedPapers,
     status,

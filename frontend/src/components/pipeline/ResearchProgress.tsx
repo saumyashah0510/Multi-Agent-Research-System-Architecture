@@ -25,6 +25,10 @@ export interface ResearchProgressProps {
   onFindMore?: () => void;
   /** Loading flag when finding more papers */
   isFindingMore?: boolean;
+  /** Total papers screened */
+  screenedCount?: number;
+  /** Relevant papers retained */
+  relevantCount?: number;
 }
 
 export const ResearchProgress: React.FC<ResearchProgressProps> = ({
@@ -37,6 +41,8 @@ export const ResearchProgress: React.FC<ResearchProgressProps> = ({
   onComplete,
   onFindMore,
   isFindingMore = false,
+  screenedCount,
+  relevantCount,
 }) => {
   const isMock = customIsMock ?? true;
   const mock = useMockPipeline({
@@ -54,6 +60,30 @@ export const ResearchProgress: React.FC<ResearchProgressProps> = ({
   useEffect(() => {
     setIsCollapsed(Boolean(isCompleted));
   }, [isCompleted]);
+
+  const completedStages = stages.filter((s) => s.status === "completed").length;
+
+  // Compute dynamic summary text without any hardcoded numbers
+  const dynamicSummaryText = (() => {
+    const parts: string[] = [];
+    if (completedStages > 0) {
+      parts.push(`${completedStages} ${completedStages === 1 ? "stage" : "stages"} finished`);
+    } else {
+      parts.push("Pipeline completed");
+    }
+
+    if (screenedCount !== undefined && screenedCount > 0) {
+      parts.push(`${screenedCount} ${screenedCount === 1 ? "paper" : "papers"} screened`);
+    }
+
+    if (relevantCount !== undefined && relevantCount > 0) {
+      parts.push(`${relevantCount} relevant ${relevantCount === 1 ? "paper" : "papers"} retained`);
+    } else if (screenedCount !== undefined && screenedCount > 0) {
+      parts.push("Ready for review");
+    }
+
+    return parts.join(" · ");
+  })();
 
   const renderStagesList = () => (
     <div className="flex flex-col">
@@ -80,44 +110,48 @@ export const ResearchProgress: React.FC<ResearchProgressProps> = ({
         aria-label="Research Progress and Paper Status"
         className="w-full bg-white rounded-2xl border border-neutral-200/80 shadow-xs overflow-hidden transition-all duration-200 animate-in fade-in"
       >
-        {/* Top Header Row: Status, Title, Matching Completed Pill, and View Details Toggle */}
-        <div className="px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <CircleCheck className="w-6 h-6 sm:w-6.5 sm:h-6.5 text-[var(--color-success)] stroke-[2.2] shrink-0" />
+        {/* Top Header Row: Status, Title, Matching Completed Pill, and View Details Toggle with proper spacing */}
+        <div className="px-5 sm:px-7 py-4 sm:py-4.5 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5 sm:gap-4">
+            <CircleCheck className="w-6 h-6 sm:w-7 sm:h-7 text-[var(--color-success)] stroke-[2.2] shrink-0" />
 
             <div>
-              <div className="flex items-center gap-2">
-                <h3 className="font-serif text-[17px] font-medium tracking-compact text-neutral-900">
+              <div className="flex items-center gap-2.5">
+                <h3 className="font-serif text-[17px] sm:text-lg font-medium tracking-compact text-neutral-900 leading-snug">
                   Research Progress
                 </h3>
-                <span className="text-[11px] font-semibold bg-[var(--color-success-light)] text-[var(--color-success-dark)] border border-[var(--color-success)]/30 px-2.5 py-0.5 rounded-full">
+                <span
+                  style={{ borderRadius: "var(--radius-sm)" }}
+                  className="text-xs font-semibold bg-[var(--tint-mint)] text-[var(--color-success-dark)] border border-[var(--color-success-border)] px-2.5 py-0.5 select-none"
+                >
                   Completed
                 </span>
               </div>
-              <p className="font-sans text-xs text-neutral-500 mt-0.5">
-                3 stages finished · 24 papers screened · 10 relevant papers retained
+              <p className="font-sans text-xs text-neutral-500 mt-1 leading-normal tracking-normal">
+                {dynamicSummaryText}
               </p>
             </div>
           </div>
 
-          {/* Action Buttons: Find More Papers & Toggle details */}
-          <div className="flex items-center gap-2">
+          {/* Action Buttons: Find More Papers & Toggle details with proper spacing */}
+          <div className="flex items-center gap-3">
             {onFindMore && (
               <button
                 type="button"
                 onClick={onFindMore}
                 disabled={isFindingMore}
                 title="Search academic sources for more candidate papers"
+                style={{ borderRadius: "var(--radius-sm)" }}
                 className={cn(
-                  "text-xs font-semibold px-3.5 py-1.5 rounded-full shadow-xs transition-all tracking-compact flex items-center gap-1.5 cursor-pointer",
+                  "h-8 px-4 text-xs font-semibold transition-all inline-flex items-center gap-2.5 shadow-xs cursor-pointer select-none tracking-normal",
                   isFindingMore
                     ? "bg-neutral-200 text-neutral-400 cursor-wait"
-                    : "bg-neutral-900 hover:bg-black text-white hover:scale-[1.02] active:scale-95"
+                    : "bg-neutral-900 hover:bg-black text-white active:scale-95"
                 )}
               >
                 {isFindingMore ? (
                   <>
-                    <svg className="animate-spin h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24">
+                    <svg className="animate-spin h-3.5 w-3.5 text-white shrink-0" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
                     </svg>
@@ -125,7 +159,7 @@ export const ResearchProgress: React.FC<ResearchProgressProps> = ({
                   </>
                 ) : (
                   <>
-                    <RotateCcw className="w-3.5 h-3.5" />
+                    <RotateCcw className="w-3.5 h-3.5 shrink-0" />
                     <span>Find More Papers</span>
                   </>
                 )}
@@ -135,15 +169,16 @@ export const ResearchProgress: React.FC<ResearchProgressProps> = ({
             <button
               type="button"
               onClick={() => setIsCollapsed(!isCollapsed)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium text-neutral-800 bg-neutral-100 hover:bg-neutral-200 active:scale-95 transition-all cursor-pointer border border-neutral-200/80 shadow-2xs"
+              style={{ borderRadius: "var(--radius-sm)" }}
+              className="h-8 inline-flex items-center gap-2 px-3.5 text-xs font-medium text-neutral-800 bg-neutral-100 hover:bg-neutral-200 active:scale-95 transition-all cursor-pointer border border-neutral-200/80 shadow-2xs select-none tracking-normal"
               aria-expanded={!isCollapsed}
               aria-label={isCollapsed ? "View details of research pipeline" : "Hide details of research pipeline"}
             >
               <span>{isCollapsed ? "View details" : "Hide details"}</span>
               {isCollapsed ? (
-                <ChevronDown className="w-3.5 h-3.5 text-neutral-600" />
+                <ChevronDown className="w-3.5 h-3.5 text-neutral-600 shrink-0" />
               ) : (
-                <ChevronUp className="w-3.5 h-3.5 text-neutral-600" />
+                <ChevronUp className="w-3.5 h-3.5 text-neutral-600 shrink-0" />
               )}
             </button>
           </div>
@@ -151,7 +186,7 @@ export const ResearchProgress: React.FC<ResearchProgressProps> = ({
 
         {/* Expandable Details Body */}
         {!isCollapsed && (
-          <div className="px-4 sm:px-6 pb-5 pt-2 border-t border-neutral-100 animate-in fade-in duration-200">
+          <div className="px-5 sm:px-7 pb-5 pt-2 border-t border-neutral-100 animate-in fade-in duration-200">
             <div className="mt-3">
               {renderStagesList()}
             </div>
@@ -170,14 +205,17 @@ export const ResearchProgress: React.FC<ResearchProgressProps> = ({
       {/* Header Row: Title, Subtitle, and Mock Indicator */}
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 pb-5 border-b border-neutral-100">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             <h2 className="font-serif text-xl sm:text-2xl font-normal tracking-compact text-neutral-900 leading-[1.1]">
               Research Progress
             </h2>
             {isRunning && (
-              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-700 bg-blue-50 border border-blue-200/60 px-2 py-0.5 rounded-full">
-                <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse" />
-                Processing
+              <span
+                style={{ borderRadius: "var(--radius-sm)" }}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--color-sky-dark)] bg-[var(--tint-sky)] border border-[var(--color-pill-sky)] px-2.5 py-0.5 select-none"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-sky-dark)] animate-pulse shrink-0" />
+                <span>Processing</span>
               </span>
             )}
           </div>

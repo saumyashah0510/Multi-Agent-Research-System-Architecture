@@ -9,6 +9,8 @@ export interface ButtonProps {
   href?: string;
   onClick?: () => void;
   className?: string;
+  style?: React.CSSProperties;
+  radius?: "sm" | "lg" | "pill";
   type?: "button" | "submit" | "reset";
   icon?: React.ReactNode;
   iconPosition?: "left" | "right";
@@ -23,6 +25,8 @@ export default function Button({
   href,
   onClick,
   className = "",
+  style,
+  radius = "sm",
   type = "button",
   icon,
   iconPosition = "left",
@@ -32,15 +36,22 @@ export default function Button({
 }: ButtonProps) {
   const shouldReduceMotion = useReducedMotion();
 
+  const radiusMap: Record<"sm" | "lg" | "pill", string> = {
+    sm: "var(--radius-sm)",
+    lg: "var(--radius-lg)",
+    pill: "var(--radius-pill)",
+  };
+
   const buttonStyle: React.CSSProperties = {
     backgroundColor: "var(--color-button-primary)",
     color: "var(--color-button-primary-text)",
-    borderRadius: "var(--radius-lg)",
+    borderRadius: radiusMap[radius],
     fontFamily: "var(--font-sans)",
     letterSpacing: "var(--tracking-compact)",
     boxShadow: "var(--shadow-button)",
     transition:
       "box-shadow var(--duration-fast) var(--ease-standard), background-color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard)",
+    ...style,
   };
 
   const hoverAnimation = shouldReduceMotion

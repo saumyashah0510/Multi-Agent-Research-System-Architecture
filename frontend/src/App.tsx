@@ -18,6 +18,8 @@ export default function App() {
           <Route path="papers" element={<Dashboard />} />
           <Route path="chat" element={<Dashboard />} />
           <Route path="reports" element={<Dashboard />} />
+          <Route path="report" element={<Dashboard />} />
+
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>
       </Routes>
