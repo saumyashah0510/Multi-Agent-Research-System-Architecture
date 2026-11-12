@@ -78,6 +78,17 @@ jobs:
             docker compose build backend
             docker builder prune -f 2>/dev/null || true
 
+            # 4. Re-establish 2GB swap space so runtime services (PyTorch / PDF parsing) never get OOM-killed
+            echo "Ensuring 2GB swap space is active for runtime stability..."
+            if ! swapon --show | grep -q "/swapfile"; then
+              if [ ! -f /swapfile ]; then
+                sudo fallocate -l 2G /swapfile 2>/dev/null || sudo dd if=/dev/zero of=/swapfile bs=1M count=2048 2>/dev/null || true
+                sudo chmod 600 /swapfile 2>/dev/null || true
+                sudo mkswap /swapfile 2>/dev/null || true
+              fi
+              sudo swapon /swapfile 2>/dev/null || true
+            fi
+
             echo "Starting application stack..."
             docker compose up -d
             echo "DEPLOYMENT COMPLETE! Application running cleanly on EC2!"
