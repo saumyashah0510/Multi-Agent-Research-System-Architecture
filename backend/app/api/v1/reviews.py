@@ -174,6 +174,7 @@ async def _run_initial_graph(
                         rev = await session.get(LiteratureReview, review_id)
                         if rev:
                             rev.status = ReviewStatus.AWAITING_USER_INPUT.value
+                        paper_pairs = []
                         for p in screened:
                             paper_obj = Paper(
                                 title=p.get("title") or "Untitled Paper",
@@ -190,7 +191,12 @@ async def _run_initial_graph(
                                 review_id=review_id,
                             )
                             session.add(paper_obj)
+                            paper_pairs.append((p, paper_obj))
                         await session.commit()
+                        for p, paper_obj in paper_pairs:
+                            if getattr(paper_obj, "id", None) is not None:
+                                p["id"] = str(paper_obj.id)
+                                p["paper_id"] = str(paper_obj.id)
                 except Exception as db_exc:
                     logger.debug("DB paper persistence error: %s", db_exc)
 
@@ -693,13 +699,47 @@ async def approve_papers(
                     paper_stmt = select(Paper).where(Paper.review_id == num_id)
                     res = await db.execute(paper_stmt)
                     db_papers = res.scalars().all()
+                    approved_set = set()
+                    for item in request.approved_paper_ids:
+                        if item and str(item).strip():
+                            val = str(item).strip().lower()
+                            approved_set.add(val)
+                            if "doi.org/" in val:
+                                approved_set.add(val.split("doi.org/", 1)[-1].strip("/"))
+
                     for p in db_papers:
-                        if (
-                            str(p.id) in request.approved_paper_ids
-                            or (p.arxiv_id and p.arxiv_id in request.approved_paper_ids)
-                            or p.title in request.approved_paper_ids
-                        ):
+                        paper_identifiers = {
+                            str(p.id),
+                            p.arxiv_id or "",
+                            p.doi or "",
+                            str(p.pubmed_id or ""),
+                            p.title or "",
+                            p.pdf_url or "",
+                            p.url or "",
+                        }
+                        if p.doi:
+                            clean_doi = (
+                                str(p.doi)
+                                .strip()
+                                .lower()
+                                .replace("https://doi.org/", "")
+                                .replace("http://doi.org/", "")
+                                .strip("/")
+                            )
+                            paper_identifiers.add(clean_doi)
+                            paper_identifiers.add(f"https://doi.org/{clean_doi}")
+                            paper_identifiers.add(f"http://doi.org/{clean_doi}")
+                        clean_ids = {str(x).strip().lower() for x in paper_identifiers if x}
+                        if bool(clean_ids & approved_set):
                             p.is_approved = True
+                        elif not p.is_approved and p.title:
+                            p_title_norm = p.title.strip().lower()
+                            if any(
+                                p_title_norm in app_id or app_id in p_title_norm
+                                for app_id in approved_set
+                                if len(app_id) > 10
+                            ):
+                                p.is_approved = True
                 await db.commit()
         except Exception as exc:
             logger.warning("Could not update status for review %s: %s", review_id, exc)
