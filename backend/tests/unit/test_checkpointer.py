@@ -1,12 +1,19 @@
 """Unit tests for LangGraph Checkpointer Factory (Issue BE-15)."""
 
-import psycopg_pool
 import pytest
 from app.agents import checkpointer as cp
 from app.agents.checkpointer import get_checkpointer, sanitize_connection_string
 from app.agents.orchestrator import build_literature_review_graph
 from langgraph.checkpoint.base import empty_checkpoint
 from langgraph.checkpoint.memory import MemorySaver
+
+
+def _config():
+    return {"configurable": {"thread_id": "be-15-thread", "checkpoint_ns": ""}}
+
+
+def _metadata():
+    return {"source": "input", "step": 0, "writes": {}, "parents": {}}
 
 
 def test_checkpointer_force_memory():
@@ -34,36 +41,50 @@ def test_sanitize_connection_string():
     assert sanitize_connection_string(plain) == plain
 
 
-async def test_init_falls_back_to_memory_when_postgres_unavailable(monkeypatch):
-    """A failing database connection must never break the pipeline."""
+def test_get_checkpointer_never_raises_without_event_loop(monkeypatch):
+    """Outside an event loop the factory must fall back instead of crashing."""
+    monkeypatch.setattr(cp, "_is_test_env", lambda: False)
+    monkeypatch.setattr(cp, "_checkpointer_instance", None)
+    assert isinstance(get_checkpointer(), MemorySaver)
+
+
+@pytest.mark.asyncio
+async def test_postgres_unavailable_falls_back_to_memory(monkeypatch):
+    """A failing database must never break the pipeline; state still persists in memory."""
+    import psycopg_pool
 
     class _BrokenPool:
         def __init__(self, *args, **kwargs):
+            pass
+
+        async def open(self, *args, **kwargs):
             raise RuntimeError("database unavailable")
+
+        async def close(self):
+            pass
 
     monkeypatch.setattr(cp, "_is_test_env", lambda: False)
     monkeypatch.setattr(cp, "_checkpointer_instance", None)
-    monkeypatch.setattr(cp, "_memory_fallback", None)
     monkeypatch.setattr(psycopg_pool, "AsyncConnectionPool", _BrokenPool)
 
-    saver = await cp.init_postgres_checkpointer()
-    assert isinstance(saver, MemorySaver)
-    # Subsequent calls keep returning the same shared fallback instance
-    assert cp.get_checkpointer() is saver
+    saver = get_checkpointer()
+    checkpoint = empty_checkpoint()
+    await saver.aput(_config(), checkpoint, _metadata(), {})
+    restored = await saver.aget_tuple(_config())
+    assert restored is not None
+    assert restored.checkpoint["id"] == checkpoint["id"]
 
 
 @pytest.mark.asyncio
 async def test_checkpoint_snapshot_persistence():
     """Verify state snapshot writing and retrieval across a thread ID."""
     saver = get_checkpointer(force_memory=True)
-    config = {"configurable": {"thread_id": "be-15-thread", "checkpoint_ns": ""}}
     checkpoint = empty_checkpoint()
-    metadata = {"source": "input", "step": 0, "writes": {}, "parents": {}}
 
-    saved_config = await saver.aput(config, checkpoint, metadata, {})
+    saved_config = await saver.aput(_config(), checkpoint, _metadata(), {})
     assert saved_config["configurable"]["checkpoint_id"] == checkpoint["id"]
 
-    restored = await saver.aget_tuple(config)
+    restored = await saver.aget_tuple(_config())
     assert restored is not None
     assert restored.checkpoint["id"] == checkpoint["id"]
     assert restored.metadata["step"] == 0
