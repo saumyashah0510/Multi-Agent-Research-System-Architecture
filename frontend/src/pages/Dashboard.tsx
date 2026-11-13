@@ -9,11 +9,13 @@ import { createReviewTask, submitHumanDecision, getReviewStatus } from "../lib/a
 import ResearchProgress from "../components/pipeline/ResearchProgress";
 import useReviewWebSocket, { normalizePaper } from "../hooks/useReviewWebSocket";
 import { type ReviewHistoryItem } from "../types";
+import { useAuth } from "../context/AuthContext";
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
+  const { isAuthenticated } = useAuth();
 
   // Review session state (must be established by backend; no temporary fallback IDs)
   const [reviewId, setReviewId] = useState<string | null>(null);
@@ -188,6 +190,11 @@ export default function Dashboard() {
   const [approvalSuccess, setApprovalSuccess] = useState<string | null>(null);
 
   const handleSearch = async (params: ResearchSearchParams) => {
+    if (!isAuthenticated) {
+      navigate("/login", { state: { from: location } });
+      return;
+    }
+
     setActiveQuery(params.query);
     setHasSearched(true);
     setIsPipelineDone(false);
@@ -219,8 +226,16 @@ export default function Dashboard() {
         setHasSearched(false);
         setApprovalError("Failed to initialize review session. Please try searching again.");
       }
-    } catch (err) {
+    } catch (err: any) {
       console.warn("Could not initiate backend review task:", err);
+      if (
+        err?.message?.includes("401") ||
+        err?.message?.toLowerCase()?.includes("unauthorized") ||
+        err?.message?.toLowerCase()?.includes("token")
+      ) {
+        navigate("/login", { state: { from: location } });
+        return;
+      }
       if (params.review_id) {
         setReviewId(params.review_id);
       } else {

@@ -1,27 +1,47 @@
 /**
  * Login Page
  *
- * Assignee Task (Issue FE-11):
- * - Render email & password sign-in form with validation.
- * - Call login() from useAuth().
- * - Redirect to /dashboard upon successful login.
- * - Render social login buttons (Google & GitHub) as placeholders for Issue FE-12.
+ * Implements [FE-11] Authentication UI & Session Integration
+ * Designed to match the split-screen academic Scholaris layout:
+ * - Left panel: Light green illustration canvas (Login_img.png)
+ * - Right panel: Crisp sign-in form with email/password validation,
+ *   eye toggle, remember me switch, and Google/GitHub triggers.
  */
 
 import React, { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { AlertCircle, Eye, EyeOff } from "lucide-react";
+import { FcGoogle } from "react-icons/fc";
+import { FaGithub } from "react-icons/fa";
 import { useAuth } from "../context/AuthContext";
 import scholarisLogo from "../images/Scholaris_logo.png";
-import SocialLoginButtons from "../components/auth/SocialLoginButtons";
+import loginImg from "../images/Login_img.png";
 
 export default function Login() {
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const location = useLocation();
+  const { login, isAuthenticated } = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Helper to resolve saved destination or fallback
+  const getDestination = () => {
+    const from = (location.state as any)?.from;
+    if (!from) return "/dashboard";
+    if (typeof from === "string") return from;
+    return `${from.pathname || ""}${from.search || ""}${from.hash || ""}` || "/dashboard";
+  };
+
+  // If already authenticated, redirect to destination or dashboard
+  React.useEffect(() => {
+    if (isAuthenticated) {
+      navigate(getDestination(), { replace: true });
+    }
+  }, [isAuthenticated, navigate, location.state]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,98 +49,160 @@ export default function Login() {
     setIsSubmitting(true);
 
     try {
-      // TODO (Assignee - FE-11): Call login(email, password) and navigate to "/dashboard"
       await login(email, password);
-      navigate("/dashboard");
+      navigate(getDestination(), { replace: true });
     } catch (err: any) {
-      setError(err.message || "Failed to sign in. Please verify your credentials.");
+      setError(err.message || "Invalid email or password. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  const handleGoogleSocial = () => {
+    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+    if (!clientId) {
+      setError("Google Sign-In is not configured in environment (VITE_GOOGLE_CLIENT_ID).");
+      return;
+    }
+    const redirectUri = encodeURIComponent(`${window.location.origin}/auth/callback`);
+    window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=openid%20email%20profile&prompt=select_account`;
+  };
+
+  const handleGitHubSocial = () => {
+    const clientId = import.meta.env.VITE_GITHUB_CLIENT_ID;
+    if (!clientId) {
+      setError("GitHub Sign-In is not configured in environment (VITE_GITHUB_CLIENT_ID).");
+      return;
+    }
+    const redirectUri = encodeURIComponent(`${window.location.origin}/auth/callback`);
+    window.location.href = `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&scope=user:email`;
+  };
+
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 py-12 bg-surface text-neutral-900">
-      <div className="w-full max-w-md bg-white/80 backdrop-blur-md rounded-2xl border border-neutral-200/80 shadow-card p-8">
-        {/* Brand Header */}
-        <div className="text-center mb-8">
-          <Link to="/" className="inline-block mb-3">
-            <img src={scholarisLogo} alt="Scholaris Logo" className="h-10 mx-auto object-contain" />
+    <div
+      className="min-h-screen w-full flex items-center justify-center p-4 sm:p-6 md:p-8"
+      style={{ background: "var(--gradient-auth-bg)" }}
+    >
+      <div className="w-full max-w-[880px] md:min-h-[520px] bg-white rounded-2xl shadow-2xl shadow-blue-900/10 overflow-hidden grid grid-cols-1 md:grid-cols-2 border border-white/60">
+        {/* Left Side: Illustration Panel */}
+        <div
+          className="flex items-center justify-center relative overflow-hidden w-full h-full min-h-[300px] md:min-h-[520px]"
+          style={{ background: "var(--tint-mint)" }}
+        >
+          <img
+            src={loginImg}
+            alt="Scholaris Research Illustration"
+            className="w-full h-auto object-contain select-none"
+          />
+        </div>
+
+        {/* Right Side: Sign In Form */}
+        <div className="p-8 sm:p-10 flex flex-col justify-center bg-white h-full">
+          {/* Header / Brand */}
+          <Link to="/" className="inline-flex items-center gap-2.5 mb-5 group no-underline">
+            <img src={scholarisLogo} alt="Scholaris Logo" className="w-7 h-7 object-contain" />
+            <span className="font-bold text-lg text-neutral-900 tracking-tight group-hover:text-emerald-700 transition">
+              Scholaris
+            </span>
           </Link>
-          <h2 className="font-serif-heading text-2xl font-bold tracking-tight text-neutral-900">
+
+          <h1 className="text-xl sm:text-2xl font-bold text-neutral-900 mb-5">
             Welcome back
-          </h2>
-          <p className="text-sm text-neutral-500 mt-1">
-            Sign in to access your literature reviews and research synthesis
+          </h1>
+
+          {/* Form */}
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-neutral-500 mb-1.5">
+                Login
+              </label>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="Email"
+                style={{ background: "var(--color-surface)" }}
+                className="w-full px-3.5 py-2.5 rounded-[var(--radius-sm)] border border-transparent text-sm text-neutral-800 placeholder-neutral-400 focus:bg-white focus:border-neutral-300 focus:outline-none transition"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-neutral-500 mb-1.5">
+                Password
+              </label>
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Enter password"
+                  style={{ background: "var(--color-surface)" }}
+                  className="w-full px-3.5 py-2.5 rounded-[var(--radius-sm)] border border-transparent text-sm text-neutral-800 placeholder-neutral-400 focus:bg-white focus:border-neutral-300 focus:outline-none pr-10 transition"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 transition p-1"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              style={{ background: "var(--color-accent)" }}
+              className="w-full py-2.5 px-4 rounded-[var(--radius-sm)] text-neutral-900 font-bold text-sm transition shadow-xs hover:opacity-90 disabled:opacity-60 cursor-pointer mt-2"
+            >
+              {isSubmitting ? "Signing in..." : "Login"}
+            </button>
+          </form>
+
+          {/* Social Sign In Buttons */}
+          <div className="grid grid-cols-2 gap-3 mt-4">
+            <button
+              type="button"
+              onClick={handleGoogleSocial}
+              className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-[var(--radius-sm)] bg-white hover:bg-neutral-50 text-neutral-800 text-xs font-semibold transition cursor-pointer border border-neutral-300 hover:border-neutral-400 shadow-xs"
+            >
+              <FcGoogle className="w-4 h-4 shrink-0 text-base" />
+              <span className="truncate">Sign in with Google</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleGitHubSocial}
+              className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-[var(--radius-sm)] bg-white hover:bg-neutral-50 text-neutral-800 text-xs font-semibold transition cursor-pointer border border-neutral-300 hover:border-neutral-400 shadow-xs"
+            >
+              <FaGithub className="w-4 h-4 shrink-0 text-neutral-900 text-base" />
+              <span className="truncate">Sign in with GitHub</span>
+            </button>
+          </div>
+
+          {/* Error Message below Social Buttons */}
+          {error && (
+            <div className="mt-3 w-full p-2.5 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2 transition-all">
+              <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+              <span className="leading-tight">{error}</span>
+            </div>
+          )}
+
+          {/* Footer Navigation */}
+          <p className="mt-4 text-center text-xs text-neutral-500">
+            Don't have an account?{" "}
+            <Link
+              to="/signup"
+              state={location.state}
+              className="font-semibold text-neutral-900 hover:underline"
+            >
+              Sign up now
+            </Link>
           </p>
         </div>
-
-        {/* Error Alert */}
-        {error && (
-          <div className="mb-6 p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
-            {error}
-          </div>
-        )}
-
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-600 mb-1">
-              Email Address
-            </label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="researcher@university.edu"
-              className="w-full px-3.5 py-2.5 rounded-xl border border-neutral-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-600 transition"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-600 mb-1">
-              Password
-            </label>
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              className="w-full px-3.5 py-2.5 rounded-xl border border-neutral-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-600 transition"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="w-full mt-2 py-2.5 px-4 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-white font-medium text-sm transition shadow-sm hover:shadow disabled:opacity-50"
-          >
-            {isSubmitting ? "Signing in..." : "Sign In"}
-          </button>
-        </form>
-
-        {/* Divider */}
-        <div className="relative my-6">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-neutral-200" />
-          </div>
-          <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-white px-3 text-neutral-400 font-medium">Or continue with</span>
-          </div>
-        </div>
-
-        {/* Social Buttons */}
-        <SocialLoginButtons onError={setError} />
-
-        {/* Footer Link */}
-        <p className="mt-8 text-center text-xs text-neutral-500">
-          Don't have an account?{" "}
-          <Link to="/signup" className="font-semibold text-emerald-700 hover:text-emerald-800 underline">
-            Sign up
-          </Link>
-        </p>
       </div>
     </div>
   );
