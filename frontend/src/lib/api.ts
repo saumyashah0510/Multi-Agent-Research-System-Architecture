@@ -206,8 +206,7 @@ export async function fetchCurrentUser(): Promise<UserProfile> {
 
 
 // OAuth API Helpers (Issue FE-12)
-export async function authWithGoogle(credential?: string, code?: string): Promise<any> {
-  // TODO (Assignee - FE-12): POST to /auth/google with { credential, code }
+export async function authWithGoogle(credential?: string, code?: string): Promise<AuthResponse> {
   const res = await fetch(`${getApiBaseUrl()}/auth/google`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -220,8 +219,7 @@ export async function authWithGoogle(credential?: string, code?: string): Promis
   return res.json();
 }
 
-export async function authWithGitHub(code: string): Promise<any> {
-  // TODO (Assignee - FE-12): POST to /auth/github with { code }
+export async function authWithGitHub(code: string): Promise<AuthResponse> {
   const res = await fetch(`${getApiBaseUrl()}/auth/github`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

@@ -1,9 +1,10 @@
 /**
  * SocialLoginButtons Component
  *
- * Assignee Task (Issue FE-12):
- * - Wire 'Continue with Google' button using Google Identity Services (or OAuth redirect).
- * - Wire 'Continue with GitHub' button redirecting to GitHub authorization endpoint.
+ * Implements [FE-12] OAuth 2.0 Social Login Integration
+ * Provides one-click authentication triggers for:
+ * - Continue with Google (OAuth 2.0 Authorization Endpoint)
+ * - Continue with GitHub (OAuth 2.0 Authorize Endpoint)
  */
 
 import { FcGoogle } from "react-icons/fc";
@@ -12,49 +13,82 @@ import { FaGithub } from "react-icons/fa";
 export interface SocialLoginButtonsProps {
   onSuccess?: () => void;
   onError?: (err: string) => void;
+  mode?: "signin" | "signup";
+  returnTo?: string;
+  className?: string;
 }
 
-export default function SocialLoginButtons({ onError }: SocialLoginButtonsProps) {
+export default function SocialLoginButtons({
+  onError,
+  mode = "signin",
+  returnTo = "/dashboard",
+  className = "grid grid-cols-2 gap-3",
+}: SocialLoginButtonsProps) {
   const handleGoogleLogin = () => {
     const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
     if (!clientId) {
-      if (onError) onError("Google Client ID is not configured in .env (VITE_GOOGLE_CLIENT_ID)");
+      if (onError) onError("Google Sign-In is not configured in environment (VITE_GOOGLE_CLIENT_ID).");
       return;
     }
+
     const redirectUri = encodeURIComponent(`${window.location.origin}/auth/callback`);
-    const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=openid%20email%20profile&prompt=select_account`;
+    const statePayload = { provider: "google", returnTo: returnTo || "/dashboard" };
+    const encodedState = encodeURIComponent(JSON.stringify(statePayload));
+
+    try {
+      sessionStorage.setItem("oauth_redirect_info", JSON.stringify(statePayload));
+    } catch {
+      // sessionStorage might be restricted in private/incognito contexts
+    }
+
+    const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=openid%20email%20profile&prompt=select_account&state=${encodedState}`;
     window.location.href = googleAuthUrl;
   };
 
   const handleGitHubLogin = () => {
     const clientId = import.meta.env.VITE_GITHUB_CLIENT_ID;
     if (!clientId) {
-      if (onError) onError("GitHub Client ID is not configured in .env (VITE_GITHUB_CLIENT_ID)");
+      if (onError) onError("GitHub Sign-In is not configured in environment (VITE_GITHUB_CLIENT_ID).");
       return;
     }
+
     const redirectUri = encodeURIComponent(`${window.location.origin}/auth/callback`);
-    const githubAuthUrl = `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&scope=user:email`;
+    const statePayload = { provider: "github", returnTo: returnTo || "/dashboard" };
+    const encodedState = encodeURIComponent(JSON.stringify(statePayload));
+
+    try {
+      sessionStorage.setItem("oauth_redirect_info", JSON.stringify(statePayload));
+    } catch {
+      // sessionStorage might be restricted
+    }
+
+    const githubAuthUrl = `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&scope=user:email&state=${encodedState}`;
     window.location.href = githubAuthUrl;
   };
 
+  const googleLabel = mode === "signup" ? "Sign up with Google" : "Sign in with Google";
+  const githubLabel = mode === "signup" ? "Sign up with GitHub" : "Sign in with GitHub";
+
   return (
-    <div className="grid grid-cols-2 gap-3">
+    <div className={className}>
       <button
         type="button"
         onClick={handleGoogleLogin}
-        className="flex items-center justify-center gap-2 py-2 px-3 border border-neutral-300 rounded-xl text-xs font-semibold text-neutral-800 bg-white hover:bg-neutral-50 transition cursor-pointer shadow-xs"
+        aria-label={googleLabel}
+        className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-[var(--radius-sm)] bg-white hover:bg-neutral-50 text-neutral-800 text-xs font-semibold transition cursor-pointer border border-neutral-300 hover:border-neutral-400 shadow-xs"
       >
         <FcGoogle className="w-4 h-4 shrink-0 text-base" />
-        <span>Google</span>
+        <span className="truncate">{googleLabel}</span>
       </button>
 
       <button
         type="button"
         onClick={handleGitHubLogin}
-        className="flex items-center justify-center gap-2 py-2 px-3 border border-neutral-300 rounded-xl text-xs font-semibold text-neutral-800 bg-white hover:bg-neutral-50 transition cursor-pointer shadow-xs"
+        aria-label={githubLabel}
+        className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-[var(--radius-sm)] bg-white hover:bg-neutral-50 text-neutral-800 text-xs font-semibold transition cursor-pointer border border-neutral-300 hover:border-neutral-400 shadow-xs"
       >
         <FaGithub className="w-4 h-4 shrink-0 text-neutral-900 text-base" />
-        <span>GitHub</span>
+        <span className="truncate">{githubLabel}</span>
       </button>
     </div>
   );

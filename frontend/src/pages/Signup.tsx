@@ -11,8 +11,7 @@
 import React, { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { AlertCircle, Eye, EyeOff } from "lucide-react";
-import { FcGoogle } from "react-icons/fc";
-import { FaGithub } from "react-icons/fa";
+import SocialLoginButtons from "../components/auth/SocialLoginButtons";
 import { useAuth } from "../context/AuthContext";
 import scholarisLogo from "../images/Scholaris_logo.png";
 import loginImg from "../images/Login_img.png";
@@ -64,25 +63,7 @@ export default function Signup() {
     }
   };
 
-  const handleGoogleSocial = () => {
-    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-    if (!clientId) {
-      setError("Google Sign-In is not configured in environment (VITE_GOOGLE_CLIENT_ID).");
-      return;
-    }
-    const redirectUri = encodeURIComponent(`${window.location.origin}/auth/callback`);
-    window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=openid%20email%20profile&prompt=select_account`;
-  };
 
-  const handleGitHubSocial = () => {
-    const clientId = import.meta.env.VITE_GITHUB_CLIENT_ID;
-    if (!clientId) {
-      setError("GitHub Sign-In is not configured in environment (VITE_GITHUB_CLIENT_ID).");
-      return;
-    }
-    const redirectUri = encodeURIComponent(`${window.location.origin}/auth/callback`);
-    window.location.href = `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&scope=user:email`;
-  };
 
   return (
     <div
@@ -184,25 +165,12 @@ export default function Signup() {
           </form>
 
           {/* Social Sign Up Buttons */}
-          <div className="grid grid-cols-2 gap-3 mt-4">
-            <button
-              type="button"
-              onClick={handleGoogleSocial}
-              className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-[var(--radius-sm)] bg-white hover:bg-neutral-50 text-neutral-800 text-xs font-semibold transition cursor-pointer border border-neutral-300 hover:border-neutral-400 shadow-xs"
-            >
-              <FcGoogle className="w-4 h-4 shrink-0 text-base" />
-              <span className="truncate">Sign up with Google</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleGitHubSocial}
-              className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-[var(--radius-sm)] bg-white hover:bg-neutral-50 text-neutral-800 text-xs font-semibold transition cursor-pointer border border-neutral-300 hover:border-neutral-400 shadow-xs"
-            >
-              <FaGithub className="w-4 h-4 shrink-0 text-neutral-900 text-base" />
-              <span className="truncate">Sign up with GitHub</span>
-            </button>
-          </div>
+          <SocialLoginButtons
+            mode="signup"
+            returnTo={getDestination()}
+            onError={(err) => setError(err)}
+            className="grid grid-cols-2 gap-3 mt-4"
+          />
 
           {/* Error Message below Social Buttons */}
           {error && (
