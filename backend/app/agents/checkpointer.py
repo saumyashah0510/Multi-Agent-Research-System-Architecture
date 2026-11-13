@@ -1,15 +1,19 @@
 """LangGraph Checkpointer Factory with Persistent Neon PostgreSQL & Memory Fallback.
 
 get_checkpointer() is synchronous and never raises. It returns a saver that is
-safe to create at import time (no event loop needed). On its first async use it
-opens the Neon connection pool and creates the checkpoint tables. If the
-database is unavailable it serves requests from an in-memory fallback and
-retries the database after a short cooldown, so the literature review pipeline
-never crashes because of the checkpointer.
+safe to create at import time (no event loop needed). On first async use it
+opens the Neon connection pool and creates the checkpoint tables.
+
+Each thread is pinned to the backend it started on:
+- Threads that start while PostgreSQL is unavailable stay in memory, so their
+  state is never stranded when the database comes back.
+- Threads already on PostgreSQL keep using it; a later database error is raised
+  (state stays safe in Neon and can be resumed) instead of silently switching.
 """
 
 import asyncio
 import logging
+import os
 import time
 from typing import Optional
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -28,7 +32,9 @@ _checkpointer_instance: Optional[BaseCheckpointSaver] = None
 
 
 def _is_test_env() -> bool:
-    return str(getattr(settings, "ENVIRONMENT", "")).lower() == "test"
+    # Settings has no ENVIRONMENT field, so also read the real environment variable.
+    env = os.getenv("ENVIRONMENT") or getattr(settings, "ENVIRONMENT", "")
+    return str(env).lower() == "test"
 
 
 def sanitize_connection_string(url: str) -> str:
@@ -56,17 +62,27 @@ class LazyPostgresSaver(BaseCheckpointSaver):
         self._pool = None
         self._lock: Optional[asyncio.Lock] = None
         self._retry_at = 0.0
+        self._memory_threads: set[str] = set()  # threads pinned to memory
+        self._pg_threads: set[str] = set()  # threads confirmed on PostgreSQL
 
-    async def _backend(self) -> BaseCheckpointSaver:
+    @staticmethod
+    def _thread_id(config) -> str:
+        return str(((config or {}).get("configurable") or {}).get("thread_id", ""))
+
+    async def _connect(self) -> Optional[BaseCheckpointSaver]:
+        """Return the Postgres saver, or None while unavailable (cooldown applies)."""
         if self._saver is not None:
             return self._saver
         if time.monotonic() < self._retry_at:
-            return self._memory
+            return None
         if self._lock is None:
             self._lock = asyncio.Lock()
         async with self._lock:
             if self._saver is not None:
                 return self._saver
+            # Recheck: another caller may have just failed while we waited.
+            if time.monotonic() < self._retry_at:
+                return None
             pool = None
             try:
                 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -101,27 +117,65 @@ class LazyPostgresSaver(BaseCheckpointSaver):
                         await pool.close()
                     except Exception:  # nosec B110 - best-effort cleanup
                         pass
-                return self._memory
+                return None
+
+    async def _run(self, config, op: str, *args):
+        """Run an async saver operation on the backend this thread is pinned to."""
+        tid = self._thread_id(config)
+
+        if tid in self._memory_threads:
+            return await getattr(self._memory, op)(config, *args)
+
+        saver = await self._connect()
+        if saver is None:
+            self._memory_threads.add(tid)
+            return await getattr(self._memory, op)(config, *args)
+
+        if tid in self._pg_threads:
+            # Already on PostgreSQL: let errors surface so state is not split.
+            return await getattr(saver, op)(config, *args)
+
+        try:
+            result = await getattr(saver, op)(config, *args)
+        except Exception as exc:
+            logger.warning(
+                "Postgres checkpointer failed for new thread %s (%s). "
+                "Using MemorySaver for this thread.",
+                tid,
+                exc,
+            )
+            self._memory_threads.add(tid)
+            return await getattr(self._memory, op)(config, *args)
+
+        self._pg_threads.add(tid)
+        return result
 
     # ---- async API used by the LangGraph pipeline ----
     async def aget_tuple(self, config):
-        return await (await self._backend()).aget_tuple(config)
+        return await self._run(config, "aget_tuple")
 
     async def alist(self, config, *, filter=None, before=None, limit=None):
-        backend = await self._backend()
+        if self._thread_id(config) in self._memory_threads:
+            backend = self._memory
+        else:
+            backend = await self._connect() or self._memory
         async for item in backend.alist(config, filter=filter, before=before, limit=limit):
             yield item
 
     async def aput(self, config, checkpoint, metadata, new_versions):
-        backend = await self._backend()
-        return await backend.aput(config, checkpoint, metadata, new_versions)
+        return await self._run(config, "aput", checkpoint, metadata, new_versions)
 
     async def aput_writes(self, config, writes, task_id, task_path=""):
-        backend = await self._backend()
-        return await backend.aput_writes(config, writes, task_id, task_path)
+        return await self._run(config, "aput_writes", writes, task_id, task_path)
 
     async def adelete_thread(self, thread_id):
-        return await (await self._backend()).adelete_thread(thread_id)
+        tid = str(thread_id)
+        self._memory.delete_thread(thread_id)
+        self._memory_threads.discard(tid)
+        self._pg_threads.discard(tid)
+        saver = await self._connect()
+        if saver is not None:
+            await saver.adelete_thread(thread_id)
 
     # ---- sync API: in-memory fallback only ----
     def get_tuple(self, config):

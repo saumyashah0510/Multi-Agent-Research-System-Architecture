@@ -1,5 +1,7 @@
 """Unit tests for LangGraph Checkpointer Factory (Issue BE-15)."""
 
+import asyncio
+
 import pytest
 from app.agents import checkpointer as cp
 from app.agents.checkpointer import (
@@ -12,8 +14,8 @@ from langgraph.checkpoint.base import BaseCheckpointSaver, empty_checkpoint
 from langgraph.checkpoint.memory import MemorySaver
 
 
-def _config():
-    return {"configurable": {"thread_id": "be-15-thread", "checkpoint_ns": ""}}
+def _config(thread_id="be-15-thread"):
+    return {"configurable": {"thread_id": thread_id, "checkpoint_ns": ""}}
 
 
 def _metadata():
@@ -24,6 +26,12 @@ def test_checkpointer_force_memory():
     """Verify that force_memory=True returns a valid MemorySaver instance."""
     checkpointer = get_checkpointer(force_memory=True)
     assert isinstance(checkpointer, MemorySaver)
+
+
+def test_environment_variable_enables_test_mode(monkeypatch):
+    """ENVIRONMENT=test must select MemorySaver without a live database."""
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    assert isinstance(get_checkpointer(), MemorySaver)
 
 
 def test_orchestrator_compiles_with_custom_checkpointer():
@@ -47,6 +55,7 @@ def test_sanitize_connection_string():
 
 def test_get_checkpointer_is_safe_at_import_time(monkeypatch):
     """Outside an event loop (module-level graph compile) the factory must not fail."""
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
     monkeypatch.setattr(cp, "_is_test_env", lambda: False)
     monkeypatch.setattr(cp, "_checkpointer_instance", None)
     saver = get_checkpointer()
@@ -58,11 +67,15 @@ def test_get_checkpointer_is_safe_at_import_time(monkeypatch):
 @pytest.mark.asyncio
 async def test_postgres_unavailable_falls_back_to_memory(monkeypatch):
     """A failing database must never break the pipeline; state still persists in memory."""
+    import langgraph.checkpoint.postgres.aio  # noqa: F401  (import before patching)
     import psycopg_pool
 
     class _BrokenPool:
         def __init__(self, *args, **kwargs):
             pass
+
+        def __class_getitem__(cls, item):
+            return cls
 
         async def open(self, *args, **kwargs):
             raise RuntimeError("database unavailable")
@@ -70,16 +83,102 @@ async def test_postgres_unavailable_falls_back_to_memory(monkeypatch):
         async def close(self):
             pass
 
-    monkeypatch.setattr(cp, "_is_test_env", lambda: False)
-    monkeypatch.setattr(cp, "_checkpointer_instance", None)
     monkeypatch.setattr(psycopg_pool, "AsyncConnectionPool", _BrokenPool)
 
-    saver = get_checkpointer()
+    saver = LazyPostgresSaver()
     checkpoint = empty_checkpoint()
     await saver.aput(_config(), checkpoint, _metadata(), {})
     restored = await saver.aget_tuple(_config())
     assert restored is not None
     assert restored.checkpoint["id"] == checkpoint["id"]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_callers_share_one_failed_attempt(monkeypatch):
+    """During an outage, concurrent callers must not each retry the connection."""
+    import langgraph.checkpoint.postgres.aio  # noqa: F401  (import before patching)
+    import psycopg_pool
+
+    attempts = []
+
+    class _SlowBrokenPool:
+        def __init__(self, *args, **kwargs):
+            attempts.append(1)
+
+        def __class_getitem__(cls, item):
+            return cls
+
+        async def open(self, *args, **kwargs):
+            await asyncio.sleep(0.05)
+            raise RuntimeError("database unavailable")
+
+        async def close(self):
+            pass
+
+    monkeypatch.setattr(psycopg_pool, "AsyncConnectionPool", _SlowBrokenPool)
+    saver = LazyPostgresSaver()
+    await asyncio.gather(*(saver.aget_tuple(_config(f"t{i}")) for i in range(10)))
+    assert len(attempts) == 1
+
+
+@pytest.mark.asyncio
+async def test_fallback_thread_stays_in_memory_after_recovery():
+    """A thread started during an outage must remain readable after Postgres recovers."""
+    saver = LazyPostgresSaver()
+    saver._retry_at = float("inf")  # simulate an outage
+
+    first = empty_checkpoint()
+    await saver.aput(_config("t1"), first, _metadata(), {})
+
+    recovered = MemorySaver()  # stands in for the recovered Postgres saver
+    saver._saver = recovered
+    saver._retry_at = 0.0
+
+    restored = await saver.aget_tuple(_config("t1"))
+    assert restored is not None
+    assert restored.checkpoint["id"] == first["id"]
+
+    second = empty_checkpoint()
+    await saver.aput(_config("t2"), second, _metadata(), {})
+    assert await recovered.aget_tuple(_config("t2")) is not None
+    assert await recovered.aget_tuple(_config("t1")) is None
+
+
+@pytest.mark.asyncio
+async def test_database_failure_after_init_is_handled():
+    """After init, a DB error must keep existing thread state safe and not break new threads."""
+
+    class _FlakySaver(MemorySaver):
+        fail = False
+
+        async def aput(self, config, checkpoint, metadata, new_versions):
+            if self.fail:
+                raise RuntimeError("connection lost")
+            return await super().aput(config, checkpoint, metadata, new_versions)
+
+    flaky = _FlakySaver()
+    saver = LazyPostgresSaver()
+    saver._saver = flaky
+
+    first = empty_checkpoint()
+    await saver.aput(_config("t1"), first, _metadata(), {})
+
+    flaky.fail = True
+    # Existing Postgres thread: the error surfaces and its state stays intact.
+    with pytest.raises(RuntimeError):
+        await saver.aput(_config("t1"), empty_checkpoint(), _metadata(), {})
+
+    # New thread: falls back to memory instead of failing the review.
+    second = empty_checkpoint()
+    await saver.aput(_config("t2"), second, _metadata(), {})
+    restored = await saver.aget_tuple(_config("t2"))
+    assert restored is not None
+    assert restored.checkpoint["id"] == second["id"]
+
+    flaky.fail = False
+    kept = await flaky.aget_tuple(_config("t1"))
+    assert kept is not None
+    assert kept.checkpoint["id"] == first["id"]
 
 
 @pytest.mark.asyncio
