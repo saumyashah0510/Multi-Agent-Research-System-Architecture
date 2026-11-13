@@ -60,4 +60,3 @@ export default function ReferenceCard({ reference, index }: ReferenceCardProps) 
     </div>
   );
 }
-
