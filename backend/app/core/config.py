@@ -19,6 +19,27 @@ ENV_FILE = ROOT_DIR / ".env"
 load_dotenv(dotenv_path=ENV_FILE)
 
 
+def _get_or_persist_jwt_secret() -> str:
+    """Retrieve JWT secret from environment or persist a generated secret across restarts."""
+    env_secret = os.getenv("JWT_SECRET_KEY")
+    if env_secret and env_secret.strip() and env_secret.strip() != "<generated_secret_string>":
+        return env_secret.strip()
+
+    # Persist generated secret so multi-worker processes and restarts share the same key
+    key_file = ROOT_DIR / ".jwt.key"
+    try:
+        if key_file.exists():
+            stored = key_file.read_text(encoding="utf-8").strip()
+            if stored and len(stored) >= 32:
+                return stored
+        new_key = secrets.token_urlsafe(32)
+        key_file.write_text(new_key, encoding="utf-8")
+        return new_key
+    except Exception:
+        # Fallback if filesystem is read-only
+        return secrets.token_urlsafe(32)
+
+
 class Settings(BaseSettings):
     """Application settings and environment variables."""
 
@@ -60,7 +81,7 @@ class Settings(BaseSettings):
     )
 
     # JWT Authentication Settings
-    JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY") or secrets.token_urlsafe(32)
+    JWT_SECRET_KEY: str = _get_or_persist_jwt_secret()
     JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))
 
