@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import ResearchInput, { type ResearchSearchParams } from "../components/ResearchInput";
@@ -17,6 +17,8 @@ export default function Dashboard() {
 
   // Review session state (must be established by backend; no temporary fallback IDs)
   const [reviewId, setReviewId] = useState<string | null>(null);
+  const activeReviewIdRef = useRef<string | null>(reviewId);
+  activeReviewIdRef.current = reviewId;
 
   const currentTab = (searchParams.get("tab") || "").toLowerCase();
   const urlReviewId = searchParams.get("review_id");
@@ -60,6 +62,8 @@ export default function Dashboard() {
           setApprovalError(null);
           setApprovalSuccess(null);
           setIsPipelineDone(false);
+          setHasCompletedActiveWorkflow(false);
+          setCompletedWorkflowReviewId(null);
           return urlReviewId;
         }
         return prev;
@@ -142,7 +146,15 @@ export default function Dashboard() {
     }
   }, [reviewId, ws.reviewId, ws.isPausedForInput, ws.status]);
 
+  // Workflow completion-routing state scoped to active review
+  const [completedWorkflowReviewId, setCompletedWorkflowReviewId] = useState<string | null>(null);
   const [hasCompletedActiveWorkflow, setHasCompletedActiveWorkflow] = useState(false);
+
+  // Reset completion-routing state when reviewId changes so subsequent reviews can trigger their own routing
+  useEffect(() => {
+    setHasCompletedActiveWorkflow(false);
+    setCompletedWorkflowReviewId(null);
+  }, [reviewId]);
 
   // When all 3 stages finish in the active search workflow, redirect to the Papers view on completion transition
   useEffect(() => {
@@ -152,9 +164,10 @@ export default function Dashboard() {
       papers.length > 0 &&
       reviewId &&
       !isPapersRoute &&
-      !hasCompletedActiveWorkflow
+      (!hasCompletedActiveWorkflow || completedWorkflowReviewId !== reviewId)
     ) {
       setHasCompletedActiveWorkflow(true);
+      setCompletedWorkflowReviewId(reviewId);
       navigate(`/dashboard?tab=papers&review_id=${encodeURIComponent(reviewId)}`);
     }
   }, [
@@ -164,6 +177,7 @@ export default function Dashboard() {
     reviewId,
     isPapersRoute,
     hasCompletedActiveWorkflow,
+    completedWorkflowReviewId,
     navigate,
   ]);
 
@@ -185,6 +199,7 @@ export default function Dashboard() {
     setApprovalError(null);
     setApprovalSuccess(null);
     setHasCompletedActiveWorkflow(false);
+    setCompletedWorkflowReviewId(null);
 
     // Call backend API createReviewTask to obtain the real review_id
     try {
@@ -265,12 +280,18 @@ export default function Dashboard() {
       return;
     }
 
+    const capturedReviewId = reviewId;
     setIsFindingMore(true);
     setApprovalError(null);
     setApprovalSuccess(null);
 
     try {
-      await submitHumanDecision(reviewId, [], "find_more");
+      await submitHumanDecision(capturedReviewId, [], "find_more");
+
+      // Verify the request's review is still active before applying success-state changes or navigating
+      if (activeReviewIdRef.current !== capturedReviewId) {
+        return;
+      }
 
       // Reset pipeline and candidates only after a successful submission
       setPipelineSession((prev) => prev + 1);
@@ -278,19 +299,25 @@ export default function Dashboard() {
       setPapers([]);
       setSelectedPaperIds([]);
       setHasCompletedActiveWorkflow(false);
+      setCompletedWorkflowReviewId(null);
       setApprovalSuccess("Searching academic repositories for additional papers...");
 
       // If Find More was triggered from the dedicated Papers view, switch to the research workflow view
       if (isDirectPapersView) {
         setHasSearched(true);
-        navigate(`/dashboard?tab=research&review_id=${encodeURIComponent(reviewId)}`);
+        navigate(`/dashboard?tab=research&review_id=${encodeURIComponent(capturedReviewId)}`);
       }
     } catch (err) {
+      if (activeReviewIdRef.current !== capturedReviewId) {
+        return;
+      }
       // Display the error and do NOT reset the pipeline display on failure
       const message = err instanceof Error ? err.message : "Failed to request additional papers";
       setApprovalError(`Failed to request more papers: ${message}`);
     } finally {
-      setIsFindingMore(false);
+      if (activeReviewIdRef.current === capturedReviewId) {
+        setIsFindingMore(false);
+      }
     }
   };
 
@@ -303,6 +330,8 @@ export default function Dashboard() {
         setApprovalError(null);
         setApprovalSuccess(null);
         setIsPipelineDone(false);
+        setHasCompletedActiveWorkflow(false);
+        setCompletedWorkflowReviewId(null);
         setReviewId(review.id);
       }
       setHasSearched(true);
