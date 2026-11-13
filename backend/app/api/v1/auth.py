@@ -20,6 +20,7 @@ from app.schemas.auth import (
 )
 from app.schemas.oauth import GitHubAuthRequest, GoogleAuthRequest
 from app.services.auth_service import AuthService
+from app.services.oauth_service import OAuthService
 
 router = APIRouter()
 
@@ -98,15 +99,34 @@ async def google_auth(
     payload: GoogleAuthRequest,
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
-    """Verify Google ID token or code, link or create user, and issue application JWT token."""
-    # TODO (Assignee - BE-13):
-    # 1. If payload.credential is provided, call OAuthService.verify_google_credential(payload.credential)
-    # 2. Call OAuthService.authenticate_or_register_oauth_user(db, profile)
-    # 3. Create access token via create_access_token(subject=user.id)
-    # 4. Return TokenResponse(access_token=token, token_type="bearer", user=UserResponse.model_validate(user))
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Google OAuth endpoint pending implementation in BE-13",
+    """Verify Google ID token, link or create user, and issue application JWT token."""
+    if not payload.credential or not payload.credential.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Google ID token credential is required.",
+        )
+
+    try:
+        profile = await OAuthService.verify_google_credential(payload.credential)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    user = await OAuthService.authenticate_or_register_oauth_user(db, profile)
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User account is inactive.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    token = create_access_token(subject=user.id)
+    return TokenResponse(
+        access_token=token,
+        token_type="bearer",
+        user=UserResponse.model_validate(user),
     )
 
 
@@ -120,12 +140,31 @@ async def github_auth(
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
     """Exchange GitHub OAuth authorization code for profile, link or create user, and issue JWT."""
-    # TODO (Assignee - BE-13):
-    # 1. Call OAuthService.exchange_github_code(payload.code)
-    # 2. Call OAuthService.authenticate_or_register_oauth_user(db, profile)
-    # 3. Create access token via create_access_token(subject=user.id)
-    # 4. Return TokenResponse(access_token=token, token_type="bearer", user=UserResponse.model_validate(user))
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="GitHub OAuth endpoint pending implementation in BE-13",
+    if not payload.code or not payload.code.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="GitHub authorization code is required.",
+        )
+
+    try:
+        profile = await OAuthService.exchange_github_code(payload.code)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    user = await OAuthService.authenticate_or_register_oauth_user(db, profile)
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User account is inactive.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    token = create_access_token(subject=user.id)
+    return TokenResponse(
+        access_token=token,
+        token_type="bearer",
+        user=UserResponse.model_validate(user),
     )
