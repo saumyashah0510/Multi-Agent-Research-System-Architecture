@@ -29,19 +29,30 @@ export default function AuthCallback() {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasProcessedRef = useRef(false);
 
+  // Stabilize external callbacks via refs to prevent effect re-triggers when AuthContext updates
+  const setSessionRef = useRef(setSession);
+  setSessionRef.current = setSession;
+
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
+
+  // Dedicated unmount cleanup for pending timers and route abandonment
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, []);
+
   useEffect(() => {
     isMountedRef.current = true;
 
     // Avoid double-processing in React 18 StrictMode (which mounts effects twice in dev)
-    if (hasProcessedRef.current) {
-      return () => {
-        isMountedRef.current = false;
-        if (timerRef.current) {
-          clearTimeout(timerRef.current);
-          timerRef.current = null;
-        }
-      };
-    }
+    if (hasProcessedRef.current) return;
     hasProcessedRef.current = true;
 
     const processCallback = async () => {
@@ -147,11 +158,11 @@ export default function AuthCallback() {
             // ignore
           }
 
-          setSession(authData.access_token, authData.user);
+          setSessionRef.current(authData.access_token, authData.user);
           setStatusMessage("Authentication successful! Redirecting to research dashboard...");
           timerRef.current = setTimeout(() => {
             if (isMountedRef.current) {
-              navigate(returnTo || "/dashboard", { replace: true });
+              navigateRef.current(returnTo || "/dashboard", { replace: true });
             }
           }, 350);
         } else {
@@ -170,15 +181,7 @@ export default function AuthCallback() {
     };
 
     processCallback();
-
-    return () => {
-      isMountedRef.current = false;
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
-    };
-  }, [searchParams, navigate, setSession]);
+  }, [searchParams]);
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4 bg-surface text-neutral-900">
