@@ -28,10 +28,10 @@ export const StageTimelineNode: React.FC<StageTimelineNodeProps> = ({
 
       {status === "running" && (
         <div
-          className="w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-full border-2 border-[var(--color-primary-blue)] bg-white flex items-center justify-center shadow-xs"
+          className="w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-full border-2 border-[var(--color-success)] bg-white flex items-center justify-center shadow-xs"
           title="Stage in progress"
         >
-          <div className="w-3 h-3 rounded-full border-2 border-[var(--color-primary-blue)] border-t-transparent animate-spin" />
+          <div className="w-3 h-3 rounded-full border-2 border-[var(--color-success)] border-t-transparent animate-spin" />
         </div>
       )}
 

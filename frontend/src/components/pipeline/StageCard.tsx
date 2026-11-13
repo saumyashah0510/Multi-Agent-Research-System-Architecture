@@ -18,6 +18,7 @@ import { PipelineStage } from "./types";
 interface StageCardProps {
   stage: PipelineStage;
   index: number;
+  isCompact?: boolean;
 }
 
 interface StageStyleConfig {
@@ -89,29 +90,45 @@ const STAGE_CONFIG: Record<string, StageStyleConfig> = {
   },
 };
 
-export const StageCard: React.FC<StageCardProps> = ({ stage, index }) => {
+export const StageCard: React.FC<StageCardProps> = ({
+  stage,
+  index,
+  isCompact = false,
+}) => {
   const shouldReduceMotion = useReducedMotion();
   const config = STAGE_CONFIG[stage.id] ?? DEFAULT_CONFIG;
+
+  const isQueued = stage.status === "pending" || isCompact;
 
   const cardStyleClass =
     stage.status === "failed"
       ? "bg-red-50 border-red-200 text-red-950 shadow-xs"
       : stage.status === "running"
       ? `${config.activeBorder} shadow-md ring-2 ${config.activeRing} text-neutral-900`
-      : `${config.border} shadow-xs text-neutral-900`;
+      : `${config.border} shadow-xs text-neutral-900 ${
+          isQueued ? "opacity-75 hover:opacity-100" : ""
+        }`;
 
   return (
     <motion.article
       initial={shouldReduceMotion ? { opacity: 1 } : { opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25, delay: index * 0.05, ease: "easeOut" }}
-      className={`w-full rounded-2xl border p-4 sm:p-5 transition-all duration-300 relative overflow-hidden ${cardStyleClass}`}
+      className={`w-full rounded-2xl border transition-all duration-300 relative overflow-hidden ${
+        isQueued ? "p-3 sm:p-3.5" : "p-4 sm:p-5"
+      } ${cardStyleClass}`}
       style={{ backgroundColor: stage.status === "failed" ? undefined : config.bg }}
       aria-label={`${stage.title} - Status: ${stage.status}`}
     >
       {/* Top Header Row: Title and subtle icon */}
-      <div className="flex items-center justify-between gap-3 mb-1">
-        <h3 className="font-serif text-[17px] sm:text-[18px] font-medium tracking-compact text-neutral-900 leading-[1.1]">
+      <div className={`flex items-center justify-between gap-3 ${isQueued ? "mb-0" : "mb-1"}`}>
+        <h3
+          className={`font-serif tracking-compact text-neutral-900 leading-[1.1] ${
+            isQueued
+              ? "text-[15px] sm:text-[15.5px] font-normal text-neutral-700"
+              : "text-[17px] sm:text-[18px] font-medium"
+          }`}
+        >
           {stage.title}
         </h3>
         <div className="opacity-70 hover:opacity-100 transition-opacity">
@@ -119,15 +136,19 @@ export const StageCard: React.FC<StageCardProps> = ({ stage, index }) => {
         </div>
       </div>
 
-      {/* Main Description */}
-      <p className="font-sans text-[13px] sm:text-[13.5px] text-neutral-700 leading-snug">
-        {stage.description}
-      </p>
+      {/* Main Description (collapsed when queued/pending) */}
+      {!isQueued && (
+        <p className="font-sans text-[13px] sm:text-[13.5px] text-neutral-700 leading-snug">
+          {stage.description}
+        </p>
+      )}
 
-      {/* Supporting Status / Activity Detail: Strictly secondary grey text */}
-      <p className="font-sans text-[11.5px] sm:text-[12px] text-neutral-500 mt-0.5 leading-normal">
-        {stage.supportingStatus}
-      </p>
+      {/* Supporting Status / Activity Detail (only when active/running) */}
+      {!isQueued && stage.status === "running" && (
+        <p className="font-sans text-[11.5px] sm:text-[12px] text-neutral-500 mt-0.5 leading-normal">
+          {stage.supportingStatus}
+        </p>
+      )}
 
       {/* Genuine Progress Bar (rendered only if genuine 0-100 numerical progress exists) */}
       {stage.status === "running" && typeof stage.progress === "number" && (
@@ -141,8 +162,12 @@ export const StageCard: React.FC<StageCardProps> = ({ stage, index }) => {
 
       {/* Completed Result Row with Library-Imported CircleCheck */}
       {stage.status === "completed" && stage.result && (
-        <div className="mt-3 flex items-center gap-2 text-[12.5px] sm:text-[13px] font-medium text-neutral-800">
-          <CircleCheck className="w-4.5 h-4.5 text-[var(--color-success)] shrink-0 stroke-[2.2]" />
+        <div
+          className={`${
+            isQueued ? "mt-1.5" : "mt-3"
+          } flex items-center gap-2 text-[12px] sm:text-[12.5px] font-medium text-neutral-800`}
+        >
+          <CircleCheck className="w-4 h-4 text-[var(--color-success)] shrink-0 stroke-[2.2]" />
           <span>{stage.result}</span>
         </div>
       )}

@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
+import { AnimatePresence, motion } from "framer-motion";
 import ResearchInput, { type ResearchSearchParams } from "../components/ResearchInput";
 import PaperGrid from "../components/dashboard/paper-grid";
 import PastReviewsView, { type TargetSection } from "../components/dashboard/PastReviewsView";
@@ -14,7 +15,13 @@ export default function Dashboard() {
   const location = useLocation();
   const [searchParams] = useSearchParams();
 
+  // Review session state (must be established by backend; no temporary fallback IDs)
+  const [reviewId, setReviewId] = useState<string | null>(null);
+  const activeReviewIdRef = useRef<string | null>(reviewId);
+  activeReviewIdRef.current = reviewId;
+
   const currentTab = (searchParams.get("tab") || "").toLowerCase();
+  const urlReviewId = searchParams.get("review_id");
   const pathname = location.pathname.toLowerCase();
   const isPapersRoute = currentTab === "papers" || pathname === "/papers";
   const isReportRoute =
@@ -23,12 +30,13 @@ export default function Dashboard() {
     pathname === "/report" ||
     pathname === "/reports";
   const isChatRoute = currentTab === "chat" || pathname === "/chat";
-  const isNonResearchView = isPapersRoute || isReportRoute || isChatRoute;
+  const isNonResearchView = (isPapersRoute && !urlReviewId) || isReportRoute || isChatRoute;
+  const isDirectPapersView = isPapersRoute && Boolean(urlReviewId);
   const targetSection: TargetSection = isChatRoute
     ? "chat"
     : isPapersRoute
-    ? "papers"
-    : "report";
+      ? "papers"
+      : "report";
   const [activeQuery, setActiveQuery] = useState<string>("");
   const [hasSearched, setHasSearched] = useState(false);
   const [isPipelineDone, setIsPipelineDone] = useState(false);
@@ -36,9 +44,6 @@ export default function Dashboard() {
 
   // Screened candidate papers list (initialized empty to prevent stale demo data)
   const [papers, setPapers] = useState<PaperSummary[]>([]);
-
-  // Review session state (must be established by backend; no temporary fallback IDs)
-  const [reviewId, setReviewId] = useState<string | null>(null);
 
   // Connect useReviewWebSocket(reviewId) to stream live events
   const ws = useReviewWebSocket(reviewId);
@@ -50,7 +55,19 @@ export default function Dashboard() {
   useEffect(() => {
     const urlReviewId = searchParams.get("review_id");
     if (urlReviewId) {
-      setReviewId((prev) => (prev === urlReviewId ? prev : urlReviewId));
+      setReviewId((prev) => {
+        if (prev !== urlReviewId) {
+          setPapers([]);
+          setSelectedPaperIds([]);
+          setApprovalError(null);
+          setApprovalSuccess(null);
+          setIsPipelineDone(false);
+          setHasCompletedActiveWorkflow(false);
+          setCompletedWorkflowReviewId(null);
+          return urlReviewId;
+        }
+        return prev;
+      });
       setHasSearched(true);
     }
   }, [searchParams]);
@@ -73,6 +90,7 @@ export default function Dashboard() {
           const normalized = res.screened_papers
             .map((p: any, idx: number) => normalizePaper(p, idx))
             .sort((a: PaperSummary, b: PaperSummary) => (b.relevanceScore ?? 0) - (a.relevanceScore ?? 0));
+          // Apply snapshot only if local state has not already been populated by live WebSocket session
           setPapers((prev) => (prev.length === 0 ? normalized : prev));
           setSelectedPaperIds((prev) =>
             prev.length === 0
@@ -128,6 +146,41 @@ export default function Dashboard() {
     }
   }, [reviewId, ws.reviewId, ws.isPausedForInput, ws.status]);
 
+  // Workflow completion-routing state scoped to active review
+  const [completedWorkflowReviewId, setCompletedWorkflowReviewId] = useState<string | null>(null);
+  const [hasCompletedActiveWorkflow, setHasCompletedActiveWorkflow] = useState(false);
+
+  // Reset completion-routing state when reviewId changes so subsequent reviews can trigger their own routing
+  useEffect(() => {
+    setHasCompletedActiveWorkflow(false);
+    setCompletedWorkflowReviewId(null);
+  }, [reviewId]);
+
+  // When all 3 stages finish in the active search workflow, redirect to the Papers view on completion transition
+  useEffect(() => {
+    if (
+      hasSearched &&
+      isPipelineDone &&
+      papers.length > 0 &&
+      reviewId &&
+      !isPapersRoute &&
+      (!hasCompletedActiveWorkflow || completedWorkflowReviewId !== reviewId)
+    ) {
+      setHasCompletedActiveWorkflow(true);
+      setCompletedWorkflowReviewId(reviewId);
+      navigate(`/dashboard?tab=papers&review_id=${encodeURIComponent(reviewId)}`);
+    }
+  }, [
+    hasSearched,
+    isPipelineDone,
+    papers.length,
+    reviewId,
+    isPapersRoute,
+    hasCompletedActiveWorkflow,
+    completedWorkflowReviewId,
+    navigate,
+  ]);
+
   // Approval submission state
   const [isProceeding, setIsProceeding] = useState(false);
   const [isFindingMore, setIsFindingMore] = useState(false);
@@ -145,6 +198,8 @@ export default function Dashboard() {
     setSelectedPaperIds([]);
     setApprovalError(null);
     setApprovalSuccess(null);
+    setHasCompletedActiveWorkflow(false);
+    setCompletedWorkflowReviewId(null);
 
     // Call backend API createReviewTask to obtain the real review_id
     try {
@@ -161,6 +216,7 @@ export default function Dashboard() {
         }
       } else {
         setReviewId(null);
+        setHasSearched(false);
         setApprovalError("Failed to initialize review session. Please try searching again.");
       }
     } catch (err) {
@@ -168,10 +224,11 @@ export default function Dashboard() {
       if (params.review_id) {
         setReviewId(params.review_id);
       } else {
-        // Keep review ID null when creation fails and show an error
+        // Keep review ID null when creation fails, restore search form, and show an error
         setReviewId(null);
+        setHasSearched(false);
         const message = err instanceof Error ? err.message : "Failed to initiate backend review task";
-        setApprovalError(`Could not establish review session: ${message}. Approval is prevented until a session exists.`);
+        setApprovalError(`Could not establish review session: ${message}.`);
       }
     }
   };
@@ -223,25 +280,44 @@ export default function Dashboard() {
       return;
     }
 
+    const capturedReviewId = reviewId;
     setIsFindingMore(true);
     setApprovalError(null);
     setApprovalSuccess(null);
 
     try {
-      await submitHumanDecision(reviewId, [], "find_more");
+      await submitHumanDecision(capturedReviewId, [], "find_more");
+
+      // Verify the request's review is still active before applying success-state changes or navigating
+      if (activeReviewIdRef.current !== capturedReviewId) {
+        return;
+      }
 
       // Reset pipeline and candidates only after a successful submission
       setPipelineSession((prev) => prev + 1);
       setIsPipelineDone(false);
       setPapers([]);
       setSelectedPaperIds([]);
+      setHasCompletedActiveWorkflow(false);
+      setCompletedWorkflowReviewId(null);
       setApprovalSuccess("Searching academic repositories for additional papers...");
+
+      // If Find More was triggered from the dedicated Papers view, switch to the research workflow view
+      if (isDirectPapersView) {
+        setHasSearched(true);
+        navigate(`/dashboard?tab=research&review_id=${encodeURIComponent(capturedReviewId)}`);
+      }
     } catch (err) {
+      if (activeReviewIdRef.current !== capturedReviewId) {
+        return;
+      }
       // Display the error and do NOT reset the pipeline display on failure
       const message = err instanceof Error ? err.message : "Failed to request additional papers";
       setApprovalError(`Failed to request more papers: ${message}`);
     } finally {
-      setIsFindingMore(false);
+      if (activeReviewIdRef.current === capturedReviewId) {
+        setIsFindingMore(false);
+      }
     }
   };
 
@@ -254,6 +330,8 @@ export default function Dashboard() {
         setApprovalError(null);
         setApprovalSuccess(null);
         setIsPipelineDone(false);
+        setHasCompletedActiveWorkflow(false);
+        setCompletedWorkflowReviewId(null);
         setReviewId(review.id);
       }
       setHasSearched(true);
@@ -280,81 +358,125 @@ export default function Dashboard() {
           onSelectReview={handleSelectPastReview}
           onStartNewResearch={() => navigate("/dashboard?tab=research")}
         />
-      ) : !hasSearched ? (
-        /* Initial Screen: Headline and Search Input positioned with balanced upper spacing */
-        <div className="w-full flex-1 flex flex-col items-center justify-start pt-[16vh] sm:pt-[18vh] pb-16">
-          {/* Welcome Headline */}
-          <div className="text-center max-w-3xl mx-auto px-4 flex flex-col items-center mb-16 sm:mb-24">
-            <h1 className="font-serif text-3xl sm:text-5xl md:text-6xl font-normal text-neutral-900 tracking-tight leading-none">
-              Welcome,
-            </h1>
-            <p className="font-serif text-2xl sm:text-3xl md:text-4xl font-normal text-neutral-800 tracking-tight leading-none mt-2 sm:mt-3">
-              What are you curious about?
-            </p>
-          </div>
-
-          {/* Main Research Search Card */}
-          <div className="w-full">
-            <ResearchInput
-              initialQuery={activeQuery}
-              onSearch={handleSearch}
-              isLoading={false}
-            />
-          </div>
+      ) : isDirectPapersView ? (
+        /* Dedicated Papers View for active review: Topic on top + Summary Cards */
+        <div className="w-full pt-6 sm:pt-8 space-y-6 animate-in fade-in duration-300">
+          <PaperGrid
+            papers={papers}
+            selectedPaperIds={selectedPaperIds}
+            onToggleSelect={togglePaperSelection}
+            onProceed={handleProceed}
+            onFindMore={handleFindMore}
+            isProceeding={isProceeding}
+            isFindingMore={isFindingMore}
+            errorMessage={approvalError}
+            successMessage={approvalSuccess}
+            topic={activeQuery}
+          />
         </div>
       ) : (
-        /* Workflow State: Search Input at the top followed by Pipeline and Paper Approval Grid */
-        <div className="w-full flex flex-col items-center pt-6 sm:pt-8">
-          {/* Main Research Search Card */}
-          <div className="w-full mb-5">
-            <ResearchInput
-              initialQuery={activeQuery}
-              onSearch={handleSearch}
-              isLoading={false}
-            />
-          </div>
+        <AnimatePresence mode="wait">
+          {!hasSearched ? (
+            /* Initial Screen: Headline and Search Input positioned with balanced upper spacing */
+            <motion.div
+              key="welcome-view"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -16, transition: { duration: 0.25, ease: "easeInOut" } }}
+              transition={{ duration: 0.3 }}
+              className="w-full flex-1 flex flex-col items-center justify-start pt-[16vh] sm:pt-[18vh] pb-16"
+            >
+              {/* Welcome Headline */}
+              <div className="text-center max-w-3xl mx-auto px-4 flex flex-col items-center mb-16 sm:mb-24">
+                <h1 className="font-serif text-3xl sm:text-5xl md:text-6xl font-normal text-neutral-900 tracking-tight leading-none">
+                  Welcome,
+                </h1>
+                <p className="font-serif text-2xl sm:text-3xl md:text-4xl font-normal text-neutral-800 tracking-tight leading-none mt-2 sm:mt-3">
+                  What are you curious about?
+                </p>
+              </div>
 
-          {/* Research Progress Pipeline */}
-          <div className="w-full mb-5">
-            <ResearchProgress
-              key={`pipeline-session-${pipelineSession}-${activeQuery}`}
-              query={activeQuery}
-              stages={reviewId ? ws.stages : undefined}
-              isRunning={
-                reviewId ? ws.isConnected && ws.status !== "COMPLETED" : undefined
-              }
-              isCompleted={
-                reviewId
-                  ? ws.isPausedForInput || ws.status === "COMPLETED"
-                  : isPipelineDone
-              }
-              screenedCount={papers.length}
-              relevantCount={selectedPaperIds.length}
-              isMock={!reviewId}
-              autoStart={false}
-              onComplete={() => setIsPipelineDone(true)}
-              onFindMore={handleFindMore}
-              isFindingMore={isFindingMore}
-            />
-          </div>
+              {/* Main Research Search Card */}
+              <div className="w-full space-y-3">
+                <ResearchInput
+                  initialQuery={activeQuery}
+                  onSearch={handleSearch}
+                  isLoading={false}
+                />
+                {approvalError && !hasSearched && (
+                  <div
+                    className="p-3.5 rounded-xl text-xs sm:text-sm bg-red-50 border border-red-200/80 text-red-800 flex items-start gap-2.5 animate-in fade-in"
+                    role="alert"
+                  >
+                    <span className="font-bold text-red-600 shrink-0">✕</span>
+                    <p className="flex-1">{approvalError}</p>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          ) : (
+            /* Workflow State: Query Message Bubble followed by Pipeline and Paper Approval Grid */
+            <motion.div
+              key="workflow-view"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.35, ease: "easeOut" }}
+              className="w-full flex flex-col items-center pt-8 sm:pt-10"
+            >
+              {/* Main Research Search Card / Active Query Bubble */}
+              <div className="w-full mb-5">
+                <ResearchInput
+                  initialQuery={activeQuery}
+                  onSearch={handleSearch}
+                  isLoading={false}
+                  isSearchingActive={true}
+                />
+              </div>
 
-          {/* Completed Search Results (Paper Approval Grid on the SAME page) */}
-          {isPipelineDone && (
-            <div className="w-full space-y-4 animate-in fade-in duration-300">
-              <PaperGrid
-                papers={papers}
-                selectedPaperIds={selectedPaperIds}
-                onToggleSelect={togglePaperSelection}
-                onProceed={handleProceed}
-                onFindMore={handleFindMore}
-                isProceeding={isProceeding}
-                isFindingMore={isFindingMore}
-                errorMessage={approvalError}
-                successMessage={approvalSuccess}
-              />
-            </div>
+              {/* Research Progress Pipeline */}
+              <div className="w-full mb-5">
+                <ResearchProgress
+                  key={`pipeline-session-${pipelineSession}-${activeQuery}`}
+                  query={activeQuery}
+                  stages={reviewId ? ws.stages : undefined}
+                  isRunning={
+                    reviewId ? ws.isConnected && ws.status !== "COMPLETED" : undefined
+                  }
+                  isCompleted={
+                    reviewId
+                      ? ws.isPausedForInput || ws.status === "COMPLETED" || isPipelineDone
+                      : isPipelineDone
+                  }
+                  screenedCount={papers.length}
+                  relevantCount={selectedPaperIds.length}
+                  isMock={false}
+                  autoStart={false}
+                  onComplete={() => setIsPipelineDone(true)}
+                  onFindMore={handleFindMore}
+                  isFindingMore={isFindingMore}
+                />
+              </div>
+
+              {/* Completed Search Results (Paper Approval Grid on the SAME page) */}
+              {isPipelineDone && (
+                <div className="w-full space-y-4 animate-in fade-in duration-300">
+                  <PaperGrid
+                    papers={papers}
+                    selectedPaperIds={selectedPaperIds}
+                    onToggleSelect={togglePaperSelection}
+                    onProceed={handleProceed}
+                    onFindMore={handleFindMore}
+                    isProceeding={isProceeding}
+                    isFindingMore={isFindingMore}
+                    errorMessage={approvalError}
+                    successMessage={approvalSuccess}
+                    topic={activeQuery}
+                  />
+                </div>
+              )}
+            </motion.div>
           )}
-        </div>
+        </AnimatePresence>
       )}
     </div>
   );

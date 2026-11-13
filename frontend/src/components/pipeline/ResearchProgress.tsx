@@ -87,19 +87,25 @@ export const ResearchProgress: React.FC<ResearchProgressProps> = ({
 
   const renderStagesList = () => (
     <div className="flex flex-col">
-      {stages.map((stage, index) => (
-        <div
-          key={stage.id}
-          className="relative flex items-start gap-3 sm:gap-4 pb-3.5 last:pb-0 z-10"
-        >
-          <div className="shrink-0 pt-3 flex items-center justify-center">
-            <StageTimelineNode status={stage.status} />
+      {stages.map((stage, index) => {
+        const isCompact = stage.status === "pending";
+        return (
+          <div
+            key={stage.id}
+            className={cn(
+              "relative flex items-start gap-3 sm:gap-4 transition-all duration-300 z-10",
+              isCompact ? "pb-2.5 last:pb-0" : "pb-3.5 last:pb-0"
+            )}
+          >
+            <div className={cn("shrink-0 flex items-center justify-center", isCompact ? "pt-2" : "pt-3")}>
+              <StageTimelineNode status={stage.status} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <StageCard stage={stage} index={index} isCompact={isCompact} />
+            </div>
           </div>
-          <div className="flex-1 min-w-0">
-            <StageCard stage={stage} index={index} />
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 

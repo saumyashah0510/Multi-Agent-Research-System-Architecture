@@ -38,15 +38,24 @@ export default function Navbar() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  const isPapers = currentTab === "papers" || location.pathname === "/papers";
+  const pathname = location.pathname.toLowerCase();
+  const isPapers = currentTab === "papers" || pathname === "/papers";
+  const isChat = currentTab === "chat" || pathname === "/chat";
   const isReport =
-    currentTab === "report" ||
-    currentTab === "reports" ||
-    location.pathname === "/report" ||
-    location.pathname === "/reports" ||
-    location.pathname.startsWith("/review");
-  const isChat = currentTab === "chat" || location.pathname === "/chat";
-  const isResearch = !isPapers && !isReport && !isChat;
+    !isChat &&
+    (currentTab === "report" ||
+      currentTab === "reports" ||
+      pathname === "/report" ||
+      pathname === "/reports" ||
+      pathname.startsWith("/review"));
+  const isResearch =
+    !isHome &&
+    !isPapers &&
+    !isReport &&
+    !isChat &&
+    (currentTab === "research" ||
+      pathname === "/dashboard" ||
+      pathname === "/research");
 
   const navLinks = [
     {
@@ -55,15 +64,16 @@ export default function Navbar() {
       isActive: isResearch,
     },
     {
-      name: "Report",
-      href: "/dashboard?tab=report",
-      isActive: isReport,
-    },
-    {
       name: "Papers",
       href: "/dashboard?tab=papers",
       isActive: isPapers,
     },
+    {
+      name: "Report",
+      href: "/dashboard?tab=report",
+      isActive: isReport,
+    },
+
     {
       name: "Chat",
       href: "/dashboard?tab=chat",
