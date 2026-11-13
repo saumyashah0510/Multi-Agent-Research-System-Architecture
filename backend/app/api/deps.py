@@ -12,8 +12,10 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.security import decode_access_token
 from app.db.session import get_db
 from app.models.user import User
+from app.services.auth_service import AuthService
 
 # HTTP Bearer scheme with auto_error=False for flexible optional/required auth
 security_bearer = HTTPBearer(auto_error=False)
@@ -24,13 +26,20 @@ async def get_current_user_optional(
     db: AsyncSession = Depends(get_db),
 ) -> Optional[User]:
     """Extract and validate current user from JWT token if present, returning None if unauthenticated."""
-    # TODO (Assignee - BE-12):
-    # 1. If not auth or not auth.credentials, return None
-    # 2. Decode token using decode_access_token(auth.credentials)
-    # 3. If payload is None or "sub" not present, return None
-    # 4. Fetch user from db using AuthService.get_user_by_id(db, int(payload["sub"]))
-    # 5. Return user
-    return None
+    if not auth or not auth.credentials:
+        return None
+
+    payload = decode_access_token(auth.credentials)
+    if not payload or "sub" not in payload or not payload["sub"]:
+        return None
+
+    try:
+        user_id = int(payload["sub"])
+    except (ValueError, TypeError):
+        return None
+
+    user = await AuthService.get_user_by_id(db, user_id)
+    return user
 
 
 async def get_current_user(
@@ -42,9 +51,6 @@ async def get_current_user(
     Raises:
         HTTPException 401 if token is missing, expired, or invalid.
     """
-    # TODO (Assignee - BE-12):
-    # Call get_current_user_optional(auth, db)
-    # If user is None, raise HTTPException 401 UNAUTHORIZED
     user = await get_current_user_optional(auth, db)
     if not user:
         raise HTTPException(
@@ -59,8 +65,6 @@ async def get_current_active_user(
     current_user: User = Depends(get_current_user),
 ) -> User:
     """Ensure the authenticated user account is active."""
-    # TODO (Assignee - BE-12):
-    # Check current_user.is_active. If False, raise 400 Bad Request
     if not getattr(current_user, "is_active", True):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
