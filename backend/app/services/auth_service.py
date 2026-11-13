@@ -6,11 +6,13 @@ Assignee Task (Issue BE-12):
 - Implement get_user_by_id and get_user_by_email queries.
 """
 
+import inspect
 from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.security import get_password_hash, verify_password
 from app.models.user import User
 from app.schemas.auth import UserRegisterRequest
 
@@ -21,7 +23,6 @@ class AuthService:
     @staticmethod
     async def get_user_by_email(db: AsyncSession, email: str) -> Optional[User]:
         """Fetch a user record by email address."""
-        # TODO (Assignee - BE-12): Execute select(User).where(User.email == email.lower().strip())
         stmt = select(User).where(User.email == email.lower().strip())
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
@@ -29,7 +30,6 @@ class AuthService:
     @staticmethod
     async def get_user_by_id(db: AsyncSession, user_id: int) -> Optional[User]:
         """Fetch a user record by primary key ID."""
-        # TODO (Assignee - BE-12): Execute select(User).where(User.id == user_id)
         stmt = select(User).where(User.id == user_id)
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
@@ -41,13 +41,33 @@ class AuthService:
         Raises:
             ValueError: If the email is already registered.
         """
-        # TODO (Assignee - BE-12):
-        # 1. Check if user already exists via get_user_by_email; raise ValueError if found
-        # 2. Hash password with get_password_hash(req.password)
-        # 3. Create User record with email, hashed_password, name, auth_provider="local", is_active=True
-        # 4. db.add(new_user), await db.commit(), await db.refresh(new_user)
-        # 5. Return new_user
-        raise NotImplementedError("Implement register_user in BE-12")
+        existing_user = await AuthService.get_user_by_email(db, req.email)
+        if existing_user is not None:
+            raise ValueError("An account with this email address already exists.")
+
+        hashed_password = get_password_hash(req.password)
+        new_user = User(
+            email=req.email.lower().strip(),
+            hashed_password=hashed_password,
+            name=req.name.strip() if req.name else None,
+            auth_provider="local",
+            is_active=True,
+        )
+        add_res = db.add(new_user)
+        if inspect.isawaitable(add_res):
+            await add_res
+
+        commit_res = db.commit()
+        if inspect.isawaitable(commit_res):
+            await commit_res
+
+        refresh_fn = getattr(db, "refresh", None)
+        if refresh_fn is not None:
+            refresh_res = refresh_fn(new_user)
+            if inspect.isawaitable(refresh_res):
+                await refresh_res
+
+        return new_user
 
     @staticmethod
     async def authenticate_user(
@@ -58,9 +78,11 @@ class AuthService:
         Returns:
             User record if valid, None if invalid or password does not match.
         """
-        # TODO (Assignee - BE-12):
-        # 1. Look up user by email via get_user_by_email
-        # 2. If user is None or user.hashed_password is None (e.g. OAuth user), return None
-        # 3. Verify password via verify_password(plain_password, user.hashed_password)
-        # 4. Return user if valid, else None
-        raise NotImplementedError("Implement authenticate_user in BE-12")
+        user = await AuthService.get_user_by_email(db, email)
+        if user is None or user.hashed_password is None:
+            return None
+
+        if not verify_password(plain_password, user.hashed_password):
+            return None
+
+        return user

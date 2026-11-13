@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db
+from app.core.security import create_access_token
 from app.models.user import User
 from app.schemas.auth import (
     TokenResponse,
@@ -18,6 +19,7 @@ from app.schemas.auth import (
     UserResponse,
 )
 from app.schemas.oauth import GitHubAuthRequest, GoogleAuthRequest
+from app.services.auth_service import AuthService
 
 router = APIRouter()
 
@@ -33,14 +35,19 @@ async def register(
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
     """Create a new user account with email and password, issuing a JWT access token."""
-    # TODO (Assignee - BE-12):
-    # 1. Call AuthService.register_user(db, payload)
-    # 2. Catch ValueError and raise HTTPException 400 Bad Request
-    # 3. Create access token using create_access_token(subject=user.id)
-    # 4. Return TokenResponse(access_token=token, token_type="bearer", user=UserResponse.model_validate(user))
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Registration endpoint pending implementation in BE-12",
+    try:
+        user = await AuthService.register_user(db, payload)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    token = create_access_token(subject=user.id)
+    return TokenResponse(
+        access_token=token,
+        token_type="bearer",
+        user=UserResponse.model_validate(user),
     )
 
 
@@ -54,14 +61,19 @@ async def login(
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
     """Validate email and password, returning a signed JWT access token."""
-    # TODO (Assignee - BE-12):
-    # 1. Call AuthService.authenticate_user(db, payload.email, payload.password)
-    # 2. If None, raise HTTPException 401 UNAUTHORIZED with {"WWW-Authenticate": "Bearer"}
-    # 3. Generate token using create_access_token(subject=user.id)
-    # 4. Return TokenResponse(access_token=token, token_type="bearer", user=UserResponse.model_validate(user))
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Login endpoint pending implementation in BE-12",
+    user = await AuthService.authenticate_user(db, payload.email, payload.password)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    token = create_access_token(subject=user.id)
+    return TokenResponse(
+        access_token=token,
+        token_type="bearer",
+        user=UserResponse.model_validate(user),
     )
 
 
@@ -74,7 +86,6 @@ async def get_me(
     current_user: User = Depends(get_current_user),
 ) -> UserResponse:
     """Fetch the authenticated user's profile details."""
-    # TODO (Assignee - BE-12): Return current_user converted to UserResponse
     return UserResponse.model_validate(current_user)
 
 

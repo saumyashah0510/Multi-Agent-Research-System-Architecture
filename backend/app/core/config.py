@@ -58,6 +58,13 @@ class Settings(BaseSettings):
         "openai/gpt-oss-20b,llama-3.3-70b-versatile,llama-3.1-8b-instant",
     )
 
+    # JWT Authentication Settings
+    JWT_SECRET_KEY: str = os.getenv(
+        "JWT_SECRET_KEY", "scholaris-insecure-secret-key-change-in-production"
+    )
+    JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))
+
     @property
     def groq_model_candidates(self) -> list[str]:
         """Return ordered list of Groq models: primary first, followed by fallbacks."""
