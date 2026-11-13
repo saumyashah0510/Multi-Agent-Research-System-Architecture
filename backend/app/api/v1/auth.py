@@ -93,21 +93,30 @@ async def get_me(
 @router.post(
     "/google",
     response_model=TokenResponse,
-    summary="Authenticate with Google OAuth ID token",
+    summary="Authenticate with Google OAuth ID token or authorization code",
 )
 async def google_auth(
     payload: GoogleAuthRequest,
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
-    """Verify Google ID token, link or create user, and issue application JWT token."""
-    if not payload.credential or not payload.credential.strip():
+    """Verify Google ID token or exchange authorization code, link or create user, and issue application JWT token."""
+    has_credential = bool(payload.credential and payload.credential.strip())
+    has_code = bool(payload.code and payload.code.strip())
+
+    if not has_credential and not has_code:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Google ID token credential is required.",
+            detail="Google ID token credential or authorization code is required.",
         )
 
     try:
-        profile = await OAuthService.verify_google_credential(payload.credential)
+        if has_code:
+            profile = await OAuthService.exchange_google_code(
+                code=payload.code.strip(),
+                redirect_uri=payload.redirect_uri.strip() if payload.redirect_uri else None,
+            )
+        else:
+            profile = await OAuthService.verify_google_credential(payload.credential.strip())
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

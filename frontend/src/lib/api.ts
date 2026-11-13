@@ -206,11 +206,15 @@ export async function fetchCurrentUser(): Promise<UserProfile> {
 
 
 // OAuth API Helpers (Issue FE-12)
-export async function authWithGoogle(credential?: string, code?: string): Promise<AuthResponse> {
+export async function authWithGoogle(
+  credential?: string,
+  code?: string,
+  redirectUri?: string
+): Promise<AuthResponse> {
   const res = await fetch(`${getApiBaseUrl()}/auth/google`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ credential, code }),
+    body: JSON.stringify({ credential, code, redirect_uri: redirectUri }),
   });
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));

@@ -205,6 +205,48 @@ async def test_verify_google_credential_network_failure(monkeypatch):
         await OAuthService.verify_google_credential("any-token")
 
 
+@pytest.mark.asyncio
+async def test_exchange_google_code_mock(monkeypatch):
+    """Verify Google authorization code exchange with mocked httpx token response."""
+    monkeypatch.setattr(settings, "GOOGLE_CLIENT_ID", "scholaris-google-client-id")
+    monkeypatch.setattr(settings, "GOOGLE_CLIENT_SECRET", "scholaris-google-client-secret")
+
+    google_token_payload = {
+        "access_token": "mock-google-access-token",
+        "id_token": "mock-google-id-token",
+        "expires_in": 3599,
+        "token_type": "Bearer",
+    }
+
+    mock_profile = OAuthUserProfile(
+        provider="google",
+        provider_user_id="google-user-12345",
+        email="ada.lovelace@scholaris.ai",
+        name="Ada Lovelace",
+        avatar_url="https://example.com/ada.jpg",
+    )
+
+    async def mock_post(self, url, *args, **kwargs):
+        req = httpx.Request("POST", url)
+        return httpx.Response(200, json=google_token_payload, request=req)
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+    monkeypatch.setattr(
+        OAuthService, "verify_google_credential", AsyncMock(return_value=mock_profile)
+    )
+
+    profile = await OAuthService.exchange_google_code("valid-google-code")
+    assert profile.provider == "google"
+    assert profile.email == "ada.lovelace@scholaris.ai"
+
+
+@pytest.mark.asyncio
+async def test_exchange_google_code_empty_code():
+    """Verify that empty or whitespace Google code raises ValueError."""
+    with pytest.raises(ValueError, match="Google authorization code must not be empty"):
+        await OAuthService.exchange_google_code("   ")
+
+
 # =========================================================================
 # 3. GitHub Code Exchange Tests
 # =========================================================================
@@ -497,9 +539,39 @@ def test_api_google_auth_endpoint_missing_credential(client: TestClient):
 
     app.dependency_overrides[get_db] = override_get_db
 
-    response = client.post("/api/v1/auth/google", json={"credential": ""})
+    response = client.post("/api/v1/auth/google", json={"credential": "", "code": ""})
     assert response.status_code == 400
-    assert "Google ID token credential is required" in response.json()["detail"]
+    assert (
+        "Google ID token credential or authorization code is required" in response.json()["detail"]
+    )
+
+
+def test_api_google_auth_endpoint_code_success(client: TestClient, monkeypatch):
+    """POST /api/v1/auth/google returns 200 with JWT when authorization code is exchanged."""
+    test_user = _make_test_user(user_id=2, email="googlecode@scholaris.ai")
+
+    async def override_get_db():
+        yield AsyncMock()
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    mock_profile = OAuthUserProfile(
+        provider="google",
+        provider_user_id="google-code-123",
+        email="googlecode@scholaris.ai",
+    )
+
+    monkeypatch.setattr(OAuthService, "exchange_google_code", AsyncMock(return_value=mock_profile))
+    monkeypatch.setattr(
+        OAuthService, "authenticate_or_register_oauth_user", AsyncMock(return_value=test_user)
+    )
+
+    response = client.post("/api/v1/auth/google", json={"code": "valid_google_code"})
+    assert response.status_code == 200
+    data = response.json()
+    assert "access_token" in data
+    assert data["token_type"] == "bearer"
+    assert data["user"]["email"] == "googlecode@scholaris.ai"
 
 
 def test_api_google_auth_endpoint_invalid_token(client: TestClient, monkeypatch):

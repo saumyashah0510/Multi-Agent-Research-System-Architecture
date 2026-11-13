@@ -31,7 +31,16 @@ export default function SocialLoginButtons({
       return;
     }
 
-    const redirectUri = encodeURIComponent(`${window.location.origin}/auth/callback`);
+    // Google OAuth 2.0 policy strictly forbids raw IP addresses in redirect URIs.
+    // If user is accessing via a raw IP (e.g. 13.207.232.123), convert to .nip.io wildcard domain
+    // so Google approves the OAuth security policy without manual user intervention.
+    let baseOrigin = window.location.origin;
+    const isRawIp = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(window.location.hostname);
+    if (isRawIp) {
+      baseOrigin = `${window.location.protocol}//${window.location.hostname}.nip.io${window.location.port ? `:${window.location.port}` : ""}`;
+    }
+
+    const redirectUri = encodeURIComponent(`${baseOrigin}/auth/callback`);
     const statePayload = { provider: "google", returnTo: returnTo || "/dashboard" };
     const encodedState = encodeURIComponent(JSON.stringify(statePayload));
 
