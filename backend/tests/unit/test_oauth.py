@@ -153,8 +153,30 @@ async def test_verify_google_credential_audience_mismatch(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_verify_google_credential_empty_client_id(monkeypatch):
+    """Verify that empty GOOGLE_CLIENT_ID raises ValueError."""
+    monkeypatch.setattr(settings, "GOOGLE_CLIENT_ID", "")
+
+    google_payload = {
+        "aud": "any-aud",
+        "sub": "google-user-12345",
+        "email": "user@example.com",
+    }
+
+    async def mock_get(self, url, *args, **kwargs):
+        req = httpx.Request("GET", url)
+        return httpx.Response(200, json=google_payload, request=req)
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", mock_get)
+
+    with pytest.raises(ValueError, match="Google OAuth client ID is not configured"):
+        await OAuthService.verify_google_credential("any-valid-token")
+
+
+@pytest.mark.asyncio
 async def test_verify_google_credential_missing_sub_or_email(monkeypatch):
     """Verify that missing sub or email in Google payload raises ValueError."""
+    monkeypatch.setattr(settings, "GOOGLE_CLIENT_ID", "scholaris-google-client-id")
     google_payload = {
         "aud": settings.GOOGLE_CLIENT_ID,
         "name": "Anonymous",

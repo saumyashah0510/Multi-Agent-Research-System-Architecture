@@ -48,11 +48,13 @@ class OAuthService:
 
         payload: Dict[str, Any] = res.json()
 
-        # Verify token audience if GOOGLE_CLIENT_ID is configured
-        if settings.GOOGLE_CLIENT_ID:
-            aud = payload.get("aud")
-            if aud != settings.GOOGLE_CLIENT_ID:
-                raise ValueError("Google ID token audience mismatch.")
+        # Verify token audience against configured GOOGLE_CLIENT_ID
+        if not settings.GOOGLE_CLIENT_ID:
+            raise ValueError("Google OAuth client ID is not configured.")
+
+        aud = payload.get("aud")
+        if aud != settings.GOOGLE_CLIENT_ID:
+            raise ValueError("Google ID token audience mismatch.")
 
         sub = payload.get("sub")
         email = payload.get("email")
