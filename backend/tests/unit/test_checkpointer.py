@@ -194,3 +194,77 @@ async def test_checkpoint_snapshot_persistence():
     assert restored is not None
     assert restored.checkpoint["id"] == checkpoint["id"]
     assert restored.metadata["step"] == 0
+
+
+@pytest.mark.asyncio
+async def test_failed_read_does_not_pin_thread_to_memory():
+    """A failed read must not strand a thread that already exists in PostgreSQL."""
+
+    class _FlakyReads(MemorySaver):
+        fail = False
+
+        async def aget_tuple(self, config):
+            if self.fail:
+                raise RuntimeError("connection lost")
+            return await super().aget_tuple(config)
+
+    pg = _FlakyReads()
+    existing = empty_checkpoint()
+    await pg.aput(_config("t1"), existing, _metadata(), {})  # persisted earlier
+
+    saver = LazyPostgresSaver()
+    saver._saver = pg
+
+    pg.fail = True
+    assert await saver.aget_tuple(_config("t1")) is None
+    assert "t1" not in saver._memory_threads
+
+    pg.fail = False
+    restored = await saver.aget_tuple(_config("t1"))
+    assert restored is not None
+    assert restored.checkpoint["id"] == existing["id"]
+
+
+@pytest.mark.asyncio
+async def test_failed_delete_keeps_postgres_ownership():
+    """If deleting from PostgreSQL fails, the thread must stay owned by PostgreSQL."""
+
+    class _FailingDelete(MemorySaver):
+        async def adelete_thread(self, thread_id):
+            raise RuntimeError("connection lost")
+
+    saver = LazyPostgresSaver()
+    saver._saver = _FailingDelete()
+
+    await saver.aput(_config("t1"), empty_checkpoint(), _metadata(), {})
+    assert "t1" in saver._pg_threads
+
+    with pytest.raises(RuntimeError):
+        await saver.adelete_thread("t1")
+
+    assert "t1" in saver._pg_threads
+    assert "t1" not in saver._memory_threads
+    assert await saver.aget_tuple(_config("t1")) is not None
+
+
+@pytest.mark.asyncio
+async def test_concurrent_first_operations_use_one_backend():
+    """Overlapping first operations on one thread must not split across backends."""
+    calls = []
+
+    class _SlowFailing(MemorySaver):
+        async def aput(self, config, checkpoint, metadata, new_versions):
+            calls.append(checkpoint["id"])
+            await asyncio.sleep(0.05)
+            raise RuntimeError("connection lost")
+
+    saver = LazyPostgresSaver()
+    saver._saver = _SlowFailing()
+
+    await asyncio.gather(
+        saver.aput(_config("t1"), empty_checkpoint(), _metadata(), {}),
+        saver.aput(_config("t1"), empty_checkpoint(), _metadata(), {}),
+    )
+
+    assert len(calls) == 1  # the second call saw the thread already pinned
+    assert "t1" in saver._memory_threads
