@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
+import { AnimatePresence, motion } from "framer-motion";
 import ResearchInput, { type ResearchSearchParams } from "../components/ResearchInput";
 import PaperGrid from "../components/dashboard/paper-grid";
 import PastReviewsView, { type TargetSection } from "../components/dashboard/PastReviewsView";
@@ -14,6 +15,9 @@ export default function Dashboard() {
   const location = useLocation();
   const [searchParams] = useSearchParams();
 
+  // Review session state (must be established by backend; no temporary fallback IDs)
+  const [reviewId, setReviewId] = useState<string | null>(null);
+
   const currentTab = (searchParams.get("tab") || "").toLowerCase();
   const pathname = location.pathname.toLowerCase();
   const isPapersRoute = currentTab === "papers" || pathname === "/papers";
@@ -23,12 +27,13 @@ export default function Dashboard() {
     pathname === "/report" ||
     pathname === "/reports";
   const isChatRoute = currentTab === "chat" || pathname === "/chat";
-  const isNonResearchView = isPapersRoute || isReportRoute || isChatRoute;
+  const isNonResearchView = (isPapersRoute && !reviewId) || isReportRoute || isChatRoute;
+  const isDirectPapersView = isPapersRoute && Boolean(reviewId);
   const targetSection: TargetSection = isChatRoute
     ? "chat"
     : isPapersRoute
-    ? "papers"
-    : "report";
+      ? "papers"
+      : "report";
   const [activeQuery, setActiveQuery] = useState<string>("");
   const [hasSearched, setHasSearched] = useState(false);
   const [isPipelineDone, setIsPipelineDone] = useState(false);
@@ -36,9 +41,6 @@ export default function Dashboard() {
 
   // Screened candidate papers list (initialized empty to prevent stale demo data)
   const [papers, setPapers] = useState<PaperSummary[]>([]);
-
-  // Review session state (must be established by backend; no temporary fallback IDs)
-  const [reviewId, setReviewId] = useState<string | null>(null);
 
   // Connect useReviewWebSocket(reviewId) to stream live events
   const ws = useReviewWebSocket(reviewId);
@@ -50,7 +52,17 @@ export default function Dashboard() {
   useEffect(() => {
     const urlReviewId = searchParams.get("review_id");
     if (urlReviewId) {
-      setReviewId((prev) => (prev === urlReviewId ? prev : urlReviewId));
+      setReviewId((prev) => {
+        if (prev !== urlReviewId) {
+          setPapers([]);
+          setSelectedPaperIds([]);
+          setApprovalError(null);
+          setApprovalSuccess(null);
+          setIsPipelineDone(false);
+          return urlReviewId;
+        }
+        return prev;
+      });
       setHasSearched(true);
     }
   }, [searchParams]);
@@ -73,11 +85,9 @@ export default function Dashboard() {
           const normalized = res.screened_papers
             .map((p: any, idx: number) => normalizePaper(p, idx))
             .sort((a: PaperSummary, b: PaperSummary) => (b.relevanceScore ?? 0) - (a.relevanceScore ?? 0));
-          setPapers((prev) => (prev.length === 0 ? normalized : prev));
-          setSelectedPaperIds((prev) =>
-            prev.length === 0
-              ? normalized.filter((p: any) => p.isSelected !== false).map((p: any) => p.id)
-              : prev
+          setPapers(normalized);
+          setSelectedPaperIds(
+            normalized.filter((p: any) => p.isSelected !== false).map((p: any) => p.id)
           );
         }
         const statusUpper = String(res.status || "").toUpperCase();
@@ -127,6 +137,13 @@ export default function Dashboard() {
       setIsPipelineDone(true);
     }
   }, [reviewId, ws.reviewId, ws.isPausedForInput, ws.status]);
+
+  // When all 3 stages finish and candidate papers are ready, redirect to the Papers view
+  useEffect(() => {
+    if (isPipelineDone && papers.length > 0 && reviewId && !isPapersRoute) {
+      navigate(`/dashboard?tab=papers&review_id=${encodeURIComponent(reviewId)}`);
+    }
+  }, [isPipelineDone, papers.length, reviewId, isPapersRoute, navigate]);
 
   // Approval submission state
   const [isProceeding, setIsProceeding] = useState(false);
@@ -280,81 +297,116 @@ export default function Dashboard() {
           onSelectReview={handleSelectPastReview}
           onStartNewResearch={() => navigate("/dashboard?tab=research")}
         />
-      ) : !hasSearched ? (
-        /* Initial Screen: Headline and Search Input positioned with balanced upper spacing */
-        <div className="w-full flex-1 flex flex-col items-center justify-start pt-[16vh] sm:pt-[18vh] pb-16">
-          {/* Welcome Headline */}
-          <div className="text-center max-w-3xl mx-auto px-4 flex flex-col items-center mb-16 sm:mb-24">
-            <h1 className="font-serif text-3xl sm:text-5xl md:text-6xl font-normal text-neutral-900 tracking-tight leading-none">
-              Welcome,
-            </h1>
-            <p className="font-serif text-2xl sm:text-3xl md:text-4xl font-normal text-neutral-800 tracking-tight leading-none mt-2 sm:mt-3">
-              What are you curious about?
-            </p>
-          </div>
-
-          {/* Main Research Search Card */}
-          <div className="w-full">
-            <ResearchInput
-              initialQuery={activeQuery}
-              onSearch={handleSearch}
-              isLoading={false}
-            />
-          </div>
+      ) : isDirectPapersView ? (
+        /* Dedicated Papers View for active review: Topic on top + Summary Cards */
+        <div className="w-full pt-6 sm:pt-8 space-y-6 animate-in fade-in duration-300">
+          <PaperGrid
+            papers={papers}
+            selectedPaperIds={selectedPaperIds}
+            onToggleSelect={togglePaperSelection}
+            onProceed={handleProceed}
+            onFindMore={handleFindMore}
+            isProceeding={isProceeding}
+            isFindingMore={isFindingMore}
+            errorMessage={approvalError}
+            successMessage={approvalSuccess}
+            topic={activeQuery}
+          />
         </div>
       ) : (
-        /* Workflow State: Search Input at the top followed by Pipeline and Paper Approval Grid */
-        <div className="w-full flex flex-col items-center pt-6 sm:pt-8">
-          {/* Main Research Search Card */}
-          <div className="w-full mb-5">
-            <ResearchInput
-              initialQuery={activeQuery}
-              onSearch={handleSearch}
-              isLoading={false}
-            />
-          </div>
+        <AnimatePresence mode="wait">
+          {!hasSearched ? (
+            /* Initial Screen: Headline and Search Input positioned with balanced upper spacing */
+            <motion.div
+              key="welcome-view"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -16, transition: { duration: 0.25, ease: "easeInOut" } }}
+              transition={{ duration: 0.3 }}
+              className="w-full flex-1 flex flex-col items-center justify-start pt-[16vh] sm:pt-[18vh] pb-16"
+            >
+              {/* Welcome Headline */}
+              <div className="text-center max-w-3xl mx-auto px-4 flex flex-col items-center mb-16 sm:mb-24">
+                <h1 className="font-serif text-3xl sm:text-5xl md:text-6xl font-normal text-neutral-900 tracking-tight leading-none">
+                  Welcome,
+                </h1>
+                <p className="font-serif text-2xl sm:text-3xl md:text-4xl font-normal text-neutral-800 tracking-tight leading-none mt-2 sm:mt-3">
+                  What are you curious about?
+                </p>
+              </div>
 
-          {/* Research Progress Pipeline */}
-          <div className="w-full mb-5">
-            <ResearchProgress
-              key={`pipeline-session-${pipelineSession}-${activeQuery}`}
-              query={activeQuery}
-              stages={reviewId ? ws.stages : undefined}
-              isRunning={
-                reviewId ? ws.isConnected && ws.status !== "COMPLETED" : undefined
-              }
-              isCompleted={
-                reviewId
-                  ? ws.isPausedForInput || ws.status === "COMPLETED"
-                  : isPipelineDone
-              }
-              screenedCount={papers.length}
-              relevantCount={selectedPaperIds.length}
-              isMock={!reviewId}
-              autoStart={false}
-              onComplete={() => setIsPipelineDone(true)}
-              onFindMore={handleFindMore}
-              isFindingMore={isFindingMore}
-            />
-          </div>
+              {/* Main Research Search Card */}
+              <div className="w-full">
+                <ResearchInput
+                  initialQuery={activeQuery}
+                  onSearch={handleSearch}
+                  isLoading={false}
+                />
+              </div>
+            </motion.div>
+          ) : (
+            /* Workflow State: Query Message Bubble followed by Pipeline and Paper Approval Grid */
+            <motion.div
+              key="workflow-view"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.35, ease: "easeOut" }}
+              className="w-full flex flex-col items-center pt-8 sm:pt-10"
+            >
+              {/* Main Research Search Card / Active Query Bubble */}
+              <div className="w-full mb-5">
+                <ResearchInput
+                  initialQuery={activeQuery}
+                  onSearch={handleSearch}
+                  isLoading={false}
+                  isSearchingActive={true}
+                />
+              </div>
 
-          {/* Completed Search Results (Paper Approval Grid on the SAME page) */}
-          {isPipelineDone && (
-            <div className="w-full space-y-4 animate-in fade-in duration-300">
-              <PaperGrid
-                papers={papers}
-                selectedPaperIds={selectedPaperIds}
-                onToggleSelect={togglePaperSelection}
-                onProceed={handleProceed}
-                onFindMore={handleFindMore}
-                isProceeding={isProceeding}
-                isFindingMore={isFindingMore}
-                errorMessage={approvalError}
-                successMessage={approvalSuccess}
-              />
-            </div>
+              {/* Research Progress Pipeline */}
+              <div className="w-full mb-5">
+                <ResearchProgress
+                  key={`pipeline-session-${pipelineSession}-${activeQuery}`}
+                  query={activeQuery}
+                  stages={reviewId ? ws.stages : undefined}
+                  isRunning={
+                    reviewId ? ws.isConnected && ws.status !== "COMPLETED" : undefined
+                  }
+                  isCompleted={
+                    reviewId
+                      ? ws.isPausedForInput || ws.status === "COMPLETED" || isPipelineDone
+                      : isPipelineDone
+                  }
+                  screenedCount={papers.length}
+                  relevantCount={selectedPaperIds.length}
+                  isMock={false}
+                  autoStart={false}
+                  onComplete={() => setIsPipelineDone(true)}
+                  onFindMore={handleFindMore}
+                  isFindingMore={isFindingMore}
+                />
+              </div>
+
+              {/* Completed Search Results (Paper Approval Grid on the SAME page) */}
+              {isPipelineDone && (
+                <div className="w-full space-y-4 animate-in fade-in duration-300">
+                  <PaperGrid
+                    papers={papers}
+                    selectedPaperIds={selectedPaperIds}
+                    onToggleSelect={togglePaperSelection}
+                    onProceed={handleProceed}
+                    onFindMore={handleFindMore}
+                    isProceeding={isProceeding}
+                    isFindingMore={isFindingMore}
+                    errorMessage={approvalError}
+                    successMessage={approvalSuccess}
+                    topic={activeQuery}
+                  />
+                </div>
+              )}
+            </motion.div>
           )}
-        </div>
+        </AnimatePresence>
       )}
     </div>
   );

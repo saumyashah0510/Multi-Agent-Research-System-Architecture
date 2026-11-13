@@ -12,6 +12,7 @@ export interface PaperGridProps {
   isFindingMore?: boolean;
   errorMessage?: string | null;
   successMessage?: string | null;
+  topic?: string | null;
   className?: string;
 }
 
@@ -25,6 +26,7 @@ export default function PaperGrid({
   isFindingMore = false,
   errorMessage = null,
   successMessage = null,
+  topic = null,
   className = "",
 }: PaperGridProps) {
   const selectedCount = selectedPaperIds.length;
@@ -50,16 +52,23 @@ export default function PaperGrid({
     <div className={cn("w-full space-y-5 animate-in fade-in duration-300", className)}>
       {/* Main Candidate Papers Card Container */}
       <div className="w-full bg-white rounded-2xl border border-neutral-200/80 shadow-xs p-5 sm:p-7 space-y-6">
-        {/* Header: Section Title + Selected Count Badge */}
-        <div className="flex items-center justify-between pb-2 border-b border-neutral-100">
-          <h2 className="font-serif text-xl sm:text-2xl font-bold text-neutral-900 tracking-compact">
-            Most relevant papers
-          </h2>
+        {/* Header: Section Title + Topic Subheading + Selected Count Badge */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-neutral-100">
+          <div className="min-w-0">
+            <h2 className="font-serif text-xl sm:text-2xl font-bold text-neutral-900 tracking-compact">
+              Most relevant papers
+            </h2>
+            {topic && (
+              <p className="text-xs sm:text-sm text-neutral-500 font-sans mt-1 line-clamp-2">
+                Topic: <span className="font-medium text-neutral-800">{topic}</span>
+              </p>
+            )}
+          </div>
 
           {/* Selected Badge */}
           <div
             style={{ borderRadius: "var(--radius-sm)" }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-[var(--color-pill-sky)] text-neutral-800"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-[var(--color-pill-sky)] text-neutral-800 shrink-0 self-start sm:self-auto"
           >
             <span>Selected</span>
             <span
