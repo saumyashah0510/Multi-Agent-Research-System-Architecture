@@ -5,6 +5,7 @@ Assignee Task (Issue #1):
 """
 
 import os
+import secrets
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -59,9 +60,7 @@ class Settings(BaseSettings):
     )
 
     # JWT Authentication Settings
-    JWT_SECRET_KEY: str = os.getenv(
-        "JWT_SECRET_KEY", "scholaris-insecure-secret-key-change-in-production"
-    )
+    JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY") or secrets.token_urlsafe(32)
     JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))
 

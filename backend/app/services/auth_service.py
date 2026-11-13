@@ -6,10 +6,12 @@ Assignee Task (Issue BE-12):
 - Implement get_user_by_id and get_user_by_email queries.
 """
 
+import asyncio
 import inspect
 from typing import Optional
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_password_hash, verify_password
@@ -45,7 +47,7 @@ class AuthService:
         if existing_user is not None:
             raise ValueError("An account with this email address already exists.")
 
-        hashed_password = get_password_hash(req.password)
+        hashed_password = await asyncio.to_thread(get_password_hash, req.password)
         new_user = User(
             email=req.email.lower().strip(),
             hashed_password=hashed_password,
@@ -57,9 +59,17 @@ class AuthService:
         if inspect.isawaitable(add_res):
             await add_res
 
-        commit_res = db.commit()
-        if inspect.isawaitable(commit_res):
-            await commit_res
+        try:
+            commit_res = db.commit()
+            if inspect.isawaitable(commit_res):
+                await commit_res
+        except IntegrityError as exc:
+            rollback_fn = getattr(db, "rollback", None)
+            if rollback_fn is not None:
+                rollback_res = rollback_fn()
+                if inspect.isawaitable(rollback_res):
+                    await rollback_res
+            raise ValueError("An account with this email address already exists.") from exc
 
         refresh_fn = getattr(db, "refresh", None)
         if refresh_fn is not None:
@@ -82,7 +92,8 @@ class AuthService:
         if user is None or user.hashed_password is None:
             return None
 
-        if not verify_password(plain_password, user.hashed_password):
+        is_valid = await asyncio.to_thread(verify_password, plain_password, user.hashed_password)
+        if not is_valid:
             return None
 
         return user

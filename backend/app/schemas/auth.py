@@ -8,7 +8,7 @@ Assignee Task (Issue BE-12):
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 class UserRegisterRequest(BaseModel):
@@ -18,12 +18,26 @@ class UserRegisterRequest(BaseModel):
     password: str = Field(..., min_length=6, max_length=128, description="User plaintext password")
     name: Optional[str] = Field(None, max_length=255, description="User full display name")
 
+    @field_validator("password")
+    @classmethod
+    def validate_password_length(cls, v: str) -> str:
+        if len(v.encode("utf-8")) > 72:
+            raise ValueError("Password cannot exceed 72 bytes.")
+        return v
+
 
 class UserLoginRequest(BaseModel):
     """Payload for logging in with email and password."""
 
     email: EmailStr = Field(..., description="Registered user email address")
     password: str = Field(..., description="User plaintext password")
+
+    @field_validator("password")
+    @classmethod
+    def validate_password_length(cls, v: str) -> str:
+        if len(v.encode("utf-8")) > 72:
+            raise ValueError("Password cannot exceed 72 bytes.")
+        return v
 
 
 class UserResponse(BaseModel):

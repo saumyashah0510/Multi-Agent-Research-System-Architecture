@@ -9,7 +9,7 @@ Assignee Task (Issue BE-12):
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, get_db
+from app.api.deps import get_current_active_user, get_db
 from app.core.security import create_access_token
 from app.models.user import User
 from app.schemas.auth import (
@@ -62,7 +62,7 @@ async def login(
 ) -> TokenResponse:
     """Validate email and password, returning a signed JWT access token."""
     user = await AuthService.authenticate_user(db, payload.email, payload.password)
-    if user is None:
+    if user is None or not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password.",
@@ -83,7 +83,7 @@ async def login(
     summary="Get current authenticated user profile",
 )
 async def get_me(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
 ) -> UserResponse:
     """Fetch the authenticated user's profile details."""
     return UserResponse.model_validate(current_user)
