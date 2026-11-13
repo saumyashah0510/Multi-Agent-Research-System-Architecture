@@ -285,3 +285,20 @@ async def test_delete_keeps_shared_thread_lock():
 
     assert saver._thread_locks["t1"] is lock
     assert await saver.aget_tuple(_config("t1")) is None
+
+
+@pytest.mark.asyncio
+async def test_new_event_loop_discards_old_connection():
+    """A connection bound to a previous event loop must not be reused."""
+    saver = LazyPostgresSaver()
+    saver._saver = MemorySaver()
+    saver._loop = object()  # stands in for a closed event loop
+
+    async def _no_db():
+        return None
+
+    saver._connect = _no_db
+    await saver.aget_tuple(_config("t1"))
+
+    assert saver._saver is None
+    assert saver._loop is asyncio.get_running_loop()

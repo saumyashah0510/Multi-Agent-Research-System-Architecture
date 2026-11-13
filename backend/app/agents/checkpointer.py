@@ -11,6 +11,10 @@ Each thread is pinned to the backend it started on:
   (state stays safe in Neon and can be resumed) instead of silently switching.
 - A failed read never pins a thread and is never answered from memory for an
   unpinned thread: it may already exist in PostgreSQL.
+
+The connection pool is bound to the event loop that created it. If the running
+loop changes (for example, a new loop per test), the old pool is discarded and
+a new one is opened in the current loop.
 """
 
 import asyncio
@@ -68,10 +72,24 @@ class LazyPostgresSaver(BaseCheckpointSaver):
         self._memory_threads: set[str] = set()  # threads pinned to memory
         self._pg_threads: set[str] = set()  # threads confirmed on PostgreSQL
         self._thread_locks: dict[str, asyncio.Lock] = {}
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
 
     @staticmethod
     def _thread_id(config) -> str:
         return str(((config or {}).get("configurable") or {}).get("thread_id", ""))
+
+    def _check_loop(self) -> None:
+        """Drop connection state bound to a previous (closed) event loop."""
+        loop = asyncio.get_running_loop()
+        if self._loop is not None and self._loop is not loop:
+            # The pool belongs to another event loop and cannot be reused.
+            # PostgreSQL thread ownership (_pg_threads) stays valid.
+            self._saver = None
+            self._pool = None
+            self._lock = None
+            self._thread_locks.clear()
+            self._retry_at = 0.0
+        self._loop = loop
 
     async def _connect(self) -> Optional[BaseCheckpointSaver]:
         """Return the Postgres saver, or None while unavailable (cooldown applies)."""
@@ -131,6 +149,7 @@ class LazyPostgresSaver(BaseCheckpointSaver):
 
     async def _run(self, config, op: str, *args):
         """Run an async saver operation on the backend this thread is pinned to."""
+        self._check_loop()
         tid = self._thread_id(config)
 
         # Fast paths: thread already pinned to a backend.
@@ -177,6 +196,7 @@ class LazyPostgresSaver(BaseCheckpointSaver):
         return await self._run(config, "aget_tuple")
 
     async def alist(self, config, *, filter=None, before=None, limit=None):
+        self._check_loop()
         if self._thread_id(config) in self._memory_threads:
             backend = self._memory
         else:
@@ -191,6 +211,7 @@ class LazyPostgresSaver(BaseCheckpointSaver):
         return await self._run(config, "aput_writes", writes, task_id, task_path)
 
     async def adelete_thread(self, thread_id):
+        self._check_loop()
         tid = str(thread_id)
         lock = self._thread_locks.setdefault(tid, asyncio.Lock())
         async with lock:
