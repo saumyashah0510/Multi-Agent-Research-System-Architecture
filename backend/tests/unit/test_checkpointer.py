@@ -2,9 +2,13 @@
 
 import pytest
 from app.agents import checkpointer as cp
-from app.agents.checkpointer import get_checkpointer, sanitize_connection_string
+from app.agents.checkpointer import (
+    LazyPostgresSaver,
+    get_checkpointer,
+    sanitize_connection_string,
+)
 from app.agents.orchestrator import build_literature_review_graph
-from langgraph.checkpoint.base import empty_checkpoint
+from langgraph.checkpoint.base import BaseCheckpointSaver, empty_checkpoint
 from langgraph.checkpoint.memory import MemorySaver
 
 
@@ -41,11 +45,14 @@ def test_sanitize_connection_string():
     assert sanitize_connection_string(plain) == plain
 
 
-def test_get_checkpointer_never_raises_without_event_loop(monkeypatch):
-    """Outside an event loop the factory must fall back instead of crashing."""
+def test_get_checkpointer_is_safe_at_import_time(monkeypatch):
+    """Outside an event loop (module-level graph compile) the factory must not fail."""
     monkeypatch.setattr(cp, "_is_test_env", lambda: False)
     monkeypatch.setattr(cp, "_checkpointer_instance", None)
-    assert isinstance(get_checkpointer(), MemorySaver)
+    saver = get_checkpointer()
+    assert isinstance(saver, BaseCheckpointSaver)
+    assert isinstance(saver, LazyPostgresSaver)
+    assert get_checkpointer() is saver  # cached
 
 
 @pytest.mark.asyncio
