@@ -24,17 +24,31 @@ export default function AuthCallback() {
 
   const [error, setError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>("Authenticating with provider...");
+
+  const isMountedRef = useRef(true);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasProcessedRef = useRef(false);
 
   useEffect(() => {
+    isMountedRef.current = true;
+
     // Avoid double-processing in React 18 StrictMode (which mounts effects twice in dev)
-    if (hasProcessedRef.current) return;
+    if (hasProcessedRef.current) {
+      return () => {
+        isMountedRef.current = false;
+        if (timerRef.current) {
+          clearTimeout(timerRef.current);
+          timerRef.current = null;
+        }
+      };
+    }
     hasProcessedRef.current = true;
 
     const processCallback = async () => {
       // 1. Check for error returned by OAuth provider (e.g., user cancelled)
       const oauthError = searchParams.get("error_description") || searchParams.get("error");
       if (oauthError) {
+        if (!isMountedRef.current) return;
         setError(`Authentication denied: ${oauthError}`);
         return;
       }
@@ -49,7 +63,8 @@ export default function AuthCallback() {
 
       if (stateParam) {
         try {
-          const parsedState = JSON.parse(decodeURIComponent(stateParam));
+          // searchParams.get("state") has already percent-decoded the parameter
+          const parsedState = JSON.parse(stateParam);
           if (parsedState.provider) providerHint = parsedState.provider;
           if (parsedState.returnTo) returnTo = parsedState.returnTo;
         } catch {
@@ -81,6 +96,7 @@ export default function AuthCallback() {
       }
 
       if (!code && !credential) {
+        if (!isMountedRef.current) return;
         setError("Missing authorization parameters. Please try signing in again.");
         return;
       }
@@ -90,18 +106,29 @@ export default function AuthCallback() {
 
         if (credential) {
           // Google Identity Services (ID Token JWT)
+          if (!isMountedRef.current) return;
           setStatusMessage("Verifying Google account credentials...");
           authData = await authWithGoogle(credential);
         } else if (code) {
           // Authorization code exchange
           if (providerHint === "github") {
+            if (!isMountedRef.current) return;
             setStatusMessage("Exchanging GitHub authorization code...");
-            authData = await authWithGitHub(code);
+            try {
+              authData = await authWithGitHub(code);
+            } catch {
+              // Fallback to Google if GitHub exchange throws
+              if (!isMountedRef.current) return;
+              setStatusMessage("Exchanging Google authorization code...");
+              authData = await authWithGoogle(undefined, code);
+            }
           } else if (providerHint === "google") {
+            if (!isMountedRef.current) return;
             setStatusMessage("Exchanging Google authorization code...");
             authData = await authWithGoogle(undefined, code);
           } else {
             // Unknown provider: attempt GitHub first, then fallback to Google
+            if (!isMountedRef.current) return;
             setStatusMessage("Exchanging authorization code...");
             try {
               authData = await authWithGitHub(code);
@@ -110,6 +137,8 @@ export default function AuthCallback() {
             }
           }
         }
+
+        if (!isMountedRef.current) return;
 
         if (authData && authData.access_token) {
           try {
@@ -120,13 +149,16 @@ export default function AuthCallback() {
 
           setSession(authData.access_token, authData.user);
           setStatusMessage("Authentication successful! Redirecting to research dashboard...");
-          setTimeout(() => {
-            navigate(returnTo || "/dashboard", { replace: true });
+          timerRef.current = setTimeout(() => {
+            if (isMountedRef.current) {
+              navigate(returnTo || "/dashboard", { replace: true });
+            }
           }, 350);
         } else {
           throw new Error("Invalid response received from authentication service.");
         }
       } catch (err: any) {
+        if (!isMountedRef.current) return;
         console.error("OAuth callback error:", err);
         try {
           sessionStorage.removeItem("oauth_redirect_info");
@@ -138,6 +170,14 @@ export default function AuthCallback() {
     };
 
     processCallback();
+
+    return () => {
+      isMountedRef.current = false;
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    };
   }, [searchParams, navigate, setSession]);
 
   return (
