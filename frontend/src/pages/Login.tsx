@@ -14,7 +14,6 @@ import { AlertCircle, Eye, EyeOff } from "lucide-react";
 import { FcGoogle } from "react-icons/fc";
 import { FaGithub } from "react-icons/fa";
 import { useAuth } from "../context/AuthContext";
-import { cn } from "../lib/utils";
 import scholarisLogo from "../images/Scholaris_logo.png";
 import loginImg from "../images/Login_img.png";
 
@@ -26,7 +25,6 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -152,33 +150,6 @@ export default function Login() {
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
-            </div>
-
-            <div className="flex items-center justify-between text-xs pt-0.5">
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <div
-                  onClick={() => setRememberMe(!rememberMe)}
-                  style={{
-                    backgroundColor: rememberMe ? "var(--color-accent)" : "#CBD5E1",
-                    borderColor: rememberMe ? "#B8E674" : "#94A3B8",
-                  }}
-                  className="w-8 h-4.5 rounded-full transition-colors duration-200 ease-in-out flex items-center px-0.5 cursor-pointer border"
-                >
-                  <div
-                    className={cn(
-                      "w-3.5 h-3.5 rounded-full transition-transform duration-200 ease-in-out shadow-xs",
-                      rememberMe ? "translate-x-3.5 bg-neutral-900" : "translate-x-0 bg-white"
-                    )}
-                  />
-                </div>
-                <span className="text-neutral-700 font-medium">Remember me</span>
-              </label>
-              <button
-                type="button"
-                className="text-neutral-500 hover:text-neutral-900 transition font-medium cursor-pointer"
-              >
-                Forgot password?
-              </button>
             </div>
 
             <button
