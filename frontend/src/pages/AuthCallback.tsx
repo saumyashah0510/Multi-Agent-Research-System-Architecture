@@ -131,12 +131,20 @@ export default function AuthCallback() {
               // Fallback to Google if GitHub exchange throws
               if (!isMountedRef.current) return;
               setStatusMessage("Exchanging Google authorization code...");
-              authData = await authWithGoogle(undefined, code);
+              authData = await authWithGoogle(
+                undefined,
+                code,
+                `${window.location.origin}/auth/callback`
+              );
             }
           } else if (providerHint === "google") {
             if (!isMountedRef.current) return;
             setStatusMessage("Exchanging Google authorization code...");
-            authData = await authWithGoogle(undefined, code);
+            authData = await authWithGoogle(
+              undefined,
+              code,
+              `${window.location.origin}/auth/callback`
+            );
           } else {
             // Unknown provider: attempt GitHub first, then fallback to Google
             if (!isMountedRef.current) return;
@@ -144,7 +152,11 @@ export default function AuthCallback() {
             try {
               authData = await authWithGitHub(code);
             } catch {
-              authData = await authWithGoogle(undefined, code);
+              authData = await authWithGoogle(
+                undefined,
+                code,
+                `${window.location.origin}/auth/callback`
+              );
             }
           }
         }

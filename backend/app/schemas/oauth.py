@@ -19,6 +19,9 @@ class GoogleAuthRequest(BaseModel):
     code: Optional[str] = Field(
         None, description="Google OAuth Authorization Code (if using popup redirect flow)"
     )
+    redirect_uri: Optional[str] = Field(
+        None, description="Redirect URI passed in the initial Google authorization request"
+    )
 
 
 class GitHubAuthRequest(BaseModel):
