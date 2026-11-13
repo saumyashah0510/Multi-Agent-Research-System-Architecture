@@ -96,9 +96,9 @@ export default function Navbar() {
           </span>
         </Link>
 
-        {/* All Other Pages: Nav Links */}
-        {!isHome && (
-          <div className="flex items-center gap-2 sm:gap-3 md:gap-4 min-w-0">
+        {/* Right Side: Nav Links + User Auth Action */}
+        <div className="flex items-center gap-3 sm:gap-5 ml-auto shrink-0">
+          {!isHome && (
             <div className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar py-0.5">
               {navLinks.map((link) => (
                 <Link
@@ -116,31 +116,32 @@ export default function Navbar() {
                 </Link>
               ))}
             </div>
-          </div>
-        )}
-
-        {/* User Auth Action (Issue FE-11) */}
-        <div className="flex items-center gap-2 shrink-0">
-          {isAuthenticated && user ? (
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-neutral-700 hidden sm:inline">
-                {user.name || user.email.split("@")[0]}
-              </span>
-              <button
-                onClick={logout}
-                className="text-xs py-1.5 px-3 rounded-[var(--radius-sm)] border border-neutral-300 hover:bg-neutral-100 text-neutral-800 transition font-medium cursor-pointer"
-              >
-                Sign Out
-              </button>
-            </div>
-          ) : (
-            <Link
-              to="/login"
-              className="text-xs sm:text-sm font-semibold py-2 px-4 rounded-[var(--radius-sm)] bg-neutral-900 text-white hover:bg-neutral-800 transition no-underline shadow-xs cursor-pointer"
-            >
-              Login
-            </Link>
           )}
+
+          {/* User Auth Action (Issue FE-11 & FE-12) */}
+          <div className="flex items-center gap-2 shrink-0">
+            {isAuthenticated && user ? (
+              <div className="flex items-center gap-2 sm:gap-3">
+                <span className="text-xs sm:text-sm font-medium text-neutral-800 hidden sm:inline">
+                  {user.name || user.email.split("@")[0]}
+                </span>
+                <button
+                  type="button"
+                  onClick={logout}
+                  className="text-xs sm:text-sm font-semibold py-2 px-4 rounded-[var(--radius-sm)] border border-black bg-transparent text-black hover:bg-black/5 transition cursor-pointer"
+                >
+                  Logout
+                </button>
+              </div>
+            ) : (
+              <Link
+                to="/login"
+                className="text-xs sm:text-sm font-semibold py-2 px-4 rounded-[var(--radius-sm)] bg-neutral-900 text-white hover:bg-neutral-800 transition no-underline shadow-xs cursor-pointer"
+              >
+                Login
+              </Link>
+            )}
+          </div>
         </div>
       </nav>
     </header>
