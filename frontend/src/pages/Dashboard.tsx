@@ -19,6 +19,7 @@ export default function Dashboard() {
   const [reviewId, setReviewId] = useState<string | null>(null);
 
   const currentTab = (searchParams.get("tab") || "").toLowerCase();
+  const urlReviewId = searchParams.get("review_id");
   const pathname = location.pathname.toLowerCase();
   const isPapersRoute = currentTab === "papers" || pathname === "/papers";
   const isReportRoute =
@@ -27,8 +28,8 @@ export default function Dashboard() {
     pathname === "/report" ||
     pathname === "/reports";
   const isChatRoute = currentTab === "chat" || pathname === "/chat";
-  const isNonResearchView = (isPapersRoute && !reviewId) || isReportRoute || isChatRoute;
-  const isDirectPapersView = isPapersRoute && Boolean(reviewId);
+  const isNonResearchView = (isPapersRoute && !urlReviewId) || isReportRoute || isChatRoute;
+  const isDirectPapersView = isPapersRoute && Boolean(urlReviewId);
   const targetSection: TargetSection = isChatRoute
     ? "chat"
     : isPapersRoute
@@ -85,9 +86,12 @@ export default function Dashboard() {
           const normalized = res.screened_papers
             .map((p: any, idx: number) => normalizePaper(p, idx))
             .sort((a: PaperSummary, b: PaperSummary) => (b.relevanceScore ?? 0) - (a.relevanceScore ?? 0));
-          setPapers(normalized);
-          setSelectedPaperIds(
-            normalized.filter((p: any) => p.isSelected !== false).map((p: any) => p.id)
+          // Apply snapshot only if local state has not already been populated by live WebSocket session
+          setPapers((prev) => (prev.length === 0 ? normalized : prev));
+          setSelectedPaperIds((prev) =>
+            prev.length === 0
+              ? normalized.filter((p: any) => p.isSelected !== false).map((p: any) => p.id)
+              : prev
           );
         }
         const statusUpper = String(res.status || "").toUpperCase();
@@ -138,12 +142,30 @@ export default function Dashboard() {
     }
   }, [reviewId, ws.reviewId, ws.isPausedForInput, ws.status]);
 
-  // When all 3 stages finish and candidate papers are ready, redirect to the Papers view
+  const [hasCompletedActiveWorkflow, setHasCompletedActiveWorkflow] = useState(false);
+
+  // When all 3 stages finish in the active search workflow, redirect to the Papers view on completion transition
   useEffect(() => {
-    if (isPipelineDone && papers.length > 0 && reviewId && !isPapersRoute) {
+    if (
+      hasSearched &&
+      isPipelineDone &&
+      papers.length > 0 &&
+      reviewId &&
+      !isPapersRoute &&
+      !hasCompletedActiveWorkflow
+    ) {
+      setHasCompletedActiveWorkflow(true);
       navigate(`/dashboard?tab=papers&review_id=${encodeURIComponent(reviewId)}`);
     }
-  }, [isPipelineDone, papers.length, reviewId, isPapersRoute, navigate]);
+  }, [
+    hasSearched,
+    isPipelineDone,
+    papers.length,
+    reviewId,
+    isPapersRoute,
+    hasCompletedActiveWorkflow,
+    navigate,
+  ]);
 
   // Approval submission state
   const [isProceeding, setIsProceeding] = useState(false);
@@ -162,6 +184,7 @@ export default function Dashboard() {
     setSelectedPaperIds([]);
     setApprovalError(null);
     setApprovalSuccess(null);
+    setHasCompletedActiveWorkflow(false);
 
     // Call backend API createReviewTask to obtain the real review_id
     try {
@@ -178,6 +201,7 @@ export default function Dashboard() {
         }
       } else {
         setReviewId(null);
+        setHasSearched(false);
         setApprovalError("Failed to initialize review session. Please try searching again.");
       }
     } catch (err) {
@@ -185,10 +209,11 @@ export default function Dashboard() {
       if (params.review_id) {
         setReviewId(params.review_id);
       } else {
-        // Keep review ID null when creation fails and show an error
+        // Keep review ID null when creation fails, restore search form, and show an error
         setReviewId(null);
+        setHasSearched(false);
         const message = err instanceof Error ? err.message : "Failed to initiate backend review task";
-        setApprovalError(`Could not establish review session: ${message}. Approval is prevented until a session exists.`);
+        setApprovalError(`Could not establish review session: ${message}.`);
       }
     }
   };
@@ -252,7 +277,14 @@ export default function Dashboard() {
       setIsPipelineDone(false);
       setPapers([]);
       setSelectedPaperIds([]);
+      setHasCompletedActiveWorkflow(false);
       setApprovalSuccess("Searching academic repositories for additional papers...");
+
+      // If Find More was triggered from the dedicated Papers view, switch to the research workflow view
+      if (isDirectPapersView) {
+        setHasSearched(true);
+        navigate(`/dashboard?tab=research&review_id=${encodeURIComponent(reviewId)}`);
+      }
     } catch (err) {
       // Display the error and do NOT reset the pipeline display on failure
       const message = err instanceof Error ? err.message : "Failed to request additional papers";
@@ -336,12 +368,21 @@ export default function Dashboard() {
               </div>
 
               {/* Main Research Search Card */}
-              <div className="w-full">
+              <div className="w-full space-y-3">
                 <ResearchInput
                   initialQuery={activeQuery}
                   onSearch={handleSearch}
                   isLoading={false}
                 />
+                {approvalError && !hasSearched && (
+                  <div
+                    className="p-3.5 rounded-xl text-xs sm:text-sm bg-red-50 border border-red-200/80 text-red-800 flex items-start gap-2.5 animate-in fade-in"
+                    role="alert"
+                  >
+                    <span className="font-bold text-red-600 shrink-0">✕</span>
+                    <p className="flex-1">{approvalError}</p>
+                  </div>
+                )}
               </div>
             </motion.div>
           ) : (
