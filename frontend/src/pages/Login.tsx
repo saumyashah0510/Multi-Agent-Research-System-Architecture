@@ -30,11 +30,18 @@ export default function Login() {
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Helper to resolve saved destination or fallback
+  const getDestination = () => {
+    const from = (location.state as any)?.from;
+    if (!from) return "/dashboard";
+    if (typeof from === "string") return from;
+    return `${from.pathname || ""}${from.search || ""}${from.hash || ""}` || "/dashboard";
+  };
+
   // If already authenticated, redirect to destination or dashboard
   React.useEffect(() => {
     if (isAuthenticated) {
-      const from = (location.state as any)?.from?.pathname || "/dashboard";
-      navigate(from, { replace: true });
+      navigate(getDestination(), { replace: true });
     }
   }, [isAuthenticated, navigate, location.state]);
 
@@ -45,8 +52,7 @@ export default function Login() {
 
     try {
       await login(email, password);
-      const destination = (location.state as any)?.from?.pathname || "/dashboard";
-      navigate(destination, { replace: true });
+      navigate(getDestination(), { replace: true });
     } catch (err: any) {
       setError(err.message || "Invalid email or password. Please try again.");
     } finally {
@@ -217,7 +223,11 @@ export default function Login() {
           {/* Footer Navigation */}
           <p className="mt-4 text-center text-xs text-neutral-500">
             Don't have an account?{" "}
-            <Link to="/signup" className="font-semibold text-neutral-900 hover:underline">
+            <Link
+              to="/signup"
+              state={location.state}
+              className="font-semibold text-neutral-900 hover:underline"
+            >
               Sign up now
             </Link>
           </p>

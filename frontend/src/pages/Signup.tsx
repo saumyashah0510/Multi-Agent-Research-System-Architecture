@@ -9,7 +9,7 @@
  */
 
 import React, { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { AlertCircle, Eye, EyeOff } from "lucide-react";
 import { FcGoogle } from "react-icons/fc";
 import { FaGithub } from "react-icons/fa";
@@ -19,6 +19,7 @@ import loginImg from "../images/Login_img.png";
 
 export default function Signup() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { register, isAuthenticated } = useAuth();
 
   const [name, setName] = useState("");
@@ -28,12 +29,20 @@ export default function Signup() {
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // If already authenticated, navigate directly to dashboard
+  // Helper to resolve saved destination or fallback
+  const getDestination = () => {
+    const from = (location.state as any)?.from;
+    if (!from) return "/dashboard";
+    if (typeof from === "string") return from;
+    return `${from.pathname || ""}${from.search || ""}${from.hash || ""}` || "/dashboard";
+  };
+
+  // If already authenticated, navigate directly to destination or dashboard
   React.useEffect(() => {
     if (isAuthenticated) {
-      navigate("/dashboard", { replace: true });
+      navigate(getDestination(), { replace: true });
     }
-  }, [isAuthenticated, navigate]);
+  }, [isAuthenticated, navigate, location.state]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,7 +56,7 @@ export default function Signup() {
     setIsSubmitting(true);
     try {
       await register(email, password, name.trim() || undefined);
-      navigate("/dashboard", { replace: true });
+      navigate(getDestination(), { replace: true });
     } catch (err: any) {
       setError(err.message || "Failed to create account. Please verify your details.");
     } finally {
@@ -206,7 +215,11 @@ export default function Signup() {
           {/* Footer Navigation */}
           <p className="mt-4 text-center text-xs text-neutral-500">
             Already have an account?{" "}
-            <Link to="/login" className="font-semibold text-neutral-900 hover:underline">
+            <Link
+              to="/login"
+              state={location.state}
+              className="font-semibold text-neutral-900 hover:underline"
+            >
               Log in
             </Link>
           </p>
