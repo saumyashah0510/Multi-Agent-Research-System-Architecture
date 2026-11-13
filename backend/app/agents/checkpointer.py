@@ -9,7 +9,8 @@ Each thread is pinned to the backend it started on:
   memory, so their state is never stranded when the database comes back.
 - Threads already on PostgreSQL keep using it; a later database error is raised
   (state stays safe in Neon and can be resumed) instead of silently switching.
-- A failed read never pins a thread: it may already exist in PostgreSQL.
+- A failed read never pins a thread and is never answered from memory for an
+  unpinned thread: it may already exist in PostgreSQL.
 """
 
 import asyncio
@@ -155,6 +156,11 @@ class LazyPostgresSaver(BaseCheckpointSaver):
             try:
                 result = await getattr(saver, op)(config, *args)
             except Exception as exc:
+                if op not in _WRITE_OPS:
+                    # A failed read on an unpinned thread may hide existing
+                    # PostgreSQL state, so surface the error instead of
+                    # returning an empty memory result.
+                    raise
                 logger.warning(
                     "Postgres checkpointer failed for thread %s (%s). "
                     "Using MemorySaver for this call.",
@@ -186,14 +192,15 @@ class LazyPostgresSaver(BaseCheckpointSaver):
 
     async def adelete_thread(self, thread_id):
         tid = str(thread_id)
-        saver = await self._connect()
-        if saver is not None:
-            # If this raises, PostgreSQL ownership is preserved.
-            await saver.adelete_thread(thread_id)
-            self._pg_threads.discard(tid)
-        self._memory.delete_thread(thread_id)
-        self._memory_threads.discard(tid)
-        self._thread_locks.pop(tid, None)
+        lock = self._thread_locks.setdefault(tid, asyncio.Lock())
+        async with lock:
+            saver = await self._connect()
+            if saver is not None:
+                # If this raises, PostgreSQL ownership is preserved.
+                await saver.adelete_thread(thread_id)
+                self._pg_threads.discard(tid)
+            self._memory.delete_thread(thread_id)
+            self._memory_threads.discard(tid)
 
     # ---- sync API: in-memory fallback only ----
     def get_tuple(self, config):

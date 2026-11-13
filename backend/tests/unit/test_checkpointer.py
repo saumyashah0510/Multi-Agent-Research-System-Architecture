@@ -116,6 +116,7 @@ async def test_concurrent_callers_share_one_failed_attempt(monkeypatch):
             pass
 
     monkeypatch.setattr(psycopg_pool, "AsyncConnectionPool", _SlowBrokenPool)
+
     saver = LazyPostgresSaver()
     await asyncio.gather(*(saver.aget_tuple(_config(f"t{i}")) for i in range(10)))
     assert len(attempts) == 1
@@ -216,7 +217,8 @@ async def test_failed_read_does_not_pin_thread_to_memory():
     saver._saver = pg
 
     pg.fail = True
-    assert await saver.aget_tuple(_config("t1")) is None
+    with pytest.raises(RuntimeError):
+        await saver.aget_tuple(_config("t1"))
     assert "t1" not in saver._memory_threads
 
     pg.fail = False
@@ -268,3 +270,18 @@ async def test_concurrent_first_operations_use_one_backend():
 
     assert len(calls) == 1  # the second call saw the thread already pinned
     assert "t1" in saver._memory_threads
+
+
+@pytest.mark.asyncio
+async def test_delete_keeps_shared_thread_lock():
+    """Deleting a thread must not discard the lock other operations share."""
+    saver = LazyPostgresSaver()
+    saver._saver = MemorySaver()
+
+    await saver.aput(_config("t1"), empty_checkpoint(), _metadata(), {})
+    lock = saver._thread_locks["t1"]
+
+    await saver.adelete_thread("t1")
+
+    assert saver._thread_locks["t1"] is lock
+    assert await saver.aget_tuple(_config("t1")) is None
