@@ -104,5 +104,6 @@ jobs:
 
             # 6. Start application stack with full swap-backed stability
             echo "Starting application stack..."
-            docker compose up -d
+            docker compose down --remove-orphans 2>/dev/null || true
+            docker compose up -d --remove-orphans
             echo "DEPLOYMENT COMPLETE! Application running cleanly on EC2 with permanent swap space active!"

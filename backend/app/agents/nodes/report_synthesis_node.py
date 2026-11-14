@@ -500,6 +500,70 @@ def _extract_retry_delay(err: Exception) -> float:
     return 42.0
 
 
+def _safe_parse_synthesized_output(raw_text: str) -> SynthesizedReviewOutput:
+    """Parse SynthesizedReviewOutput from raw text with automatic JSON repair."""
+    clean_text = raw_text.strip()
+    if clean_text.startswith("```json"):
+        clean_text = clean_text[7:]
+    elif clean_text.startswith("```"):
+        clean_text = clean_text[3:]
+    if clean_text.endswith("```"):
+        clean_text = clean_text[:-3]
+    clean_text = clean_text.strip()
+
+    try:
+        return SynthesizedReviewOutput.model_validate_json(clean_text)
+    except Exception as parse_err:
+        repaired = clean_text
+        if repaired.count('"') % 2 != 0:
+            repaired += '"'
+        open_brackets = repaired.count("[") - repaired.count("]")
+        if open_brackets > 0:
+            repaired += "]" * open_brackets
+        open_braces = repaired.count("{") - repaired.count("}")
+        if open_braces > 0:
+            repaired += "}" * open_braces
+        try:
+            return SynthesizedReviewOutput.model_validate_json(repaired)
+        except Exception:
+            raise parse_err from None
+
+
+def _condense_user_content_for_groq(
+    user_query: str,
+    approved_papers: List[Dict[str, Any]],
+    methodology_matrix: List[Dict[str, Any]],
+    research_gaps: List[str],
+) -> str:
+    """Produce a concise context under 3,500 tokens for Groq fallback to respect 8k TPM limits."""
+    condensed_papers = []
+    for idx, p in enumerate(approved_papers[:8], 1):
+        title = p.get("title", "Untitled Paper")
+        abstract = (p.get("abstract") or "").strip()[:400]
+        condensed_papers.append(f"[{idx}] {title}: {abstract}")
+
+    gaps_str = "\n".join(f"- {g}" for g in research_gaps[:5]) if research_gaps else "None."
+    methods_str = (
+        "\n".join(
+            f"- {m.get('method_name', 'Method')}: strengths={m.get('strengths', [])[:2]}"
+            for m in methodology_matrix[:4]
+        )
+        if methodology_matrix
+        else "None."
+    )
+
+    return (
+        f"RESEARCH TOPIC / USER QUERY:\n{user_query}\n\n"
+        f"APPROVED PAPERS (Top {len(condensed_papers)} Excerpts):\n"
+        + "\n".join(condensed_papers)
+        + "\n\n"
+        f"METHODOLOGY MATRIX:\n{methods_str}\n\n"
+        f"IDENTIFIED RESEARCH GAPS:\n{gaps_str}\n\n"
+        "Synthesize a cohesive, comprehensive, publication-grade academic literature review adhering strictly to the guidelines.\n"
+        "MANDATORY FORMATTING: Separate distinct paragraphs in executive_summary, thematic cluster summaries, and conclusion with double newlines ('\\n\\n')."
+    )
+
+
 async def report_synthesis_node(state: AgentState) -> Dict[str, Any]:
     """Generate final comprehensive literature review report using structured LLM output."""
     user_query = state.get("user_query", "Academic Research Review")
@@ -683,12 +747,10 @@ async def report_synthesis_node(state: AgentState) -> Dict[str, Any]:
                                 config={
                                     "response_mime_type": "application/json",
                                     "response_schema": SynthesizedReviewOutput,
-                                    "max_output_tokens": 8192,
+                                    "max_output_tokens": 32768,
                                 },
                             )
-                            parsed_output = SynthesizedReviewOutput.model_validate_json(
-                                response.text
-                            )
+                            parsed_output = _safe_parse_synthesized_output(response.text)
                             break
                         except Exception as model_err:
                             err_str = str(model_err)
@@ -721,11 +783,19 @@ async def report_synthesis_node(state: AgentState) -> Dict[str, Any]:
         if parsed_output is None and groq_key:
             logger.info("Attempting report synthesis via Groq fallback LLM...")
             try:
+                groq_prompt = user_content
+                if len(user_content) > 12000:
+                    groq_prompt = _condense_user_content_for_groq(
+                        user_query=user_query,
+                        approved_papers=approved_papers,
+                        methodology_matrix=methodology_matrix,
+                        research_gaps=research_gaps,
+                    )
                 parsed_output = await call_groq_structured(
                     system_prompt=SYNTHESIS_SYSTEM_PROMPT,
-                    user_prompt=user_content,
+                    user_prompt=groq_prompt,
                     response_schema=SynthesizedReviewOutput,
-                    max_tokens=8192,
+                    max_tokens=4096,
                 )
             except Exception as groq_err:
                 logger.warning(f"Groq fallback failed during report synthesis: {groq_err}")

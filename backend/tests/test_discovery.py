@@ -433,3 +433,19 @@ async def test_discovery_handles_empty_queries(monkeypatch):
     assert result["discovered_papers"] == []
     assert result["current_step"] == "paper_discovery_completed"
     mock_search.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_discovery_caps_papers_at_70(monkeypatch):
+    """Verify that discovered papers are hard-capped at 70 to protect downstream token limits."""
+    bulk_papers = [
+        {"title": f"Unique Paper {i}", "abstract": f"Abstract {i}", "doi": f"10.1000/{i}"}
+        for i in range(100)
+    ]
+    mock_search = AsyncMock(return_value=bulk_papers)
+    monkeypatch.setattr(discovery_module, "search_academic_papers", mock_search)
+
+    result = await discovery_module.discovery_node({"search_queries": ["AI"]})
+
+    assert len(result["discovered_papers"]) == 70
+    assert result["current_step"] == "paper_discovery_completed"

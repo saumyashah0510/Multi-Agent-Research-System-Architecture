@@ -52,9 +52,7 @@ class Settings(BaseSettings):
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
-    GEMINI_FALLBACK_MODELS: str = os.getenv(
-        "GEMINI_FALLBACK_MODELS", "gemini-2.5-flash,gemini-2.0-flash,gemini-1.5-flash"
-    )
+    GEMINI_FALLBACK_MODELS: str = os.getenv("GEMINI_FALLBACK_MODELS", "gemini-2.5-flash")
 
     # LangSmith Observability & Tracing
     LANGCHAIN_TRACING_V2: str = os.getenv("LANGCHAIN_TRACING_V2", "false")
@@ -74,10 +72,10 @@ class Settings(BaseSettings):
 
     # Groq Cloud Fallback LLM
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
-    GROQ_MODEL: str = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+    GROQ_MODEL: str = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
     GROQ_FALLBACK_MODELS: str = os.getenv(
         "GROQ_FALLBACK_MODELS",
-        "openai/gpt-oss-20b,llama-3.3-70b-versatile,llama-3.1-8b-instant",
+        "openai/gpt-oss-120b,openai/gpt-oss-20b",
     )
 
     # JWT Authentication Settings

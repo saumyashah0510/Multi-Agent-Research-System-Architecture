@@ -64,7 +64,10 @@ export async function submitHumanDecision(
 ) {
   const res = await fetch(`${getApiBaseUrl()}/reviews/${reviewId}/approve`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(),
+    },
     body: JSON.stringify({
       user_decision: decision,
       approved_paper_ids: approvedPaperIds,
@@ -110,7 +113,10 @@ export async function sendReviewChatMessage(
 ): Promise<ChatResponse> {
   const res = await fetch(`${getApiBaseUrl()}/reviews/${encodeURIComponent(reviewId)}/chat`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(),
+    },
     body: JSON.stringify({ question, history }),
     signal,
   });
@@ -143,7 +149,9 @@ export async function fetchPastReviews(limit: number = 20) {
 }
 
 export function getReviewPdfDownloadUrl(reviewId: string): string {
-  return `${getApiBaseUrl()}/reviews/${reviewId}/export`;
+  const token = getAuthToken();
+  const base = `${getApiBaseUrl()}/reviews/${reviewId}/export`;
+  return token ? `${base}?token=${encodeURIComponent(token)}` : base;
 }
 
 
