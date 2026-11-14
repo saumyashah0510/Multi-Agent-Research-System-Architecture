@@ -32,6 +32,9 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 _RETRY_COOLDOWN_SECONDS = 30.0
+_POOL_OPEN_TIMEOUT_SECONDS = 10.0
+_SETUP_TIMEOUT_SECONDS = 15.0
+_POOL_CLOSE_TIMEOUT_SECONDS = 5.0
 _WRITE_OPS = frozenset({"aput", "aput_writes"})
 
 # Global checkpointer cache
@@ -39,6 +42,10 @@ _checkpointer_instance: Optional[BaseCheckpointSaver] = None
 
 
 def _is_test_env() -> bool:
+    # pytest sets PYTEST_CURRENT_TEST while a test runs, so CI uses MemorySaver
+    # even if ENVIRONMENT=test is not exported in the workflow.
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        return True
     # Settings has no ENVIRONMENT field, so also read the real environment variable.
     env = os.getenv("ENVIRONMENT") or getattr(settings, "ENVIRONMENT", "")
     return str(env).lower() == "test"
@@ -83,7 +90,8 @@ class LazyPostgresSaver(BaseCheckpointSaver):
         loop = asyncio.get_running_loop()
         if self._loop is not None and self._loop is not loop:
             # The pool belongs to another event loop and cannot be reused.
-            # PostgreSQL thread ownership (_pg_threads) stays valid.
+            # It is not closed here: closing a pool from a different loop can
+            # itself hang. PostgreSQL thread ownership (_pg_threads) stays valid.
             self._saver = None
             self._pool = None
             self._lock = None
@@ -121,9 +129,10 @@ class LazyPostgresSaver(BaseCheckpointSaver):
                         "row_factory": dict_row,
                     },
                 )
-                await pool.open(wait=True, timeout=10)
+                await pool.open(wait=True, timeout=_POOL_OPEN_TIMEOUT_SECONDS)
                 saver = AsyncPostgresSaver(pool)
-                await saver.setup()
+                # Bound setup() so a stuck handshake or lock can never hang the pipeline.
+                await asyncio.wait_for(saver.setup(), timeout=_SETUP_TIMEOUT_SECONDS)
                 self._pool = pool
                 self._saver = saver
                 logger.info("Persistent Neon PostgreSQL checkpointer ready.")
@@ -136,7 +145,7 @@ class LazyPostgresSaver(BaseCheckpointSaver):
                 self._retry_at = time.monotonic() + _RETRY_COOLDOWN_SECONDS
                 if pool is not None:
                     try:
-                        await pool.close()
+                        await asyncio.wait_for(pool.close(), timeout=_POOL_CLOSE_TIMEOUT_SECONDS)
                     except Exception:  # nosec B110 - best-effort cleanup
                         pass
                 return None
