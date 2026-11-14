@@ -70,6 +70,60 @@ class OAuthService:
         )
 
     @staticmethod
+    async def exchange_google_code(
+        code: str, redirect_uri: Optional[str] = None
+    ) -> OAuthUserProfile:
+        """Exchange Google authorization code for tokens, verify ID token, and return profile.
+
+        Raises:
+            ValueError: If code is empty, token exchange fails, or profile is invalid.
+        """
+        if not code or not code.strip():
+            raise ValueError("Google authorization code must not be empty.")
+
+        if not settings.GOOGLE_CLIENT_ID:
+            raise ValueError("Google OAuth client ID is not configured.")
+
+        target_redirect_uri = redirect_uri or settings.GOOGLE_REDIRECT_URI
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                token_res = await client.post(
+                    "https://oauth2.googleapis.com/token",
+                    data={
+                        "client_id": settings.GOOGLE_CLIENT_ID,
+                        "client_secret": settings.GOOGLE_CLIENT_SECRET,
+                        "code": code,
+                        "grant_type": "authorization_code",
+                        "redirect_uri": target_redirect_uri,
+                    },
+                    headers={"Accept": "application/json"},
+                )
+            except Exception as exc:
+                raise ValueError(
+                    f"Failed to communicate with Google token endpoint: {exc}"
+                ) from exc
+
+            if token_res.status_code != 200:
+                try:
+                    error_data = token_res.json()
+                except Exception:
+                    error_data = {}
+                error_desc = (
+                    error_data.get("error_description")
+                    or error_data.get("error")
+                    or "Google code exchange failed."
+                )
+                raise ValueError(error_desc)
+
+            token_data: Dict[str, Any] = token_res.json()
+            id_token = token_data.get("id_token")
+            if not id_token:
+                raise ValueError("Google token response did not contain id_token.")
+
+        return await OAuthService.verify_google_credential(id_token)
+
+    @staticmethod
     async def exchange_github_code(code: str) -> OAuthUserProfile:
         """Exchange GitHub authorization code for access token, fetch profile, and return normalized profile.
 

@@ -11,7 +11,7 @@ import asyncio
 import inspect
 import logging
 import uuid
-from typing import Annotated, Any
+from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import RedirectResponse
@@ -21,15 +21,19 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.orchestrator import build_literature_review_graph
+from app.api.deps import get_current_user_optional
 from app.core.guardrails import enforce_query_guardrail
 from app.core.rate_limit import RateLimiter
+from app.core.security import decode_access_token
 from app.db.session import AsyncSessionLocal, get_db
 from app.models.paper import Paper
 from app.models.review import LiteratureReview, ReviewStatus
+from app.models.user import User
 from app.schemas.audit import ReviewAuditTimelineResponse, ReviewLogItem
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.schemas.graph import CitationGraphResponse
 from app.services.audit_service import AuditService
+from app.services.auth_service import AuthService
 from app.services.chat_service import generate_rag_chat_response
 from app.services.export_service import (
     check_report_pdf_exists_in_s3,
@@ -60,6 +64,22 @@ chat_review_rate_limiter = RateLimiter(
 # The graph that was paused must be the same one that gets resumed,
 # because its in-memory checkpointer holds the saved state.
 graph = build_literature_review_graph()
+
+
+def _check_review_access(review: Any, current_user: Optional[User]) -> None:
+    """Verify that the current user has permission to view or modify this review.
+
+    Reviews with a specific user_id can only be accessed by that user.
+    Unassigned/legacy reviews (user_id is None) remain accessible for backwards compatibility.
+    """
+    review_user_id = getattr(review, "user_id", None)
+    if isinstance(review_user_id, int):
+        current_uid = getattr(current_user, "id", None) if current_user else None
+        if current_uid != review_user_id:
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have permission to access this review.",
+            )
 
 
 class ReviewCreateRequest(BaseModel):
@@ -520,6 +540,7 @@ async def create_review_task(
     background_tasks: BackgroundTasks = None,
     db: Annotated[AsyncSession, Depends(get_db)] = None,
     _rate_limit: bool = Depends(create_review_rate_limiter),
+    current_user: Annotated[Optional[User], Depends(get_current_user_optional)] = None,
 ) -> dict[str, Any]:
     """Endpoint for triggering literature review pipeline with input guardrails."""
     if request is not None and request.query:
@@ -528,9 +549,13 @@ async def create_review_task(
     review_id_val: int | None = None
     if db is not None and request is not None and request.query:
         try:
+            user_id_val = (
+                current_user.id if (current_user and hasattr(current_user, "id")) else None
+            )
             review = LiteratureReview(
                 user_query=request.query,
                 status=ReviewStatus.QUERY_EXPANSION.value,
+                user_id=user_id_val,
             )
             add_res = db.add(review)
             if inspect.isawaitable(add_res):
@@ -579,10 +604,16 @@ async def create_review_task(
 async def list_reviews(
     limit: int = 20,
     db: AsyncSession = Depends(get_db),  # noqa: B008
+    current_user: Annotated[Optional[User], Depends(get_current_user_optional)] = None,
 ) -> list[dict[str, Any]]:
     """Fetch past review sessions for the History Drawer."""
     try:
-        stmt = select(LiteratureReview).order_by(LiteratureReview.created_at.desc()).limit(limit)
+        stmt = select(LiteratureReview)
+        if current_user and current_user.id is not None:
+            stmt = stmt.where(LiteratureReview.user_id == current_user.id)
+        else:
+            stmt = stmt.where(LiteratureReview.user_id.is_(None))
+        stmt = stmt.order_by(LiteratureReview.created_at.desc()).limit(limit)
         res = await db.execute(stmt)
         reviews = res.scalars().all()
         return [
@@ -603,11 +634,13 @@ async def list_reviews(
 @router.get("/{review_id}/export", summary="Download compiled literature review PDF")
 async def export_review_pdf(
     review_id: str,
+    token: Optional[str] = None,
     db: AsyncSession = Depends(get_db),  # noqa: B008
+    current_user: Annotated[Optional[User], Depends(get_current_user_optional)] = None,
 ) -> Any:
     """Generate or retrieve a compiled PDF export and redirect to a presigned S3 download URL.
 
-    Returns 404 when the review does not exist, 400 when it has not yet completed,
+    Returns 404 when the review does not exist, 403 when forbidden, 400 when it has not yet completed,
     and 302 redirect to the presigned S3 URL on success.
     """
     if not str(review_id).isdigit():
@@ -616,6 +649,17 @@ async def export_review_pdf(
     review = await db.get(LiteratureReview, num_id)
     if review is None:
         raise HTTPException(status_code=404, detail="Review not found.")
+
+    if not current_user and token:
+        payload = decode_access_token(token)
+        if payload and "sub" in payload:
+            try:
+                user_id = int(payload["sub"])
+                current_user = await AuthService.get_user_by_id(db, user_id)
+            except Exception:
+                pass
+
+    _check_review_access(review, current_user)
 
     if review.status != "completed" or not review.synthesized_review:
         raise HTTPException(status_code=400, detail="Review is not yet completed.")
@@ -639,6 +683,7 @@ async def export_review_pdf(
 async def get_review_status(
     review_id: str,
     db: AsyncSession = Depends(get_db),  # noqa: B008
+    current_user: Annotated[Optional[User], Depends(get_current_user_optional)] = None,
 ) -> dict[str, Any]:
     """Endpoint for fetching review task status and report."""
     if str(review_id).isdigit():
@@ -646,6 +691,7 @@ async def get_review_status(
         try:
             review = await db.get(LiteratureReview, num_id)
             if review is not None:
+                _check_review_access(review, current_user)
                 paper_stmt = select(Paper).where(Paper.review_id == num_id)
                 res = await db.execute(paper_stmt)
                 papers = res.scalars().all()
@@ -674,6 +720,8 @@ async def get_review_status(
                     ],
                     "created_at": review.created_at.isoformat() if review.created_at else None,
                 }
+        except HTTPException:
+            raise
         except Exception as exc:
             logger.warning("Error fetching review %s from DB: %s", review_id, exc)
 
@@ -693,6 +741,7 @@ async def approve_papers(
     request: ReviewApprovalRequest,
     background_tasks: BackgroundTasks,
     db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[Optional[User], Depends(get_current_user_optional)] = None,
 ) -> dict[str, Any]:
     """Endpoint for receiving human-selected papers and resuming LangGraph execution."""
     if request.user_decision not in ("continue", "find_more"):
@@ -712,6 +761,7 @@ async def approve_papers(
         try:
             review = await db.get(LiteratureReview, num_id)
             if review is not None:
+                _check_review_access(review, current_user)
                 review.status = (
                     ReviewStatus.PDF_EXTRACTION.value
                     if request.user_decision == "continue"
@@ -775,6 +825,8 @@ async def approve_papers(
                                     approved_graph_ids.add(str(ident).strip())
 
                 await db.commit()
+        except HTTPException:
+            raise
         except Exception as exc:
             logger.warning("Could not update status for review %s: %s", review_id, exc)
 
@@ -799,6 +851,7 @@ async def chat_with_review(
     request: ChatRequest,
     db: AsyncSession = Depends(get_db),  # noqa: B008
     _rate_limit: bool = Depends(chat_review_rate_limiter),
+    current_user: Annotated[Optional[User], Depends(get_current_user_optional)] = None,
 ) -> ChatResponse:
     """Perform pgvector similarity search and generate a grounded chat response."""
     review_result = await db.execute(
@@ -811,6 +864,8 @@ async def chat_with_review(
             status_code=404,
             detail="Literature review not found",
         )
+
+    _check_review_access(review, current_user)
 
     chunks = await similarity_search(
         db,
@@ -839,6 +894,7 @@ async def retry_review(
     review_id: int,
     background_tasks: BackgroundTasks,
     db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[Optional[User], Depends(get_current_user_optional)] = None,
 ):
     """Resume review execution from its last completed LangGraph checkpoint in Neon DB."""
     # TODO (Assignee - BE-16):
@@ -852,6 +908,8 @@ async def retry_review(
     review = review_result.scalar_one_or_none()
     if not review:
         raise HTTPException(status_code=404, detail="Literature review not found")
+
+    _check_review_access(review, current_user)
 
     if review.status == ReviewStatus.COMPLETED.value:
         raise HTTPException(
@@ -875,6 +933,7 @@ async def retry_review(
 async def get_review_audit(
     review_id: int,
     db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[Optional[User], Depends(get_current_user_optional)] = None,
 ) -> ReviewAuditTimelineResponse:
     """Fetch all agent lifecycle events and milestone logs recorded for a literature review."""
     # TODO (Assignee - BE-17):
@@ -887,6 +946,8 @@ async def get_review_audit(
     review = review_result.scalar_one_or_none()
     if not review:
         raise HTTPException(status_code=404, detail="Literature review not found")
+
+    _check_review_access(review, current_user)
 
     logs = await AuditService.get_review_audit_timeline(db, review_id)
     return ReviewAuditTimelineResponse(
@@ -904,6 +965,7 @@ async def get_review_audit(
 async def get_review_graph(
     review_id: int,
     db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[Optional[User], Depends(get_current_user_optional)] = None,
 ) -> CitationGraphResponse:
     """Fetch topological graph of approved papers, clusters, and citation links."""
     # TODO (Assignee - BE-18):
@@ -916,5 +978,7 @@ async def get_review_graph(
     review = review_result.scalar_one_or_none()
     if not review:
         raise HTTPException(status_code=404, detail="Literature review not found")
+
+    _check_review_access(review, current_user)
 
     return await CitationGraphService.build_citation_graph(db, review_id)

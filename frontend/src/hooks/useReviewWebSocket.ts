@@ -461,7 +461,14 @@ export function useReviewWebSocket(reviewId: string | null): ReviewWebSocketStat
       clearTimeout(reconnectTimeoutRef.current);
     }
 
-    setStages(INITIAL_DEMO_STAGES.map((s) => ({ ...s })));
+    // Initialize stage 1 as running on review creation so the loading state appears immediately
+    setStages(
+      INITIAL_DEMO_STAGES.map((s, idx) => ({
+        ...s,
+        status: idx === 0 ? "running" : "pending",
+        message: idx === 0 ? s.supportingStatus : null,
+      }))
+    );
     setScreenedPapers([]);
     setStatus("PENDING");
     setIsConnected(false);
