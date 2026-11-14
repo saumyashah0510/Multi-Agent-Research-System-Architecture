@@ -1,0 +1,247 @@
+// Shared TypeScript Type Definitions for Scholaris Multi-Agent Research System
+
+export interface Paper {
+  id: string;
+  title: string;
+  authors: string[];
+  abstract: string;
+  publishedYear: number;
+  url?: string;
+  venue?: string;
+  citationCount?: number;
+  relevanceScore?: number;
+  isSelected?: boolean;
+}
+
+export type PipelineStep =
+  | "idle"
+  | "discovering"
+  | "screening"
+  | "human_in_loop"
+  | "synthesizing"
+  | "completed"
+  | "failed";
+
+// 12 Unified Review Lifecycle & Agent Status Enums (1-to-1 Agent Mapping)
+export type ReviewStatus =
+  | "PENDING"
+  | "QUERY_EXPANSION"        // Agent 01
+  | "PAPER_DISCOVERY"        // Agent 02
+  | "SCREENING"              // Agent 03
+  | "AWAITING_USER_INPUT"    // Agent 04 (HITL Interrupt)
+  | "PDF_EXTRACTION"         // Agent 05
+  | "VECTOR_EMBEDDING"       // Agent 06
+  | "GAP_ANALYSIS"           // Agent 07
+  | "CITATION_VERIFICATION"  // Agent 08
+  | "REPORT_SYNTHESIS"       // Agent 09
+  | "COMPLETED"
+  | "FAILED";
+
+export interface AgentLog {
+  id: string;
+  timestamp: string;
+  agentName: "SearchAgent" | "ScreeningAgent" | "SynthesisAgent" | "Orchestrator";
+  message: string;
+  level: "info" | "success" | "warning" | "error";
+}
+
+export interface MethodologyItem {
+  method_name: string;
+  papers_used: string[];
+  strengths: string[];
+  limitations: string[];
+}
+
+export interface ThematicCluster {
+  theme: string;
+  summary: string;
+  citations: string[];
+}
+
+export interface SynthesizedReview {
+  title: string;
+  executive_summary: string;
+  thematic_clusters: ThematicCluster[];
+  methodology_matrix: MethodologyItem[];
+  research_gaps: string[];
+  conclusion?: string;
+  references?: Array<{
+    title?: string;
+    authors?: string[];
+    year?: number;
+    url?: string;
+    matched_passage?: string;
+  }>;
+}
+
+export interface SynthesizedReport {
+  title: string;
+  summary: string;
+  keyThemes: string[];
+  methodologyMatrix?: Array<{
+    paperTitle: string;
+    methodology: string;
+    findings: string;
+  }>;
+  researchGaps: string[];
+  references: string[];
+}
+
+export interface ReviewTask {
+  id: string;
+  query: string;
+  status: PipelineStep;
+  createdAt: string;
+  discoveredPapers: Paper[];
+  screenedPapers: Paper[];
+  approvedPapers: Paper[];
+  synthesizedReview?: SynthesizedReport;
+  logs?: AgentLog[];
+}
+
+export interface HealthStatusResponse {
+  status: string;
+  timestamp: string;
+  services: {
+    database: string;
+    redis: string;
+  };
+}
+
+/**
+ * Single turn in conversation history sent to the backend RAG chat API.
+ */
+export interface ChatHistoryMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+/**
+ * Retrieved source chunk citation from the pgvector literature database.
+ */
+export interface CitationSource {
+  paper_id: number;
+  title?: string | null;
+  section_name: string;
+  chunk_index: number;
+  snippet: string;
+}
+
+/**
+ * Chat message rendered in the ReviewChat UI, representing user queries,
+ * grounded assistant answers, or error notifications.
+ */
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  timestamp?: string;
+  citations?: CitationSource[];
+  isError?: boolean;
+  turnId?: string;
+  status?: "pending" | "success" | "error";
+}
+
+/**
+ * Response payload returned by POST /api/v1/reviews/{reviewId}/chat.
+ */
+export interface ChatResponse {
+  answer: string;
+  citations: CitationSource[];
+}
+
+/** Backward compatibility alias for CitationSource */
+export type SourceChunk = CitationSource;
+
+export interface ReviewHistoryItem {
+  id: string;
+  query: string;
+  status:
+    | "pending"
+    | "discovering"
+    | "awaiting_approval"
+    | "extracting"
+    | "embedding"
+    | "synthesizing"
+    | "completed"
+    | "failed";
+  paper_count?: number;
+  created_at: string;
+  pdf_url?: string;
+}
+
+export interface WebSocketStageUpdateEvent {
+  event: string;
+  stage: ReviewStatus | string;
+  status?: string;
+  message?: string;
+  data?: {
+    sub_queries?: string[];
+    queries?: string[];
+    counts?: Record<string, number>;
+    total_count?: number;
+    count?: number;
+    screened_papers?: any[];
+    screened_count?: number;
+    total?: number;
+    progress?: number;
+    [key: string]: any;
+  };
+  review_id?: string;
+  timestamp?: string;
+  [key: string]: any;
+}
+
+
+// Authentication & User Profile Types (Issue FE-11)
+export interface UserProfile {
+  id: number;
+  email: string;
+  name?: string | null;
+  avatar_url?: string | null;
+  auth_provider: "local" | "google" | "github" | string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface AuthResponse {
+  access_token: string;
+  token_type: string;
+  user: UserProfile;
+}
+
+
+// Citation Knowledge Graph Types (Issue FE-14)
+export interface GraphNode {
+  id: string;
+  label: string;
+  type?: "paper" | "theme" | string;
+  year?: number | null;
+  authors?: string[] | null;
+  relevance_score?: number | null;
+  cluster?: string | null;
+  url?: string | null;
+  citation_count?: number | null;
+  // D3 force simulation positioning fields
+  x?: number;
+  y?: number;
+  vx?: number;
+  vy?: number;
+  fx?: number | null;
+  fy?: number | null;
+}
+
+export interface GraphLink {
+  source: string | GraphNode;
+  target: string | GraphNode;
+  type?: "thematic_similarity" | "co_authorship" | "direct_citation" | string;
+  weight?: number;
+}
+
+export interface CitationGraphResponse {
+  review_id: number;
+  nodes: GraphNode[];
+  links: GraphLink[];
+  total_nodes: number;
+  total_links: number;
+}

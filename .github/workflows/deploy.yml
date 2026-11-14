@@ -1,0 +1,109 @@
+name: CD - Automated AWS Cloud Deployment Pipeline
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy-to-aws:
+    name: Build & Deploy Container Stack to AWS EC2
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Ensure AWS EC2 Server is Running
+        run: |
+          echo "Checking EC2 Instance state..."
+          INSTANCE_STATE=$(aws ec2 describe-instances --instance-ids ${{ secrets.EC2_INSTANCE_ID }} --query "Reservations[0].Instances[0].State.Name" --output text)
+          echo "Current EC2 Instance State: $INSTANCE_STATE"
+
+          if [ "$INSTANCE_STATE" != "running" ]; then
+            echo "Instance is stopped. Starting EC2 Instance..."
+            aws ec2 start-instances --instance-ids ${{ secrets.EC2_INSTANCE_ID }}
+            aws ec2 wait instance-running --instance-ids ${{ secrets.EC2_INSTANCE_ID }}
+            echo "EC2 Instance is now RUNNING!"
+          fi
+
+      - name: SSH Deploy & Restart Containers on EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          command_timeout: 30m
+          timeout: 60s
+          script: |
+            set -euo pipefail
+
+            # 1. Ensure swap space (4GB) is permanently active before container builds or AI model execution
+            echo "Checking and configuring swap space..."
+            if ! swapon --show | grep -q "/swapfile"; then
+              if [ ! -f /swapfile ] || [ $(stat -c%s /swapfile 2>/dev/null || echo 0) -lt 2000000000 ]; then
+                sudo swapoff /swapfile 2>/dev/null || true
+                sudo rm -f /swapfile 2>/dev/null || true
+                echo "Allocating 4GB swap space to support AI pipeline and container builds..."
+                sudo fallocate -l 4G /swapfile 2>/dev/null || sudo dd if=/dev/zero of=/swapfile bs=1M count=4096 2>/dev/null || true
+                sudo chmod 600 /swapfile 2>/dev/null || true
+                sudo mkswap /swapfile 2>/dev/null || true
+              fi
+              sudo swapon /swapfile 2>/dev/null || true
+            fi
+
+            # Ensure swapfile persists across EC2 reboots in /etc/fstab
+            if ! grep -q '/swapfile' /etc/fstab 2>/dev/null; then
+              echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null 2>&1 || true
+            fi
+            sudo sysctl vm.swappiness=60 2>/dev/null || true
+            echo "Active Swap Devices:"
+            swapon --show || true
+            echo "Current Memory Status:"
+            free -m || true
+
+            # 2. Aggressively reclaim disk space from old BuildKit cache, dangling layers, and logs (PRESERVING swapfile)
+            echo "Reclaiming disk space on EC2..."
+            docker builder prune -af 2>/dev/null || true
+            docker system prune -af 2>/dev/null || true
+            sudo apt-get clean 2>/dev/null || true
+            sudo journalctl --vacuum-size=50M 2>/dev/null || true
+
+            # 3. Automatically extend filesystem if EBS volume was expanded in AWS Console
+            sudo growpart /dev/xvda 1 2>/dev/null || sudo growpart /dev/nvme0n1 1 2>/dev/null || true
+            sudo resize2fs /dev/xvda1 2>/dev/null || sudo resize2fs /dev/nvme0n1p1 2>/dev/null || true
+
+            FREE_DISK_MB=$(df -m / | awk 'NR==2 {print $4}')
+            echo "Available disk space: ${FREE_DISK_MB} MB"
+
+            # 4. Pull latest application code
+            if [ ! -d "/home/ubuntu/app" ]; then
+              git clone https://github.com/saumyashah0510/Multi-Agent-Research-System-Architecture.git /home/ubuntu/app
+            fi
+            cd /home/ubuntu/app
+            git pull origin main
+            if [ ! -f "/home/ubuntu/app/.env" ]; then
+              cp /home/ubuntu/app/.env.example /home/ubuntu/app/.env
+            fi
+            cp /home/ubuntu/app/.env /home/ubuntu/app/frontend/.env 2>/dev/null || true
+
+            # 5. Build containers sequentially to minimize peak memory & disk footprint
+            echo "Building frontend container..."
+            docker compose build frontend
+            docker builder prune -f 2>/dev/null || true
+
+            echo "Building backend container..."
+            docker compose build backend
+            docker builder prune -f 2>/dev/null || true
+
+            # 6. Start application stack with full swap-backed stability
+            echo "Starting application stack..."
+            docker compose down --remove-orphans 2>/dev/null || true
+            docker compose up -d --remove-orphans
+            echo "DEPLOYMENT COMPLETE! Application running cleanly on EC2 with permanent swap space active!"
