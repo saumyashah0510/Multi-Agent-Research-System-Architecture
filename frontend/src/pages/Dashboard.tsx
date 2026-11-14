@@ -10,6 +10,8 @@ import ResearchProgress from "../components/pipeline/ResearchProgress";
 import useReviewWebSocket, { normalizePaper } from "../hooks/useReviewWebSocket";
 import { type ReviewHistoryItem } from "../types";
 import { useAuth } from "../context/AuthContext";
+import { cn } from "../lib/utils";
+import ReviewChat from "../components/chat/ReviewChat";
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -32,7 +34,7 @@ export default function Dashboard() {
     pathname === "/report" ||
     pathname === "/reports";
   const isChatRoute = currentTab === "chat" || pathname === "/chat";
-  const isNonResearchView = (isPapersRoute && !urlReviewId) || isReportRoute || isChatRoute;
+  const isNonResearchView = (isPapersRoute && !urlReviewId) || isReportRoute;
   const isDirectPapersView = isPapersRoute && Boolean(urlReviewId);
   const targetSection: TargetSection = isChatRoute
     ? "chat"
@@ -365,9 +367,14 @@ export default function Dashboard() {
   return (
     <div
       id="dashboard-page"
-      className="w-full max-w-4xl mx-auto flex flex-col items-center px-3 sm:px-6 min-h-[calc(100vh-3.75rem)] pb-16"
+      className={cn(
+        "w-full mx-auto flex flex-col items-center px-3 sm:px-6 min-h-[calc(100vh-3.75rem)] pb-16",
+        isChatRoute ? "max-w-7xl" : "max-w-4xl"
+      )}
     >
-      {isNonResearchView ? (
+      {isChatRoute ? (
+        <ReviewChat reviewId={urlReviewId || undefined} />
+      ) : isNonResearchView ? (
         <PastReviewsView
           targetSection={targetSection}
           onSelectReview={handleSelectPastReview}
