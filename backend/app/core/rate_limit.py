@@ -1,18 +1,61 @@
-"""Redis-Backed Sliding-Window Rate Limiting Engine.
+"""Redis-Backed Sliding-Window Rate Limiting Engine."""
 
-Assignee Task (Issue BE-14):
-- Implement sliding-window rate limiting using Redis Sorted Sets (zset).
-- Identify requests by authenticated user ID (from Bearer JWT) or client IP.
-- Return 429 Too Many Requests with Retry-After and X-RateLimit headers when quota is exceeded.
-"""
+import math
+import time
+import uuid
 
-from fastapi import Request, Response
+from fastapi import HTTPException, Request, Response, status
 
 from app.core.security import decode_access_token
+from app.services.redis_service import get_redis_client
+
+# Redis executes this script atomically.
+# Rejected requests are NOT added to the sliding window.
+SLIDING_WINDOW_SCRIPT = """
+local key = KEYS[1]
+
+local now = tonumber(ARGV[1])
+local window = tonumber(ARGV[2])
+local limit = tonumber(ARGV[3])
+local member = ARGV[4]
+local ttl = tonumber(ARGV[5])
+
+local window_start = now - window
+
+-- Remove requests outside the current sliding window.
+redis.call('ZREMRANGEBYSCORE', key, '-inf', window_start)
+
+local count = redis.call('ZCARD', key)
+
+-- Reject the request if the limit has already been reached.
+if count >= limit then
+    local oldest = redis.call('ZRANGE', key, 0, 0, 'WITHSCORES')
+    local oldest_time = tonumber(oldest[2])
+
+    local reset_time = oldest_time + window
+    local retry_after = math.max(0, reset_time - now)
+
+    return {0, count, retry_after, reset_time}
+end
+
+-- Accept and record the request.
+redis.call('ZADD', key, now, member)
+
+count = count + 1
+
+-- Find when the oldest accepted request expires.
+local oldest = redis.call('ZRANGE', key, 0, 0, 'WITHSCORES')
+local reset_time = tonumber(oldest[2]) + window
+
+-- Automatically clean up inactive rate-limit keys.
+redis.call('EXPIRE', key, ttl)
+
+return {1, count, 0, reset_time}
+"""
 
 
 class RateLimiter:
-    """Sliding-window rate limiter dependency using Redis sorted sets (zset)."""
+    """Sliding-window rate limiter dependency using Redis sorted sets."""
 
     def __init__(
         self,
@@ -20,59 +63,87 @@ class RateLimiter:
         seconds: int,
         key_prefix: str = "rate_limit",
     ):
-        """Initialize rate limiter constraint.
+        if times <= 0 or seconds <= 0:
+            raise ValueError("times and seconds must be positive.")
 
-        Args:
-            times: Maximum allowed requests within the time window.
-            seconds: Window duration in seconds.
-            key_prefix: Redis key namespace prefix.
-        """
         self.times = times
         self.seconds = seconds
         self.key_prefix = key_prefix
 
     def _resolve_identifier(self, request: Request) -> str:
-        """Resolve client identifier: authenticated user ID if Bearer token present, else client IP."""
+        """Resolve authenticated user ID or fall back to client IP."""
+
         auth_header = request.headers.get("Authorization")
+
         if auth_header and auth_header.startswith("Bearer "):
             token = auth_header.split(" ", 1)[1].strip()
             payload = decode_access_token(token)
+
             if payload and payload.get("sub"):
                 return f"user:{payload['sub']}"
 
-        # Fallback to client IP
         forwarded_for = request.headers.get("X-Forwarded-For")
+
         if forwarded_for:
             client_ip = forwarded_for.split(",")[0].strip()
         else:
             client_ip = request.client.host if request.client else "unknown"
+
         return f"ip:{client_ip}"
 
     async def __call__(self, request: Request, response: Response) -> bool:
-        """Evaluate rate limit sliding window on inbound request.
+        """Apply the Redis sliding-window rate limit."""
 
-        Raises:
-            HTTPException: 429 Too Many Requests if request count exceeds limit.
-        """
-        # TODO (Assignee - BE-14):
-        # 1. Resolve client identifier using self._resolve_identifier(request)
-        # 2. Build redis key: f"{self.key_prefix}:{identifier}:{request.url.path}"
-        # 3. Get redis client via get_redis_client()
-        # 4. Use Redis sorted set (zset):
-        #    now = time.time()
-        #    window_start = now - self.seconds
-        #    pipe = redis.pipeline()
-        #    pipe.zremrangebyscore(key, 0, window_start)
-        #    pipe.zadd(key, {f"{now}-{request.headers.get('x-request-id', now)}": now})
-        #    pipe.zcard(key)
-        #    pipe.expire(key, self.seconds)
-        #    _, _, request_count, _ = await pipe.execute()
-        # 5. Calculate remaining = max(0, self.times - request_count)
-        # 6. Set response headers:
-        #    response.headers["X-RateLimit-Limit"] = str(self.times)
-        #    response.headers["X-RateLimit-Remaining"] = str(remaining)
-        # 7. If request_count > self.times:
-        #    retry_after = self.seconds
-        #    raise HTTPException(status_code=429, detail="Too Many Requests. Rate limit exceeded.",
-        #                        headers={"Retry-After": str(retry_after), ...})
+        identifier = self._resolve_identifier(request)
+
+        key = f"{self.key_prefix}:" f"{identifier}:" f"{request.url.path}"
+
+        redis = get_redis_client()
+
+        now_ms = time.time_ns() // 1_000_000
+        window_ms = self.seconds * 1000
+
+        member = f"{now_ms}:{uuid.uuid4().hex}"
+        ttl = math.ceil(self.seconds) + 1
+
+        result = await redis.eval(
+            SLIDING_WINDOW_SCRIPT,
+            1,
+            key,
+            now_ms,
+            window_ms,
+            self.times,
+            member,
+            ttl,
+        )
+
+        allowed = int(result[0])
+        request_count = int(result[1])
+        retry_after_ms = int(result[2])
+        reset_time_ms = int(result[3])
+
+        remaining = max(0, self.times - request_count)
+
+        reset_timestamp = math.ceil(reset_time_ms / 1000)
+
+        response.headers["X-RateLimit-Limit"] = str(self.times)
+        response.headers["X-RateLimit-Remaining"] = str(remaining)
+        response.headers["X-RateLimit-Reset"] = str(reset_timestamp)
+
+        if not allowed:
+            retry_after = max(1, math.ceil(retry_after_ms / 1000))
+
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=(
+                    f"Rate limit exceeded. Maximum " f"{self.times} requests per {self.seconds}s."
+                ),
+                headers={
+                    "Retry-After": str(retry_after),
+                    "X-RateLimit-Limit": str(self.times),
+                    "X-RateLimit-Remaining": "0",
+                    "X-RateLimit-Reset": str(reset_timestamp),
+                },
+            )
+
         return True
