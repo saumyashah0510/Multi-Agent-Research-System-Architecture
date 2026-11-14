@@ -20,8 +20,6 @@ import {
   Search,
   PanelLeft,
   MessageSquare,
-  ChevronDown,
-  ChevronUp,
   Loader2,
 } from "lucide-react";
 import { ChatMessage, ChatHistoryMessage, CitationSource, ReviewHistoryItem } from "../../types";
