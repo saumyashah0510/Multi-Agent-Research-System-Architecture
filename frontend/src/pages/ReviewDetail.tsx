@@ -170,7 +170,7 @@ const ReviewDetailInner: React.FC = () => {
   };
 
   return (
-    <div className="w-full max-w-5xl mx-auto px-4 py-8 space-y-6">
+    <div className={cn("w-full mx-auto px-4 py-8 space-y-6", isChatView ? "max-w-7xl" : "max-w-5xl")}>
       {/* Session Header Bar */}
       <div className="border-b border-neutral-200/80 pb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="min-w-0">

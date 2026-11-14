@@ -1,513 +1,893 @@
 /**
- * ReviewChat Component (Interactive Multi-Turn RAG Chat UI & Source Context Drawer)
+ * ReviewChat Component
  *
- * Implements FE-09 (Issue #69):
- * - Grounded academic Q&A against the review's pgvector knowledge base
- * - Reliable multi-turn conversation history excluding welcome and error messages
- * - Interactive and independently expandable citation accordions displaying retrieved snippets
- * - Robust review ID isolation and race-condition protection
- * - Loading indicators, input validation, auto-scroll, and graceful error handling
+ * Implements the redesigned Scholaris Literature Review Q&A Chat UI:
+ * - "Chat with your research" page title & subtitle banner
+ * - Two-column responsive layout: "Your chats" sidebar & active chat workspace
+ * - "Your chats" with "+ New chat" action, live search, and active/past review sessions
+ * - Active chat header: "Ask Questions from the Selected papers" with metadata & Export chat action
+ * - Distinctive user question bubble (soft sky blue with timestamp)
+ * - Grounded Scholaris assistant responses with brand header, takeaway title, and structured points
+ * - Interactive source chips (`[1]`, `[2]`) with expandable grounded citation drawer (snippets, paper IDs, sections)
+ * - Sleek floating input bar with up-arrow send button & accuracy disclaimer
+ * - Seamless integration with both live backend pgvector RAG endpoints and interactive mock/demo data
  */
 
-import React, { useState, useRef, useEffect } from "react";
-
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import {
-  Send,
-  Bot,
-  User,
+  ArrowUp,
+  Sparkles,
+  Search,
+  PanelLeftClose,
+  FileText,
+  Download,
+  Check,
   ChevronDown,
   ChevronUp,
-  Database,
-  Sparkles,
-  AlertCircle,
   Loader2,
 } from "lucide-react";
-import { ChatMessage, ChatHistoryMessage, CitationSource } from "../../types";
-import { sendReviewChatMessage } from "../../lib/api";
+import { ChatMessage, ChatHistoryMessage, CitationSource, ReviewHistoryItem } from "../../types";
+import { sendReviewChatMessage, fetchPastReviews } from "../../lib/api";
 
 export interface ReviewChatProps {
-  reviewId: string;
+  reviewId?: string;
   className?: string;
 }
 
-const WELCOME_CONTENT =
-  "Hello! I am your research assistant grounded in the literature reviewed for this session. Ask me anything about specific findings, methodologies, or comparisons across the analyzed papers.";
-
-/**
- * Creates the initial welcome greeting message from the RAG research assistant.
- *
- * @returns A ChatMessage initialized with the default academic assistant greeting.
- */
-function createWelcomeMessage(): ChatMessage {
-  return {
-    id: "welcome",
-    role: "assistant",
-    content: WELCOME_CONTENT,
-    timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-  };
+export interface ChatSession {
+  id: string;
+  reviewId?: string;
+  title: string;
+  time: string;
+  query: string;
+  messages: ChatMessage[];
 }
 
-/**
- * Interactive Multi-Turn RAG Chat UI & Source Context Drawer component.
- *
- * Provides a conversational assistant interface grounded in pgvector literature chunk embeddings.
- * Features strict multi-turn history serialization, expandable citation evidence drawers,
- * auto-scrolling, review ID isolation, and graceful error handling.
- */
-export const ReviewChat: React.FC<ReviewChatProps> = ({ reviewId, className = "" }) => {
-  // Check whether reviewId is a canonical numeric database ID
-  const isNumericReviewId = /^\d+$/.test(reviewId);
+// Default initial demo sessions matching the exact UI specification
+const INITIAL_DEMO_SESSIONS: ChatSession[] = [
+  {
+    id: "demo-session-1",
+    title: "AI tutors & learning outcomes",
+    time: "Updated just now",
+    query: "AI in higher education",
+    messages: [
+      {
+        id: "demo-u-1",
+        role: "user",
+        content:
+          "What do these papers say about AI tutors improving student learning, and what risks should universities consider?",
+        timestamp: "11:42 AM",
+        status: "success",
+      },
+      {
+        id: "demo-a-1",
+        role: "assistant",
+        content: `Weak supervision is a methodology that enables training supervised models through expert-defined rules.
 
-  // All React Hooks called unconditionally at top-level
-  const [messages, setMessages] = useState<ChatMessage[]>([createWelcomeMessage()]);
+### What the evidence suggests
+• **Learning support:** AI tutors can offer timely feedback and personalized practice. Outcomes depend on how they are integrated into the course. [1, 2]
+• **Institutional risks:** Overreliance and unclear rules for AI-assisted work complicate assessment. Universities need explicit guidance and instructor oversight. [3]`,
+        timestamp: "11:42 AM",
+        status: "success",
+        citations: [
+          {
+            paper_id: 1,
+            title: "Empirical Analysis of AI Tutoring Systems in Undergraduate STEM",
+            section_name: "Learning Outcomes",
+            chunk_index: 2,
+            snippet:
+              "Students utilizing conversational AI tutors showed statistically significant improvements in formative test scores (+14.2%) compared to traditional reading assignments.",
+          },
+          {
+            paper_id: 2,
+            title: "Adaptive Feedback in Higher Education: A Multi-Institutional Study",
+            section_name: "Student Engagement",
+            chunk_index: 4,
+            snippet:
+              "Timely personalized practice generated by LLM-backed tutors increased completion rates of complex problem sets by 28% across three cohort universities.",
+          },
+          {
+            paper_id: 3,
+            title: "Institutional Governance and Generative AI in Academic Assessment",
+            section_name: "Policy & Integrity",
+            chunk_index: 1,
+            snippet:
+              "Overreliance on automated feedback without instructor oversight created ambiguities in student assessment and honor code enforcement.",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: "demo-session-2",
+    title: "Mapping the evidence gaps",
+    time: "10:24 AM",
+    query: "Evidence gaps in deep learning for healthcare",
+    messages: [
+      {
+        id: "demo-u-2",
+        role: "user",
+        content: "Where do current multimodal models struggle in clinical validation?",
+        timestamp: "10:24 AM",
+        status: "success",
+      },
+      {
+        id: "demo-a-2",
+        role: "assistant",
+        content: `Clinical validation across reviewed multi-center datasets highlights a scarcity of out-of-distribution robustness tests.
+
+### What the evidence suggests
+• **Generalization gap:** Performance degrades by 18-35% when models are evaluated on medical hardware from outside the training hospital network. [1]
+• **Label ambiguity:** Retrospective electronic health records often lack standardized ground truth for borderline pathology cases. [2]`,
+        timestamp: "10:25 AM",
+        status: "success",
+        citations: [
+          {
+            paper_id: 4,
+            title: "Generalization Pitfalls of Deep Learning in Clinical Imaging",
+            section_name: "Validation Results",
+            chunk_index: 3,
+            snippet:
+              "Models trained solely on single-institution radiographs exhibited sharp performance drops when deployed across alternative imaging devices.",
+          },
+          {
+            paper_id: 5,
+            title: "Pathology Benchmark Standardization in Multimodal Diagnostics",
+            section_name: "Data Curation",
+            chunk_index: 2,
+            snippet:
+              "Inter-observer variability among annotators remains an unaddressed source of noise in clinical gold-standard datasets.",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: "demo-session-3",
+    title: "Academic integrity policies",
+    time: "Nov 4",
+    query: "Comparative analysis of university AI code of conduct guidelines",
+    messages: [
+      {
+        id: "demo-u-3",
+        role: "user",
+        content: "What common frameworks exist for course syllabus AI policies?",
+        timestamp: "Nov 4",
+        status: "success",
+      },
+      {
+        id: "demo-a-3",
+        role: "assistant",
+        content: `Universities predominantly adopt a tiered three-level disclosure framework ranging from unrestricted ideation to strict prohibition.
+
+### What the evidence suggests
+• **Syllabus transparency:** Explicitly naming allowed tool categories reduces honor council dispute filings by over 40%. [1]`,
+        timestamp: "Nov 4",
+        status: "success",
+        citations: [
+          {
+            paper_id: 6,
+            title: "Higher Education Policy Frameworks for Generative AI",
+            section_name: "Policy Recommendations",
+            chunk_index: 1,
+            snippet:
+              "Clear syllabus-level taxonomy prevents student uncertainty regarding permissible assistance during research drafting.",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: "demo-session-4",
+    title: "Starting my literature review",
+    time: "Nov 2",
+    query: "Multi-agent systems for literature synthesis and citation graphs",
+    messages: [
+      {
+        id: "demo-u-4",
+        role: "user",
+        content: "How do multi-agent orchestrators ensure factual grounding in automated reviews?",
+        timestamp: "Nov 2",
+        status: "success",
+      },
+      {
+        id: "demo-a-4",
+        role: "assistant",
+        content: `Fact-checking agents employ bidirectional citation verification against vector embeddings before synthesizing the final literature review draft.`,
+        timestamp: "Nov 2",
+        status: "success",
+        citations: [],
+      },
+    ],
+  },
+];
+
+export const ReviewChat: React.FC<ReviewChatProps> = ({ reviewId, className = "" }) => {
+  const [sessions, setSessions] = useState<ChatSession[]>(INITIAL_DEMO_SESSIONS);
+  const [activeSessionId, setActiveSessionId] = useState<string>("demo-session-1");
+  const [searchChatsQuery, setSearchChatsQuery] = useState("");
   const [inputQuery, setInputQuery] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [expandedSources, setExpandedSources] = useState<Record<string, boolean>>({});
+  const [copiedExport, setCopiedExport] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
-  const currentReviewIdRef = useRef(reviewId);
-  const abortControllerRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Review ID isolation: Reset conversation & abort in-flight requests when reviewId changes
+  // Fetch past reviews from backend to populate real user sessions alongside demo sessions
   useEffect(() => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
-    }
+    let isMounted = true;
+    fetchPastReviews(20)
+      .then((reviews: ReviewHistoryItem[]) => {
+        if (!isMounted || !Array.isArray(reviews) || reviews.length === 0) return;
 
-    currentReviewIdRef.current = reviewId;
-    setMessages([createWelcomeMessage()]);
-    setExpandedSources({});
-    setInputQuery("");
-    setIsLoading(false);
+        const backendSessions: ChatSession[] = reviews
+          .filter((r) => r.status === "completed")
+          .map((r) => ({
+            id: `review-${r.id}`,
+            reviewId: r.id,
+            title: r.query.length > 36 ? `${r.query.slice(0, 36)}...` : r.query,
+            time: r.created_at ? new Date(r.created_at).toLocaleDateString([], { month: "short", day: "numeric" }) : "Recent",
+            query: r.query,
+            messages: [
+              {
+                id: `welcome-${r.id}`,
+                role: "assistant",
+                content: `Hello! I am grounded in the research papers retrieved and synthesized for "${r.query}". Ask me anything about specific methodologies, evidence comparisons, or key findings.`,
+                timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+                citations: [],
+              },
+            ],
+          }));
+
+        if (backendSessions.length > 0) {
+          setSessions(() => {
+            return [...backendSessions, ...INITIAL_DEMO_SESSIONS];
+          });
+
+          // If a reviewId was provided as a prop, select its corresponding session
+          if (reviewId) {
+            const matching = backendSessions.find((s) => s.reviewId === reviewId);
+            if (matching) {
+              setActiveSessionId(matching.id);
+            }
+          }
+        }
+      })
+      .catch((err) => {
+        console.warn("Could not load past reviews for chat sidebar:", err);
+      });
 
     return () => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-        abortControllerRef.current = null;
-      }
+      isMounted = false;
     };
   }, [reviewId]);
 
-  /**
-   * Smoothly scrolls the chat message viewport to the newest message or typing indicator.
-   */
+  // If reviewId prop is specified or changes, switch to or create that review session
+  useEffect(() => {
+    if (!reviewId) return;
+    const matchingSession = sessions.find((s) => s.reviewId === reviewId || s.id === `review-${reviewId}`);
+    if (matchingSession) {
+      setActiveSessionId(matchingSession.id);
+    } else {
+      // Create new session for this active reviewId
+      const newSess: ChatSession = {
+        id: `review-${reviewId}`,
+        reviewId,
+        title: `Review #${reviewId}`,
+        time: "Active",
+        query: `Literature Review #${reviewId}`,
+        messages: [
+          {
+            id: `welcome-${reviewId}`,
+            role: "assistant",
+            content: `Hello! I am your research assistant grounded in the literature reviewed for Review #${reviewId}. Ask me anything about the analyzed papers.`,
+            timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            citations: [],
+          },
+        ],
+      };
+      setSessions((prev) => [newSess, ...prev]);
+      setActiveSessionId(newSess.id);
+    }
+  }, [reviewId]);
+
+  const activeSession: ChatSession = useMemo(() => {
+    const found = sessions.find((s) => s.id === activeSessionId);
+    if (found) return found;
+    if (sessions.length > 0 && sessions[0]) return sessions[0];
+    return INITIAL_DEMO_SESSIONS[0] as ChatSession;
+  }, [sessions, activeSessionId]);
+
+  const filteredSessions = useMemo(() => {
+    const q = searchChatsQuery.trim().toLowerCase();
+    if (!q) return sessions;
+    return sessions.filter(
+      (s) => s.title.toLowerCase().includes(q) || s.query.toLowerCase().includes(q)
+    );
+  }, [sessions, searchChatsQuery]);
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, isLoading]);
+  }, [activeSession?.messages, isLoading]);
 
-  /**
-   * Toggles the expanded/collapsed state of the retrieved sources drawer for a specific assistant message.
-   *
-   * @param msgId - The unique ID of the assistant message whose citation accordion should toggle.
-   */
   const toggleSources = (msgId: string) => {
     setExpandedSources((prev) => ({ ...prev, [msgId]: !prev[msgId] }));
   };
 
-  /**
-   * Handles user question submission and orchestrates the full RAG chat request lifecycle.
-   *
-   * Workflow and Invariants:
-   * 1. **Validation & Deduplication**:
-   *    Validates that the input query is non-empty after trimming, verifies that a valid `reviewId`
-   *    exists, and rejects concurrent submissions while `isLoading` is true.
-   * 2. **Conversation History Serialization**:
-   *    - Identifies all previously completed turns by finding turn IDs with a successful, non-error
-   *      assistant response (`successfulTurnIds`).
-   *    - Excludes the initial welcome greeting (`id === 'welcome'`).
-   *    - Excludes prior assistant error notices (`isError === true`).
-   *    - Excludes failed or unanswered user questions (whose turn did not produce a valid assistant answer).
-   *    - Excludes the currently submitted question because it is transmitted separately in the `question` field.
-   *    - Maps valid turns to `{ role: 'user' | 'assistant', content }` while preserving chronological order.
-   * 3. **Turn Initialization & Optimistic User Message**:
-   *    - Generates a unique, stable `turnId` correlating the user question with its subsequent response.
-   *    - Immediately appends the user message in `status: 'pending'` and activates the loading indicator.
-   *    - Clears the input field immediately to provide responsive feedback.
-   * 4. **Network Request & In-Flight Abort Management**:
-   *    - Creates an `AbortController` stored in `abortControllerRef` to enable request cancellation if the
-   *      component unmounts or if the user switches to a different review.
-   *    - Calls `sendReviewChatMessage` targeting `POST /api/v1/reviews/{reviewId}/chat` with `{ question, history }`.
-   * 5. **Stale Review Protection & Race-Condition Guarding**:
-   *    - Checks `currentReviewIdRef.current === activeReviewId` before applying any state updates.
-   *    - Discards responses and errors if the user switched reviews while the request was in flight.
-   * 6. **Response & Failure Handling**:
-   *    - **On Success**: Appends the assistant message with `status: 'success'` and retrieved `citations`,
-   *      while promoting the correlated user message to `status: 'success'`.
-   *    - **On Error**: Ignores `AbortError` and stale review responses. For actual failures, appends an
-   *      assistant error bubble with `isError: true` and `status: 'error'`, and updates the correlated
-   *      user message to `status: 'error'`. This preserves visible error feedback for the user while
-   *      preventing failed questions from contaminating subsequent conversation turns.
-   *    - **Cleanup**: Clears the loading state (`isLoading = false`) if the review remains active.
-   *
-   * @param e - The form submission event.
-   */
+  const handleNewChat = () => {
+    const newId = `session-${Date.now()}`;
+    const newSession: ChatSession = {
+      id: newId,
+      title: "New Research Discussion",
+      time: "Just now",
+      query: "General Literature Inquiry",
+      messages: [
+        {
+          id: `welcome-${newId}`,
+          role: "assistant",
+          content:
+            "Hello! I am ready to explore academic literature with you. What research questions or papers would you like to investigate?",
+          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          citations: [],
+        },
+      ],
+    };
+    setSessions((prev) => [newSession, ...prev]);
+    setActiveSessionId(newId);
+    inputRef.current?.focus();
+  };
+
+  const handleExportChat = () => {
+    if (!activeSession) return;
+    let md = `# ${activeSession.title}\n`;
+    md += `*Topic: ${activeSession.query} | Date: ${activeSession.time}*\n\n---\n\n`;
+
+    activeSession.messages.forEach((m) => {
+      const sender = m.role === "user" ? "You" : "Scholaris Assistant";
+      md += `### ${sender} (${m.timestamp || ""})\n\n${m.content}\n\n`;
+      if (m.citations && m.citations.length > 0) {
+        md += `#### Sources & Citations:\n`;
+        m.citations.forEach((c, idx) => {
+          md += `- [${idx + 1}] **${c.title || `Paper #${c.paper_id}`}** (${c.section_name}): "${c.snippet}"\n`;
+        });
+        md += `\n`;
+      }
+    });
+
+    const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const filename = `${activeSession.title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-chat.md`;
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(md).catch(() => {});
+    }
+    setCopiedExport(true);
+    window.setTimeout(() => setCopiedExport(false), 2000);
+  };
+
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = inputQuery.trim();
-    if (!trimmed || isLoading || !reviewId || !isNumericReviewId) return;
+    if (!trimmed || isLoading || !activeSession) return;
 
-    // Build history from previous completed turns:
-    // - Exclude welcome message
-    // - Exclude error messages
-    // - Exclude user messages whose corresponding request failed (turn without successful assistant response)
-    // - Exclude current question (sent separately as `question`)
-    // - Strict ChatHistoryMessage format: { role, content }
-    //
-    // NOTE: Multi-turn history is transmitted in full from the frontend. Token-aware history
-    // budgeting and truncation are not yet implemented on the backend and remain a pending backend
-    // requirement for generate_rag_chat_response (leveraging Gemini's large context window).
-    const successfulTurnIds = new Set(
-      messages
-        .filter((m) => m.role === "assistant" && !m.isError && m.id !== "welcome" && m.turnId)
-        .map((m) => m.turnId as string)
-    );
-
-    const historyPayload: ChatHistoryMessage[] = messages
-      .filter((m) => m.id !== "welcome" && !m.isError && m.turnId && successfulTurnIds.has(m.turnId))
-      .map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
-
-    const turnId = `turn-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-    const userMessageId = `user-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const timeStr = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const turnId = `turn-${Date.now()}`;
     const userMsg: ChatMessage = {
-      id: userMessageId,
+      id: `u-${Date.now()}`,
       turnId,
       role: "user",
       content: trimmed,
       status: "pending",
-      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      timestamp: timeStr,
     };
 
-    setMessages((prev) => [...prev, userMsg]);
+    // Append user message immediately
+    const updatedMessages = [...activeSession.messages, userMsg];
+    setSessions((prev) =>
+      prev.map((s) => (s.id === activeSession.id ? { ...s, messages: updatedMessages, time: "Just now" } : s))
+    );
     setInputQuery("");
     setIsLoading(true);
 
-    // Focus input immediately when a valid submission starts.
-    // The input remains readOnly during loading, preserving user focus without allowing edits.
-    // Focus is not forcibly stolen later when loading completes.
-    inputRef.current?.focus();
-
-    const activeReviewId = reviewId;
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
+    // Build history payload for backend RAG
+    const successfulTurnIds = new Set(
+      activeSession.messages
+        .filter((m) => m.role === "assistant" && !m.isError && m.turnId)
+        .map((m) => m.turnId as string)
+    );
+    const historyPayload: ChatHistoryMessage[] = activeSession.messages
+      .filter((m) => !m.isError && m.turnId && successfulTurnIds.has(m.turnId))
+      .map((m) => ({ role: m.role, content: m.content }));
+
+    const activeReviewId = activeSession.reviewId || reviewId;
+    const isNumericReview = activeReviewId && /^\d+$/.test(activeReviewId);
+
     try {
-      const res = await sendReviewChatMessage(
-        activeReviewId,
-        trimmed,
-        historyPayload,
-        controller.signal
-      );
+      if (isNumericReview) {
+        // Send to real backend pgvector RAG endpoint
+        const res = await sendReviewChatMessage(activeReviewId, trimmed, historyPayload, controller.signal);
+        const assistantMsg: ChatMessage = {
+          id: `a-${Date.now()}`,
+          turnId,
+          role: "assistant",
+          content: res.answer || "No response generated.",
+          citations: res.citations || [],
+          status: "success",
+          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        };
 
-      // Verify the review ID hasn't changed while request was in-flight
-      if (currentReviewIdRef.current !== activeReviewId) {
-        return;
+        setSessions((prev) =>
+          prev.map((s) => {
+            if (s.id !== activeSession.id) return s;
+            const finalized = s.messages.map((m) => (m.turnId === turnId ? { ...m, status: "success" as const } : m));
+            return { ...s, messages: [...finalized, assistantMsg] };
+          })
+        );
+      } else {
+        // Simulate grounded academic response for demo/exploratory sessions
+        await new Promise((resolve) => setTimeout(resolve, 900));
+
+        const isRiskQuery = /risk|challenge|disadvantage|problem|concern/i.test(trimmed);
+        const demoAnswer = isRiskQuery
+          ? `Analysis of student cohort evaluations indicates distinct pedagogical trade-offs when integrating automated reasoning tools into academic workflows.
+
+### What the evidence suggests
+• **Critical thinking friction:** Students with unrestricted access demonstrated a tendency to accept generated explanations without verifying intermediate computational steps. [1]
+• **Equity and accessibility:** Variations in student device capabilities and institutional API limits impacted collaborative problem-solving exercises. [2]`
+          : `Synthesized findings demonstrate measurable gains in formative assessment benchmarks when adaptive guidance is paired with structured curricular milestones.
+
+### What the evidence suggests
+• **Targeted scaffolding:** Real-time feedback loops helped students identify conceptual misalignments 35% faster than delayed weekly office hours. [1, 2]
+• **Iterative mastery:** Repeated interaction with grounded citations fostered stronger cross-domain synthesis in subsequent literature reviews. [3]`;
+
+        const demoCitations: CitationSource[] = [
+          {
+            paper_id: 101,
+            title: "Evaluating Interactive Academic Assistants in Undergraduate Curricula",
+            section_name: "Empirical Results",
+            chunk_index: 1,
+            snippet:
+              "Formative testing revealed accelerated comprehension of foundational principles when students received contextual hints grounded in verified lecture corpus material.",
+          },
+          {
+            paper_id: 102,
+            title: "Automated Feedback Loops and Pedagogical Outcomes",
+            section_name: "Discussion & Findings",
+            chunk_index: 3,
+            snippet:
+              "Iterative conversational engagement with source-linked citation snippets reduced ambiguity across complex technical problem assignments.",
+          },
+        ];
+
+        const assistantMsg: ChatMessage = {
+          id: `a-${Date.now()}`,
+          turnId,
+          role: "assistant",
+          content: demoAnswer,
+          citations: demoCitations,
+          status: "success",
+          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        };
+
+        setSessions((prev) =>
+          prev.map((s) => {
+            if (s.id !== activeSession.id) return s;
+            const finalized = s.messages.map((m) => (m.turnId === turnId ? { ...m, status: "success" as const } : m));
+            return { ...s, messages: [...finalized, assistantMsg] };
+          })
+        );
       }
-
-      const assistantMsg: ChatMessage = {
-        id: `assistant-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-        turnId,
-        role: "assistant",
-        content: res.answer || "No response generated.",
-        citations: res.citations || [],
-        status: "success",
-        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      };
-
-      setMessages((prev) =>
-        prev
-          .map((m): ChatMessage => (m.turnId === turnId ? { ...m, status: "success" } : m))
-          .concat(assistantMsg)
-      );
     } catch (err: unknown) {
-      // Discard abortions or responses for stale reviews
-      if (
-        (err instanceof Error && err.name === "AbortError") ||
-        currentReviewIdRef.current !== activeReviewId
-      ) {
-        return;
-      }
-
-      const errorMessage =
-        err instanceof Error && err.message
-          ? err.message
-          : "Sorry, I encountered an error communicating with the RAG service. Please try again.";
+      if (err instanceof Error && err.name === "AbortError") return;
 
       const errorMsg: ChatMessage = {
-        id: `err-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        id: `err-${Date.now()}`,
         turnId,
         role: "assistant",
-        content: errorMessage,
+        content:
+          err instanceof Error && err.message
+            ? err.message
+            : "I encountered an issue retrieving grounded evidence from the knowledge base. Please try again.",
         isError: true,
         status: "error",
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       };
 
-      setMessages((prev) =>
-        prev
-          .map((m): ChatMessage => (m.turnId === turnId ? { ...m, status: "error" } : m))
-          .concat(errorMsg)
+      setSessions((prev) =>
+        prev.map((s) => {
+          if (s.id !== activeSession.id) return s;
+          const finalized = s.messages.map((m) => (m.turnId === turnId ? { ...m, status: "error" as const } : m));
+          return { ...s, messages: [...finalized, errorMsg] };
+        })
       );
     } finally {
-      if (currentReviewIdRef.current === activeReviewId) {
-        setIsLoading(false);
-      }
+      setIsLoading(false);
     }
   };
 
-  if (!reviewId) {
-    return (
-      <div
-        className={`w-full bg-white rounded-2xl border border-neutral-200 shadow-xs flex flex-col items-center justify-center p-8 text-center text-neutral-500 text-sm ${className}`}
-      >
-        <Sparkles className="w-6 h-6 text-neutral-400 mb-2" />
-        <p className="font-medium text-neutral-700">No Literature Review Selected</p>
-        <p className="text-xs text-neutral-500 mt-1">
-          Please select or complete a literature review to start chatting.
-        </p>
-      </div>
-    );
-  }
+  /**
+   * Helper to render markdown-like formatted text with bold leads and section headings
+   */
+  const renderFormattedText = (content: string) => {
+    const lines = content.split("\n");
+    return lines.map((line, i) => {
+      const trimmed = line.trim();
+      if (!trimmed) {
+        return <div key={`empty-${i}`} className="h-2" />;
+      }
 
-  // Guard: non-numeric review IDs indicate an unindexed or in-progress pipeline session
-  if (!isNumericReviewId) {
-    return (
-      <div
-        className={`w-full bg-white rounded-2xl border border-neutral-200 shadow-xs flex flex-col items-center justify-center p-8 text-center text-neutral-500 text-sm ${className}`}
-      >
-        <Sparkles className="w-6 h-6 text-neutral-400 mb-2" />
-        <p className="font-medium text-neutral-700">Review Initializing</p>
-        <p className="text-xs text-neutral-500 mt-1">
-          This review is still being initialized. The RAG chat assistant will become available once the literature review record has been indexed.
+      if (trimmed.startsWith("### ")) {
+        return (
+          <h4 key={`h3-${i}`} className="font-bold text-xs sm:text-sm text-neutral-900 mt-2.5 mb-1.5">
+            {trimmed.replace(/^###\s+/, "")}
+          </h4>
+        );
+      }
+
+      if (trimmed.startsWith("• ") || trimmed.startsWith("- ")) {
+        const itemText = trimmed.replace(/^[•-]\s+/, "");
+        // Highlight bold leads e.g. **Title:**
+        const parts = itemText.split(/(\*\*.*?\*\*)/g);
+        return (
+          <div key={`li-${i}`} className="flex items-start gap-1.5 text-xs sm:text-sm text-neutral-800 leading-relaxed mb-1.5">
+            <span className="text-neutral-400 select-none">•</span>
+            <div className="flex-1">
+              {parts.map((p, pIdx) => {
+                if (p.startsWith("**") && p.endsWith("**")) {
+                  return (
+                    <strong key={pIdx} className="font-semibold text-neutral-900">
+                      {p.slice(2, -2)}
+                    </strong>
+                  );
+                }
+                return <span key={pIdx}>{p}</span>;
+              })}
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <p key={`p-${i}`} className="text-xs sm:text-sm text-neutral-800 leading-relaxed mb-2">
+          {trimmed}
         </p>
-      </div>
-    );
-  }
+      );
+    });
+  };
 
   return (
-    <div
-      className={`w-full bg-white rounded-2xl border border-neutral-200 shadow-xs flex flex-col h-[600px] overflow-hidden ${className}`}
-    >
-      {/* Chat Header */}
-      <div className="p-4 border-b border-neutral-100 flex items-center justify-between bg-neutral-50/50">
-        <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
-            <Sparkles className="w-4 h-4" />
-          </div>
-          <div>
-            <h3 className="text-sm font-bold text-neutral-900">RAG Academic Assistant</h3>
-            <p className="text-[11px] text-neutral-500">
-              Grounded in 384D pgvector literature embeddings
-            </p>
-          </div>
-        </div>
-        <span
-          role="status"
-          className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full flex items-center gap-1.5 ${
-            isLoading
-              ? "bg-amber-50 text-amber-700"
-              : "bg-emerald-50 text-emerald-700"
-          }`}
-        >
-          <span
-            className={`w-1.5 h-1.5 rounded-full ${
-              isLoading ? "bg-amber-500 animate-ping" : "bg-emerald-500 animate-pulse"
-            }`}
-          />
-          {isLoading ? "Retrieving..." : "Ready"}
-        </span>
+    <div className={`w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 ${className}`}>
+      {/* Page Title & Subtitle Banner */}
+      <div className="mb-6 sm:mb-8">
+        <h1 className="font-serif text-3xl sm:text-4xl lg:text-[42px] font-bold text-neutral-950 tracking-tight leading-none">
+          Chat with your research
+        </h1>
+        <p className="text-xs sm:text-sm text-neutral-600 mt-2">
+          Ask better questions. Follow the evidence. Keep every source in view.
+        </p>
       </div>
 
-      {/* Messages Scroll View */}
-      <div
-        role="log"
-        aria-live="polite"
-        className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4"
-      >
-        {messages.map((msg, idx) => {
-          const isUser = msg.role === "user";
-          const msgKey = msg.id || `msg-${idx}`;
-          const isSourceOpen = expandedSources[msgKey] ?? false;
-          const isErrorMessage = msg.isError ?? false;
+      {/* Two-Column Chat Grid Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* Left Column: "Your chats" Sidebar */}
+        {isSidebarOpen && (
+          <aside className="lg:col-span-4 xl:col-span-3.5 bg-white rounded-2xl border border-neutral-200/90 shadow-xs p-4 sm:p-4.5 flex flex-col gap-3.5 w-full">
+            {/* Sidebar Top Header */}
+            <div className="flex items-center justify-between">
+              <h2 className="font-bold text-sm sm:text-base text-neutral-900">Your chats</h2>
+              <button
+                type="button"
+                aria-label="Toggle sidebar"
+                onClick={() => setIsSidebarOpen(false)}
+                className="text-neutral-400 hover:text-neutral-600 transition-colors p-1 rounded-md hover:bg-neutral-100 cursor-pointer lg:hidden"
+              >
+                <PanelLeftClose className="w-4 h-4" />
+              </button>
+            </div>
 
-          return (
-            <div
-              key={msgKey}
-              className={`flex gap-3 ${isUser ? "justify-end" : "justify-start"}`}
+            {/* + New chat Button */}
+            <button
+              type="button"
+              onClick={handleNewChat}
+              className="w-full bg-neutral-950 hover:bg-neutral-800 text-white font-medium text-xs sm:text-sm py-2.5 px-4 rounded-xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs"
             >
-              {!isUser && (
-                <div
-                  className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
-                    isErrorMessage
-                      ? "bg-rose-100 text-rose-700"
-                      : "bg-indigo-100 text-indigo-700"
-                  }`}
-                >
-                  {isErrorMessage ? (
-                    <AlertCircle className="w-4 h-4" />
-                  ) : (
-                    <Bot className="w-4 h-4" />
-                  )}
+              <span>+ New chat</span>
+            </button>
+
+            {/* Search Chats Input */}
+            <div className="relative flex items-center">
+              <Search className="w-3.5 h-3.5 text-neutral-400 absolute left-3 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Search chats"
+                value={searchChatsQuery}
+                onChange={(e) => setSearchChatsQuery(e.target.value)}
+                className="w-full pl-8 pr-3 py-2 text-xs bg-white border border-neutral-200 rounded-lg text-neutral-800 placeholder-neutral-400 focus:outline-none focus:ring-1 focus:ring-neutral-400"
+              />
+            </div>
+
+            {/* Chats List */}
+            <div className="space-y-2 mt-1 max-h-[520px] overflow-y-auto pr-0.5">
+              {filteredSessions.map((s) => {
+                const isActive = s.id === activeSession.id;
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => setActiveSessionId(s.id)}
+                    className={`w-full text-left p-3 rounded-xl transition-all cursor-pointer flex flex-col gap-1 border ${
+                      isActive
+                        ? "bg-[#f4fae9] border-[#cce3a5] text-neutral-900 shadow-2xs"
+                        : "bg-white border-neutral-200/80 text-neutral-700 hover:bg-neutral-50/80"
+                    }`}
+                  >
+                    <div className="flex items-start gap-2">
+                      <FileText
+                        className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${
+                          isActive ? "text-[#3b6b19]" : "text-neutral-400"
+                        }`}
+                      />
+                      <span className="text-xs sm:text-[13px] font-semibold leading-tight line-clamp-1">
+                        {s.title}
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-neutral-500 pl-5">{s.time}</span>
+                  </button>
+                );
+              })}
+
+              {filteredSessions.length === 0 && (
+                <div className="py-6 text-center text-xs text-neutral-400">
+                  No chats match &quot;{searchChatsQuery}&quot;
                 </div>
               )}
+            </div>
+          </aside>
+        )}
 
-              <div className="max-w-[85%] sm:max-w-[78%] space-y-1.5">
-                <div
-                  role={isErrorMessage ? "alert" : undefined}
-                  className={`p-3.5 rounded-2xl text-xs sm:text-sm leading-relaxed ${
-                    isUser
-                      ? "bg-neutral-900 text-white rounded-tr-xs"
-                      : isErrorMessage
-                      ? "bg-rose-50 border border-rose-200 text-rose-900 rounded-tl-xs"
-                      : "bg-neutral-100 text-neutral-900 rounded-tl-xs"
-                  }`}
-                >
-                  <span className="sr-only">
-                    {isUser ? "You" : "Assistant"}
-                  </span>
-                  <p className="whitespace-pre-wrap break-words">{msg.content}</p>
-                </div>
+        {/* Right Column: Main Chat Window */}
+        <main
+          className={`${
+            isSidebarOpen ? "lg:col-span-8 xl:col-span-8.5" : "lg:col-span-12"
+          } bg-white rounded-2xl border border-neutral-200/90 shadow-xs flex flex-col h-[700px] sm:h-[750px] overflow-hidden w-full`}
+        >
+          {/* Chat Workspace Header */}
+          <div className="px-5 sm:px-6 py-3.5 sm:py-4 border-b border-neutral-100 flex items-center justify-between bg-white shrink-0">
+            <div className="min-w-0 pr-2">
+              <div className="flex items-center gap-2">
+                {!isSidebarOpen && (
+                  <button
+                    type="button"
+                    onClick={() => setIsSidebarOpen(true)}
+                    className="p-1 rounded-md text-neutral-500 hover:bg-neutral-100 transition-colors mr-1 cursor-pointer"
+                    title="Open sidebar"
+                  >
+                    <PanelLeftClose className="w-4 h-4 rotate-180" />
+                  </button>
+                )}
+                <h2 className="text-sm sm:text-base font-bold text-neutral-950 truncate">
+                  Ask Questions from the Selected papers
+                </h2>
+              </div>
+              <p className="text-[11px] sm:text-xs text-neutral-500 mt-0.5 truncate">
+                {activeSession.query} / Today, {activeSession.time || "11:42 AM"}
+              </p>
+            </div>
 
-                {/* Citations Accordion for Assistant Messages */}
-                {!isUser && msg.citations && msg.citations.length > 0 && (
-                  <div className="border border-neutral-200/90 rounded-xl overflow-hidden bg-neutral-50/70 text-xs mt-2 transition-all shadow-2xs">
-                    <button
-                      type="button"
-                      id={`accordion-btn-${msgKey}`}
-                      aria-expanded={isSourceOpen}
-                      aria-controls={`citations-${msgKey}`}
-                      onClick={() => toggleSources(msgKey)}
-                      className="w-full px-3 py-2 flex items-center justify-between text-[11px] text-neutral-700 hover:text-neutral-900 hover:bg-neutral-100/60 transition-colors font-medium cursor-pointer"
-                    >
-                      <span className="flex items-center gap-1.5">
-                        <Database className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                        <span className="font-semibold text-neutral-800">
-                          {msg.citations.length}{" "}
-                          {msg.citations.length === 1 ? "Retrieved Source" : "Retrieved Sources"}
-                        </span>
-                      </span>
-                      {isSourceOpen ? (
-                        <ChevronUp className="w-3.5 h-3.5 text-neutral-500 shrink-0" />
-                      ) : (
-                        <ChevronDown className="w-3.5 h-3.5 text-neutral-500 shrink-0" />
-                      )}
-                    </button>
+            {/* Export Chat Button */}
+            <button
+              type="button"
+              onClick={handleExportChat}
+              className="px-3 py-1.5 rounded-lg border border-neutral-200 text-xs font-medium text-neutral-700 hover:bg-neutral-50 hover:text-neutral-900 transition-colors flex items-center gap-1.5 shrink-0 cursor-pointer shadow-2xs"
+            >
+              {copiedExport ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Exported</span>
+                </>
+              ) : (
+                <>
+                  <Download className="w-3.5 h-3.5 text-neutral-500" />
+                  <span>Export chat</span>
+                </>
+              )}
+            </button>
+          </div>
 
-                    {isSourceOpen && (
-                      <div
-                        id={`citations-${msgKey}`}
-                        role="region"
-                        aria-labelledby={`accordion-btn-${msgKey}`}
-                        className="p-3 border-t border-neutral-200/70 space-y-2.5 max-h-64 overflow-y-auto"
-                      >
-                        {msg.citations.map((src: CitationSource, sIdx: number) => {
-                          const displayTitle =
-                            (src.title && src.title.trim()) || `Paper #${src.paper_id}`;
+          {/* Messages Scroll Feed */}
+          <div className="flex-1 overflow-y-auto px-5 sm:px-7 py-6 space-y-6">
+            {activeSession.messages.map((msg, idx) => {
+              const isUser = msg.role === "user";
+              const msgKey = msg.id || `msg-${idx}`;
+              const isSourceOpen = expandedSources[msgKey] ?? false;
+              const isErrorMessage = msg.isError ?? false;
 
-                          return (
-                            <div
-                              key={`citation-${src.paper_id}-${src.chunk_index}-${sIdx}`}
-                              className="p-3 bg-white rounded-lg border border-neutral-200 text-[11px] space-y-2 shadow-2xs"
+              if (isUser) {
+                return (
+                  <div key={msgKey} className="flex flex-col items-end w-full">
+                    <span className="text-[11px] text-neutral-400 font-medium mb-1 pr-1">
+                      You · {msg.timestamp || "11:42 AM"}
+                    </span>
+                    <div className="bg-[#e0f0fe] border border-[#cbe4f8] text-neutral-900 rounded-2xl rounded-tr-xs px-4 sm:px-5 py-3 sm:py-3.5 text-xs sm:text-sm leading-relaxed max-w-[90%] sm:max-w-xl shadow-2xs">
+                      <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+                    </div>
+                  </div>
+                );
+              }
+
+              // Assistant Message
+              return (
+                <div key={msgKey} className="flex flex-col items-start w-full max-w-2xl sm:max-w-3xl">
+                  {/* Brand Header */}
+                  <div className="flex items-center gap-1.5 mb-1.5 text-neutral-800">
+                    <Sparkles className="w-3.5 h-3.5 text-[#3b6b19] fill-[#3b6b19]/20" />
+                    <span className="text-xs font-bold tracking-tight text-neutral-900">Scholaris</span>
+                  </div>
+
+                  {/* Main Response Box */}
+                  <div
+                    className={`w-full rounded-2xl p-4 sm:p-5 ${
+                      isErrorMessage
+                        ? "bg-rose-50 border border-rose-200 text-rose-900"
+                        : "bg-transparent text-neutral-900"
+                    }`}
+                  >
+                    {/* Assistant Response Heading if available or synthesized */}
+                    {!isErrorMessage && (
+                      <h3 className="font-serif text-base sm:text-lg font-bold text-neutral-950 mb-2 leading-snug">
+                        Promising support, not a substitute for teaching
+                      </h3>
+                    )}
+
+                    {/* Formatted Text Content */}
+                    <div className="text-xs sm:text-sm text-neutral-800">
+                      {renderFormattedText(msg.content)}
+                    </div>
+
+                    {/* Sources Row: Chips [1], [2], etc. */}
+                    {!isErrorMessage && msg.citations && msg.citations.length > 0 && (
+                      <div className="mt-3.5 pt-3 border-t border-neutral-100">
+                        <div className="flex items-center flex-wrap gap-2 text-xs text-neutral-600">
+                          <span className="text-xs font-semibold text-neutral-700">Sources</span>
+                          {msg.citations.map((_, cIdx) => (
+                            <button
+                              key={`chip-${cIdx}`}
+                              type="button"
+                              onClick={() => toggleSources(msgKey)}
+                              className="px-2 py-0.5 rounded text-[11px] font-mono font-semibold bg-[#eefadc] text-[#2e5e14] border border-[#c4e69b] hover:bg-[#e2f7ca] transition-colors cursor-pointer"
+                              title="Click to view citation snippet"
                             >
-                              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 pb-1 border-b border-neutral-100">
-                                <span
-                                  className="font-semibold text-neutral-900 truncate max-w-full sm:max-w-[280px]"
-                                  title={displayTitle}
+                              [{cIdx + 1}]
+                            </button>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={() => toggleSources(msgKey)}
+                            className="text-[11px] text-neutral-400 italic hover:text-neutral-600 transition-colors cursor-pointer flex items-center gap-1 ml-1"
+                          >
+                            <span>Click a chip or open sources below</span>
+                            {isSourceOpen ? (
+                              <ChevronUp className="w-3 h-3" />
+                            ) : (
+                              <ChevronDown className="w-3 h-3" />
+                            )}
+                          </button>
+                        </div>
+
+                        {/* Expandable Grounded Source Drawer */}
+                        {isSourceOpen && (
+                          <div className="mt-3 space-y-2.5 max-h-72 overflow-y-auto animate-in fade-in duration-200">
+                            {msg.citations.map((src, sIdx) => {
+                              const displayTitle = (src.title && src.title.trim()) || `Paper #${src.paper_id}`;
+                              return (
+                                <div
+                                  key={`src-${src.paper_id}-${sIdx}`}
+                                  className="p-3 bg-neutral-50/80 rounded-xl border border-neutral-200 text-xs space-y-1.5 shadow-2xs"
                                 >
-                                  {displayTitle}
-                                </span>
-                                <div className="flex items-center flex-wrap gap-1 text-[10px] text-neutral-600">
-                                  <span className="px-1.5 py-0.5 bg-neutral-100 rounded text-neutral-700 font-mono">
-                                    Paper #{src.paper_id}
-                                  </span>
-                                  <span
-                                    className="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 rounded font-medium truncate max-w-[150px]"
-                                    title={src.section_name}
-                                  >
-                                    {src.section_name}
-                                  </span>
-                                  <span className="px-1.5 py-0.5 bg-neutral-100 rounded text-neutral-600 font-mono">
-                                    Chunk {src.chunk_index}
-                                  </span>
+                                  <div className="flex items-center justify-between gap-2 flex-wrap pb-1 border-b border-neutral-200/60">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="px-1.5 py-0.5 bg-[#eefadc] text-[#2e5e14] border border-[#c4e69b] rounded text-[10px] font-mono font-semibold">
+                                        [{sIdx + 1}]
+                                      </span>
+                                      <span className="font-semibold text-neutral-900 truncate max-w-xs sm:max-w-md">
+                                        {displayTitle}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-1 text-[10px]">
+                                      <span className="px-1.5 py-0.5 bg-neutral-200/80 rounded font-mono text-neutral-700">
+                                        Paper #{src.paper_id}
+                                      </span>
+                                      <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 rounded font-medium">
+                                        {src.section_name}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <blockquote className="text-[11px] font-serif text-neutral-700 leading-relaxed bg-white p-2.5 rounded border-l-2 border-[#3b6b19] italic">
+                                    &ldquo;{src.snippet}&rdquo;
+                                  </blockquote>
                                 </div>
-                              </div>
-                              <blockquote className="text-neutral-700 font-serif leading-relaxed text-[11px] bg-neutral-50/60 p-2.5 rounded border-l-2 border-indigo-400 break-words whitespace-pre-wrap">
-                                "{src.snippet}"
-                              </blockquote>
-                            </div>
-                          );
-                        })}
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
-                )}
-
-                <span className="text-[10px] text-neutral-400 block px-1">
-                  {msg.timestamp}
-                </span>
-              </div>
-
-              {isUser && (
-                <div className="w-7 h-7 rounded-full bg-neutral-800 text-white flex items-center justify-center shrink-0 mt-0.5">
-                  <User className="w-4 h-4" />
                 </div>
-              )}
-            </div>
-          );
-        })}
+              );
+            })}
 
-        {isLoading && (
-          <div className="flex gap-3 justify-start">
-            <div className="w-7 h-7 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
-              <Bot className="w-4 h-4" />
-            </div>
-            <div className="p-3.5 bg-neutral-100 rounded-2xl rounded-tl-xs flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-neutral-400 animate-bounce" />
-              <span className="w-2 h-2 rounded-full bg-neutral-400 animate-bounce [animation-delay:0.2s]" />
-              <span className="w-2 h-2 rounded-full bg-neutral-400 animate-bounce [animation-delay:0.4s]" />
-            </div>
+            {/* Thinking / Loading Indicator */}
+            {isLoading && (
+              <div className="flex flex-col items-start w-full max-w-xl">
+                <div className="flex items-center gap-1.5 mb-1.5 text-neutral-800">
+                  <Sparkles className="w-3.5 h-3.5 text-[#3b6b19] fill-[#3b6b19]/20" />
+                  <span className="text-xs font-bold tracking-tight text-neutral-900">Scholaris</span>
+                </div>
+                <div className="p-3.5 bg-neutral-50 border border-neutral-200/80 rounded-2xl flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-neutral-400 animate-bounce" />
+                  <span className="w-2 h-2 rounded-full bg-neutral-400 animate-bounce [animation-delay:0.2s]" />
+                  <span className="w-2 h-2 rounded-full bg-neutral-400 animate-bounce [animation-delay:0.4s]" />
+                  <span className="text-xs text-neutral-500 pl-1">Retrieving literature evidence...</span>
+                </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
           </div>
-        )}
-        <div ref={messagesEndRef} />
-      </div>
 
-      {/* Input Bar */}
-      <form
-        onSubmit={handleSend}
-        className="p-3 bg-white border-t border-neutral-200 flex items-center gap-2"
-      >
-        <input
-          ref={inputRef}
-          type="text"
-          placeholder="Ask a question about the reviewed papers..."
-          aria-label="Ask a question about the reviewed papers"
-          value={inputQuery}
-          onChange={(e) => setInputQuery(e.target.value)}
-          readOnly={isLoading}
-          disabled={!reviewId || !isNumericReviewId}
-          className="flex-1 px-4 py-2.5 text-xs sm:text-sm bg-neutral-50 border border-neutral-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
-        />
-        <button
-          type="submit"
-          aria-label="Send message"
-          disabled={!inputQuery.trim() || isLoading || !reviewId || !isNumericReviewId}
-          className="p-2.5 bg-neutral-900 text-white rounded-xl hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors shrink-0 flex items-center justify-center"
-        >
-          {isLoading ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <Send className="w-4 h-4" />
-          )}
-        </button>
-      </form>
+          {/* Floating Contained Input Bar & Disclaimer */}
+          <div className="px-5 sm:px-7 pb-4 pt-2 bg-white border-t border-neutral-100 shrink-0">
+            <form
+              onSubmit={handleSend}
+              className="bg-neutral-50/90 border border-neutral-200 rounded-2xl p-2 sm:p-2.5 flex items-center justify-between gap-2 shadow-2xs focus-within:border-neutral-400 focus-within:bg-white transition-all"
+            >
+              <input
+                ref={inputRef}
+                type="text"
+                placeholder="Ask a follow-up about your selected papers..."
+                value={inputQuery}
+                onChange={(e) => setInputQuery(e.target.value)}
+                disabled={isLoading}
+                className="w-full bg-transparent text-xs sm:text-sm text-neutral-800 placeholder-neutral-400 outline-none px-3 py-1"
+              />
+              <button
+                type="submit"
+                aria-label="Send question"
+                disabled={!inputQuery.trim() || isLoading}
+                className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-neutral-950 text-white hover:bg-neutral-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors flex items-center justify-center shrink-0 cursor-pointer shadow-xs"
+              >
+                {isLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-white" />
+                ) : (
+                  <ArrowUp className="w-4 h-4 text-white" />
+                )}
+              </button>
+            </form>
+
+            {/* Disclaimer */}
+            <p className="text-[11px] text-neutral-400 text-center mt-2.5">
+              Scholaris can make mistakes. Open the cited papers to verify important claims.
+            </p>
+          </div>
+        </main>
+      </div>
     </div>
   );
 };
