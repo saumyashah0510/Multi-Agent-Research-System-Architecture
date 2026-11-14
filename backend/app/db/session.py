@@ -6,38 +6,12 @@ Assignee Task (Issue BE-02):
 - Implement get_db async dependency generator.
 """
 
-import socket
 from collections.abc import AsyncGenerator
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
-
-# Fallback DNS resolution for restricted/campus networks where local DNS refuses Neon host
-try:
-    import dns.resolver
-
-    _orig_getaddrinfo = socket.getaddrinfo
-
-    def _resilient_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-        try:
-            return _orig_getaddrinfo(host, port, family, type, proto, flags)
-        except socket.gaierror:
-            try:
-                resolver = dns.resolver.Resolver()
-                resolver.nameservers = ["8.8.8.8", "1.1.1.1"]
-                answers = resolver.resolve(host, "A")
-                if answers:
-                    ip = str(answers[0])
-                    return _orig_getaddrinfo(ip, port, family, type, proto, flags)
-            except Exception:
-                pass
-            raise
-
-    socket.getaddrinfo = _resilient_getaddrinfo
-except ImportError:
-    pass
 
 raw_url = settings.DATABASE_URL or "postgresql://postgres:postgres@localhost:5432/multi_agent_db"
 if raw_url.startswith("postgresql://"):
