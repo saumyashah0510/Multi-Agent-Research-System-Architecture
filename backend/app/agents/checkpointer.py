@@ -20,6 +20,7 @@ a new one is opened in the current loop.
 import asyncio
 import logging
 import os
+import sys
 import time
 from typing import Optional
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -42,9 +43,12 @@ _checkpointer_instance: Optional[BaseCheckpointSaver] = None
 
 
 def _is_test_env() -> bool:
-    # pytest sets PYTEST_CURRENT_TEST while a test runs, so CI uses MemorySaver
-    # even if ENVIRONMENT=test is not exported in the workflow.
-    if os.getenv("PYTEST_CURRENT_TEST"):
+    # The module-level graph in the reviews router is compiled at import time,
+    # i.e. during pytest collection, when PYTEST_CURRENT_TEST is not set yet.
+    # "pytest" in sys.modules is already true then, so CI uses MemorySaver even
+    # if ENVIRONMENT=test is not exported in the workflow. Production never
+    # imports pytest.
+    if "pytest" in sys.modules or os.getenv("PYTEST_CURRENT_TEST"):
         return True
     # Settings has no ENVIRONMENT field, so also read the real environment variable.
     env = os.getenv("ENVIRONMENT") or getattr(settings, "ENVIRONMENT", "")
