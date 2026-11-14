@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { Sparkles, CircleCheck, ChevronDown, ChevronUp, RotateCcw } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { PipelineStage } from "./types";
@@ -51,22 +51,69 @@ export const ResearchProgress: React.FC<ResearchProgressProps> = ({
     onComplete: customIsMock === false ? undefined : onComplete,
   });
 
-  const stages = customStages ?? mock.stages;
+  const stages = customStages && customStages.length > 0 ? customStages : mock.stages;
   const isRunning = customIsRunning ?? mock.isRunning;
   const isCompleted = customIsCompleted ?? mock.isCompleted;
 
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(() => Boolean(isCompleted));
+  const prevIsCompletedRef = useRef(isCompleted);
 
   useEffect(() => {
-    setIsCollapsed(Boolean(isCompleted));
+    // Automatically collapse into summary view when isCompleted transitions to true
+    if (isCompleted && !prevIsCompletedRef.current) {
+      setIsCollapsed(true);
+    }
+    prevIsCompletedRef.current = isCompleted;
   }, [isCompleted]);
 
-  const completedStages = stages.filter((s) => s.status === "completed").length;
+  // When pipeline is completed, force all stages into completed visual state
+  const displayStages: PipelineStage[] = useMemo(() => {
+    if (isCompleted) {
+      return stages.map((stage, idx) => {
+        let result = stage.result;
+        if (!result) {
+          if (stage.id === "query-expansion" || idx === 0) {
+            result = "Search queries generated";
+          } else if (stage.id === "academic-search" || idx === 1) {
+            result =
+              screenedCount !== undefined && screenedCount > 0
+                ? `${screenedCount} candidate papers discovered`
+                : "Candidate papers discovered";
+          } else if (stage.id === "relevance-screening" || idx === 2) {
+            result =
+              screenedCount !== undefined && screenedCount > 0
+                ? `${screenedCount} papers screened · ${relevantCount ?? screenedCount} relevant papers retained`
+                : "Papers screened and scored";
+          }
+        } else if (
+          (stage.id === "relevance-screening" || idx === 2) &&
+          screenedCount !== undefined &&
+          screenedCount > 0
+        ) {
+          result = `${screenedCount} papers screened · ${relevantCount ?? screenedCount} relevant papers retained`;
+        }
+
+        return {
+          ...stage,
+          status: "completed" as const,
+          supportingStatus: "",
+          message: null,
+          detail: null,
+          progress: null,
+          result: result || stage.result || "Completed",
+          error: null,
+        };
+      });
+    }
+    return stages;
+  }, [stages, isCompleted, screenedCount, relevantCount]);
+
+  const completedStages = displayStages.filter((s) => s.status === "completed").length;
 
   // Compute dynamic summary text without any hardcoded numbers
   const dynamicSummaryText = (() => {
     const parts: string[] = [];
-    if (completedStages > 0) {
+    if (completedStages > 0 && completedStages < displayStages.length) {
       parts.push(`${completedStages} ${completedStages === 1 ? "stage" : "stages"} finished`);
     } else {
       parts.push("Pipeline completed");
@@ -87,7 +134,7 @@ export const ResearchProgress: React.FC<ResearchProgressProps> = ({
 
   const renderStagesList = () => (
     <div className="flex flex-col">
-      {stages.map((stage, index) => (
+      {displayStages.map((stage, index) => (
         <div
           key={stage.id}
           className="relative flex items-start gap-3 sm:gap-4 pb-3.5 last:pb-0 z-10"

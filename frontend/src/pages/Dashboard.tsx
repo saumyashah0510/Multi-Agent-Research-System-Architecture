@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
+import { ArrowLeft, Loader2 } from "lucide-react";
 import ResearchInput, { type ResearchSearchParams } from "../components/ResearchInput";
 import PaperGrid from "../components/dashboard/paper-grid";
 import PastReviewsView, { type TargetSection } from "../components/dashboard/PastReviewsView";
@@ -45,21 +46,37 @@ export default function Dashboard() {
 
   // Single source of truth for selected paper IDs
   const [selectedPaperIds, setSelectedPaperIds] = useState<string[]>([]);
+  const [isLoadingReview, setIsLoadingReview] = useState(false);
 
   // Restore session from query parameters when ?review_id=... changes in the URL
   useEffect(() => {
     const urlReviewId = searchParams.get("review_id");
     if (urlReviewId) {
-      setReviewId((prev) => (prev === urlReviewId ? prev : urlReviewId));
+      setReviewId((prev) => {
+        if (prev !== urlReviewId) {
+          setPapers([]);
+          setSelectedPaperIds([]);
+          setIsPipelineDone(false);
+        }
+        return urlReviewId;
+      });
       setHasSearched(true);
+    } else {
+      if (isPapersRoute) {
+        setReviewId(null);
+        setHasSearched(false);
+        setPapers([]);
+        setSelectedPaperIds([]);
+      }
     }
-  }, [searchParams]);
+  }, [searchParams, isPapersRoute]);
 
   // Fetch persisted review status and candidate papers from REST API as fallback/cache
   useEffect(() => {
     if (!reviewId) return;
 
     let isActive = true;
+    setIsLoadingReview(true);
     if (typeof window !== "undefined") {
       localStorage.setItem("scholaris_active_review_id", reviewId);
     }
@@ -84,7 +101,8 @@ export default function Dashboard() {
         if (
           statusUpper === "AWAITING_USER_INPUT" ||
           statusUpper === "COMPLETED" ||
-          statusUpper === "PDF_EXTRACTION"
+          statusUpper === "PDF_EXTRACTION" ||
+          (Array.isArray(res.screened_papers) && res.screened_papers.length > 0)
         ) {
           setIsPipelineDone(true);
         }
@@ -92,6 +110,11 @@ export default function Dashboard() {
       .catch((err) => {
         if (!isActive) return;
         console.debug("Could not restore past review status from REST API:", err);
+      })
+      .finally(() => {
+        if (isActive) {
+          setIsLoadingReview(false);
+        }
       });
 
     return () => {
@@ -246,7 +269,21 @@ export default function Dashboard() {
   };
 
   const handleSelectPastReview = (review: ReviewHistoryItem) => {
-    if (targetSection === "papers" || review.status === "awaiting_approval") {
+    if (targetSection === "papers") {
+      setActiveQuery(review.query);
+      setPapers([]);
+      setSelectedPaperIds([]);
+      setApprovalError(null);
+      setApprovalSuccess(null);
+      setIsPipelineDone(true);
+      setReviewId(review.id);
+      const basePath = pathname === "/papers" ? "/papers" : "/dashboard";
+      const tabParam = pathname === "/papers" ? "" : "tab=papers&";
+      navigate(`${basePath}?${tabParam}review_id=${encodeURIComponent(review.id)}`);
+      return;
+    }
+
+    if (review.status === "awaiting_approval") {
       if (review.id !== reviewId) {
         setActiveQuery(review.query);
         setPapers([]);
@@ -269,12 +306,74 @@ export default function Dashboard() {
     navigate(`/review/${encodeURIComponent(review.id)}`);
   };
 
+  const handleBackToPastReviews = () => {
+    setReviewId(null);
+    setPapers([]);
+    setSelectedPaperIds([]);
+    const basePath = pathname === "/papers" ? "/papers" : "/dashboard?tab=papers";
+    navigate(basePath);
+  };
+
+  const isPapersDetailView = isPapersRoute && Boolean(reviewId);
+
   return (
     <div
       id="dashboard-page"
       className="w-full max-w-4xl mx-auto flex flex-col items-center px-3 sm:px-6 min-h-[calc(100vh-3.75rem)] pb-16"
     >
-      {isNonResearchView ? (
+      {isPapersDetailView ? (
+        /* Papers Tab - Selected Review Papers View (No search box, No redirect) */
+        <div className="w-full flex flex-col items-start pt-6 sm:pt-8 animate-in fade-in duration-300">
+          {/* 1. Topic Title Header + Back Button */}
+          <div className="w-full mb-6">
+            <button
+              type="button"
+              onClick={handleBackToPastReviews}
+              style={{ borderRadius: "var(--radius-sm)" }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-neutral-700 bg-white hover:bg-neutral-50 hover:text-neutral-900 border border-neutral-200/90 shadow-2xs transition-colors cursor-pointer mb-3"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Back to past reviews</span>
+            </button>
+
+            <h1 className="font-serif text-2xl sm:text-3xl font-bold text-neutral-900 tracking-compact">
+              Topic: {activeQuery || "Literature Review"}
+            </h1>
+          </div>
+
+          {/* 2. Research Progress Card (Completed state, toggleable details) */}
+          <div className="w-full mb-6">
+            <ResearchProgress
+              key={`papers-progress-${reviewId}`}
+              query={activeQuery}
+              stages={reviewId ? ws.stages : undefined}
+              isRunning={false}
+              isCompleted={true}
+              screenedCount={papers.length}
+              relevantCount={selectedPaperIds.length}
+              isMock={false}
+              autoStart={false}
+            />
+          </div>
+
+          {/* 3. Most Relevant Papers List Container and Paper Cards */}
+          {isLoadingReview && papers.length === 0 ? (
+            <div className="w-full bg-white rounded-2xl border border-neutral-200/80 p-10 flex items-center justify-center gap-2.5 text-sm text-neutral-500 shadow-xs">
+              <Loader2 className="w-4 h-4 animate-spin text-[var(--color-sky-dark)]" />
+              <span>Loading review papers...</span>
+            </div>
+          ) : (
+            <div className="w-full space-y-4 animate-in fade-in duration-300">
+              <PaperGrid
+                papers={papers}
+                selectedPaperIds={selectedPaperIds}
+                onToggleSelect={togglePaperSelection}
+                showActions={false}
+              />
+            </div>
+          )}
+        </div>
+      ) : isNonResearchView ? (
         <PastReviewsView
           targetSection={targetSection}
           onSelectReview={handleSelectPastReview}
@@ -325,7 +424,7 @@ export default function Dashboard() {
               }
               isCompleted={
                 reviewId
-                  ? ws.isPausedForInput || ws.status === "COMPLETED"
+                  ? ws.isPausedForInput || ws.status === "COMPLETED" || isPipelineDone
                   : isPipelineDone
               }
               screenedCount={papers.length}

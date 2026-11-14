@@ -6,13 +6,14 @@ export interface PaperGridProps {
   papers: PaperSummary[];
   selectedPaperIds: string[];
   onToggleSelect: (id: string) => void;
-  onProceed: () => void;
+  onProceed?: () => void;
   onFindMore?: () => void;
   isProceeding?: boolean;
   isFindingMore?: boolean;
   errorMessage?: string | null;
   successMessage?: string | null;
   className?: string;
+  showActions?: boolean;
 }
 
 export default function PaperGrid({
@@ -26,6 +27,7 @@ export default function PaperGrid({
   errorMessage = null,
   successMessage = null,
   className = "",
+  showActions = true,
 }: PaperGridProps) {
   const selectedCount = selectedPaperIds.length;
 
@@ -124,7 +126,9 @@ export default function PaperGrid({
             <div className="p-8 text-center border border-dashed border-neutral-200 rounded-2xl bg-neutral-50/50">
               <p className="text-sm font-medium text-neutral-600">No candidate papers found</p>
               <p className="text-xs text-neutral-400 mt-1">
-                Click &quot;Find More Papers&quot; above or refine your search query to discover candidate literature.
+                {showActions
+                  ? 'Click "Find More Papers" above or refine your search query to discover candidate literature.'
+                  : "No candidate papers were retained for this review."}
               </p>
             </div>
           ) : (
@@ -145,61 +149,65 @@ export default function PaperGrid({
         </div>
 
         {/* Action Footer for Selected Papers */}
-        <div className="pt-4 border-t border-neutral-100 flex items-center justify-center gap-3 sm:gap-4">
-          {onFindMore && (
-            <button
-              type="button"
-              onClick={onFindMore}
-              disabled={isFindingMore || isProceeding}
-              style={{ borderRadius: "var(--radius-sm)" }}
-              className={cn(
-                "px-4 py-2.5 text-sm font-semibold tracking-compact border border-neutral-200 transition-all shadow-xs flex items-center justify-center gap-2",
-                isFindingMore || isProceeding
-                  ? "bg-neutral-100 text-neutral-400 cursor-not-allowed"
-                  : "text-neutral-700 bg-white hover:bg-neutral-50 hover:text-neutral-900 cursor-pointer active:scale-95"
-              )}
-            >
-              {isFindingMore ? (
-                <>
-                  <svg className="animate-spin h-4 w-4 text-neutral-600" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-                  </svg>
-                  <span>Searching...</span>
-                </>
-              ) : (
-                <span>Find More Papers</span>
-              )}
-            </button>
-          )}
+        {showActions && (onProceed || onFindMore) && (
+          <div className="pt-4 border-t border-neutral-100 flex items-center justify-center gap-3 sm:gap-4">
+            {onFindMore && (
+              <button
+                type="button"
+                onClick={onFindMore}
+                disabled={isFindingMore || isProceeding}
+                style={{ borderRadius: "var(--radius-sm)" }}
+                className={cn(
+                  "px-4 py-2.5 text-sm font-semibold tracking-compact border border-neutral-200 transition-all shadow-xs flex items-center justify-center gap-2",
+                  isFindingMore || isProceeding
+                    ? "bg-neutral-100 text-neutral-400 cursor-not-allowed"
+                    : "text-neutral-700 bg-white hover:bg-neutral-50 hover:text-neutral-900 cursor-pointer active:scale-95"
+                )}
+              >
+                {isFindingMore ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4 text-neutral-600" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                    </svg>
+                    <span>Searching...</span>
+                  </>
+                ) : (
+                  <span>Find More Papers</span>
+                )}
+              </button>
+            )}
 
-          <button
-            type="button"
-            disabled={isProceeding}
-            onClick={onProceed}
-            style={{ borderRadius: "var(--radius-sm)" }}
-            className={cn(
-              "px-6 py-2.5 text-sm font-semibold tracking-compact transition-all shadow-sm flex items-center justify-center gap-2",
-              isProceeding
-                ? "bg-neutral-200 text-neutral-400 cursor-not-allowed"
-                : selectedCount > 0
-                ? "bg-neutral-900 hover:bg-black text-white hover:shadow-md cursor-pointer active:scale-95"
-                : "bg-neutral-800 hover:bg-neutral-900 text-white cursor-pointer active:scale-95"
+            {onProceed && (
+              <button
+                type="button"
+                disabled={isProceeding}
+                onClick={onProceed}
+                style={{ borderRadius: "var(--radius-sm)" }}
+                className={cn(
+                  "px-6 py-2.5 text-sm font-semibold tracking-compact transition-all shadow-sm flex items-center justify-center gap-2",
+                  isProceeding
+                    ? "bg-neutral-200 text-neutral-400 cursor-not-allowed"
+                    : selectedCount > 0
+                    ? "bg-neutral-900 hover:bg-black text-white hover:shadow-md cursor-pointer active:scale-95"
+                    : "bg-neutral-800 hover:bg-neutral-900 text-white cursor-pointer active:scale-95"
+                )}
+              >
+                {isProceeding ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                    </svg>
+                    <span>Submitting Approval...</span>
+                  </>
+                ) : (
+                  <span>Proceed with Selected Papers ({selectedCount}) →</span>
+                )}
+              </button>
             )}
-          >
-            {isProceeding ? (
-              <>
-                <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-                </svg>
-                <span>Submitting Approval...</span>
-              </>
-            ) : (
-              <span>Proceed with Selected Papers ({selectedCount}) →</span>
-            )}
-          </button>
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );

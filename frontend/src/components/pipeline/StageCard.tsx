@@ -124,10 +124,12 @@ export const StageCard: React.FC<StageCardProps> = ({ stage, index }) => {
         {stage.description}
       </p>
 
-      {/* Supporting Status / Activity Detail: Strictly secondary grey text */}
-      <p className="font-sans text-[11.5px] sm:text-[12px] text-neutral-500 mt-0.5 leading-normal">
-        {stage.supportingStatus}
-      </p>
+      {/* Supporting Status / Activity Detail: Strictly secondary grey text (hidden when completed) */}
+      {stage.status !== "completed" && stage.supportingStatus && (
+        <p className="font-sans text-[11.5px] sm:text-[12px] text-neutral-500 mt-0.5 leading-normal">
+          {stage.supportingStatus}
+        </p>
+      )}
 
       {/* Genuine Progress Bar (rendered only if genuine 0-100 numerical progress exists) */}
       {stage.status === "running" && typeof stage.progress === "number" && (
