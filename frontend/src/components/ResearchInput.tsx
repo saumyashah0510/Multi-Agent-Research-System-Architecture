@@ -14,12 +14,14 @@ export interface ResearchInputProps {
   isLoading?: boolean;
   initialQuery?: string;
   initialNumPapers?: string;
+  isSearchingActive?: boolean;
 }
 
 export default function ResearchInput({
   onSearch,
   isLoading = false,
   initialQuery = "",
+  isSearchingActive = false,
 }: ResearchInputProps) {
   const [query, setQuery] = useState(initialQuery);
 
@@ -50,6 +52,20 @@ export default function ResearchInput({
       handleSubmit();
     }
   };
+
+  // When search has already started and research progress is underway,
+  // display the query as a clean white message bubble at ~75% width aligned to the right.
+  if (isSearchingActive && query.trim()) {
+    return (
+      <div className="w-full flex justify-end">
+        <div className="w-full sm:w-[75%] max-w-[75%] bg-white border border-neutral-200/90 text-neutral-900 rounded-2xl rounded-tr-xs px-5 py-3.5 shadow-xs transition-all">
+          <p className="font-sans text-sm sm:text-[15px] leading-relaxed text-neutral-900 whitespace-pre-wrap break-words">
+            {query}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <form

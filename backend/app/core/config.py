@@ -5,6 +5,7 @@ Assignee Task (Issue #1):
 """
 
 import os
+import secrets
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -16,6 +17,27 @@ ENV_FILE = ROOT_DIR / ".env"
 
 # Load environment variables from root .env file
 load_dotenv(dotenv_path=ENV_FILE)
+
+
+def _get_or_persist_jwt_secret() -> str:
+    """Retrieve JWT secret from environment or persist a generated secret across restarts."""
+    env_secret = os.getenv("JWT_SECRET_KEY")
+    if env_secret and env_secret.strip() and env_secret.strip() != "<generated_secret_string>":
+        return env_secret.strip()
+
+    # Persist generated secret so multi-worker processes and restarts share the same key
+    key_file = ROOT_DIR / ".jwt.key"
+    try:
+        if key_file.exists():
+            stored = key_file.read_text(encoding="utf-8").strip()
+            if stored and len(stored) >= 32:
+                return stored
+        new_key = secrets.token_urlsafe(32)
+        key_file.write_text(new_key, encoding="utf-8")
+        return new_key
+    except Exception:
+        # Fallback if filesystem is read-only
+        return secrets.token_urlsafe(32)
 
 
 class Settings(BaseSettings):
@@ -30,9 +52,7 @@ class Settings(BaseSettings):
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
-    GEMINI_FALLBACK_MODELS: str = os.getenv(
-        "GEMINI_FALLBACK_MODELS", "gemini-2.5-flash,gemini-2.0-flash,gemini-1.5-flash"
-    )
+    GEMINI_FALLBACK_MODELS: str = os.getenv("GEMINI_FALLBACK_MODELS", "gemini-2.5-flash")
 
     # LangSmith Observability & Tracing
     LANGCHAIN_TRACING_V2: str = os.getenv("LANGCHAIN_TRACING_V2", "false")
@@ -52,11 +72,25 @@ class Settings(BaseSettings):
 
     # Groq Cloud Fallback LLM
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
-    GROQ_MODEL: str = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+    GROQ_MODEL: str = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
     GROQ_FALLBACK_MODELS: str = os.getenv(
         "GROQ_FALLBACK_MODELS",
-        "openai/gpt-oss-20b,llama-3.3-70b-versatile,llama-3.1-8b-instant",
+        "openai/gpt-oss-120b,openai/gpt-oss-20b",
     )
+
+    # JWT Authentication Settings
+    JWT_SECRET_KEY: str = _get_or_persist_jwt_secret()
+    JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))
+
+    # OAuth 2.0 Credentials (Google & GitHub)
+    GOOGLE_CLIENT_ID: str = os.getenv("GOOGLE_CLIENT_ID", "")
+    GOOGLE_CLIENT_SECRET: str = os.getenv("GOOGLE_CLIENT_SECRET", "")
+    GOOGLE_REDIRECT_URI: str = os.getenv(
+        "GOOGLE_REDIRECT_URI", "http://localhost:3000/auth/callback"
+    )
+    GITHUB_CLIENT_ID: str = os.getenv("GITHUB_CLIENT_ID", "")
+    GITHUB_CLIENT_SECRET: str = os.getenv("GITHUB_CLIENT_SECRET", "")
 
     @property
     def groq_model_candidates(self) -> list[str]:

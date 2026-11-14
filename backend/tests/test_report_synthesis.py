@@ -626,7 +626,7 @@ def test_enrich_bibliography_with_approved_papers():
 
 @pytest.mark.asyncio
 async def test_report_synthesis_large_corpus_scaling(monkeypatch):
-    """Verify that when 30 approved papers are provided, all 30 are sent to Gemini and max_output_tokens=8192."""
+    """Verify that when 30 approved papers are provided, all 30 are sent to Gemini and max_output_tokens=32768."""
     monkeypatch.setattr(settings, "GEMINI_API_KEY", "mock-gemini-key")
 
     mock_review_json = json.dumps(
@@ -690,11 +690,11 @@ async def test_report_synthesis_large_corpus_scaling(monkeypatch):
     with patch("google.genai.Client", return_value=mock_client):
         result = await report_synthesis_node(state)
 
-    # Verify Gemini was invoked with max_output_tokens=8192
+    # Verify Gemini was invoked with max_output_tokens=32768
     mock_client.models.generate_content.assert_called_once()
     call_args = mock_client.models.generate_content.call_args
     passed_config = call_args.kwargs.get("config") or call_args[1].get("config")
-    assert passed_config["max_output_tokens"] == 8192
+    assert passed_config["max_output_tokens"] == 32768
 
     # Verify user_content passed to Gemini contains all 30 papers (no [:12] truncation)
     passed_contents = call_args.kwargs.get("contents") or call_args[0][0]
@@ -705,3 +705,35 @@ async def test_report_synthesis_large_corpus_scaling(monkeypatch):
     # Verify that bibliography enrichment ensured all 30 papers are represented
     synthesis = result["synthesized_review"]
     assert len(synthesis["references"]) == 30
+
+
+def test_safe_parse_synthesized_output_repairs_unclosed_json():
+    """Verify that _safe_parse_synthesized_output repairs markdown fences and unclosed JSON structures."""
+    from app.agents.nodes.report_synthesis_node import _safe_parse_synthesized_output
+
+    # Valid JSON in markdown fences
+    valid_wrapped = """```json
+    {
+        "title": "Wrapped Review",
+        "executive_summary": "Summary",
+        "thematic_clusters": [],
+        "methodology_matrix": [],
+        "research_gaps": [],
+        "conclusion": "Done",
+        "references": []
+    }
+    ```"""
+    parsed = _safe_parse_synthesized_output(valid_wrapped)
+    assert parsed.title == "Wrapped Review"
+
+    # Truncated JSON missing closing braces
+    unclosed_json = """{
+        "title": "Repaired Review",
+        "executive_summary": "Summary",
+        "thematic_clusters": [],
+        "methodology_matrix": [],
+        "research_gaps": [],
+        "conclusion": "Done",
+        "references": []"""
+    repaired = _safe_parse_synthesized_output(unclosed_json)
+    assert repaired.title == "Repaired Review"

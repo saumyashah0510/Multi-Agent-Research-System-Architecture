@@ -211,6 +211,26 @@ export function useDownstreamWebSocket(
     }
   }, [initialCompleted]);
 
+  // Synchronize active downstream stage if initialStatus is supplied via REST or parent props
+  useEffect(() => {
+    if (!initialStatus || isCompletedRef.current) return;
+    const idx = getDownstreamStageIndex(initialStatus);
+    if (idx !== null) {
+      setStages((prev) =>
+        prev.map((s, i) => {
+          if (s.status === "completed") return s;
+          return {
+            ...s,
+            status: i < idx ? "completed" : i === idx ? "running" : "pending",
+            message: i === idx ? (s.message || s.supportingStatus) : s.message,
+            result: i < idx ? (s.result || getDefaultCompletedResult(i)) : s.result,
+          };
+        })
+      );
+      setIsRunning(true);
+    }
+  }, [initialStatus]);
+
   const handleIncomingPayload = useCallback((payload: WebSocketStageUpdateEvent) => {
     if (!payload) return;
 

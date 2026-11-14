@@ -15,8 +15,8 @@ def mock_db_session():
 
 
 @pytest.fixture
-def client(mock_db_session):
-    """Provide a test client with the database dependency overridden."""
+def client(mock_db_session, mock_rate_limiters):
+    """Provide a test client with database and rate limiters overridden."""
 
     async def override_get_db():
         yield mock_db_session
@@ -115,7 +115,7 @@ def test_chat_valid_question_returns_answer_and_citations(
 
     data = response.json()
 
-    assert data["answer"] == ("The study uses a randomized controlled trial.")
+    assert data["answer"] == "The study uses a randomized controlled trial."
     assert len(data["citations"]) == 1
     assert data["citations"][0]["paper_id"] == 1
     assert data["citations"][0]["section_name"] == "Methodology"

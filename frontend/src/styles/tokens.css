@@ -28,7 +28,7 @@
   --color-success-text-subtle: rgba(27, 94, 32, 0.85);
 
   /* Section tint colors (closed set) */
-  --tint-mint: #E3FBD6;
+  --tint-mint: #E0FBC0;
   --tint-lavender: #E3E4FA;
   --tint-sky: #DDEEFB;
 
@@ -45,6 +45,7 @@
   --gradient-card-mint: linear-gradient(135deg, #BFE8B2 0%, #D2F0C6 50%, #E2F6DB 100%);
   --gradient-card-lavender: linear-gradient(135deg, #C2C5F6 0%, #D4D7F8 50%, #E6E7FA 100%);
   --gradient-card-sky: linear-gradient(135deg, #B2DBFA 0%, #C8E5FC 50%, #E0EFFD 100%);
+  --gradient-auth-bg: linear-gradient(135deg, #c1cefa 0%, #A2D9FF 100%);
   --gradient-hero-bg: linear-gradient(180deg, var(--color-accent) 0%, var(--color-surface) 580px, var(--color-surface) 580px);
   --gradient-page-bg: linear-gradient(180deg, var(--color-accent) 0%, var(--color-surface) 100vh, var(--color-surface) 100vh);
   --gradient-footer-bg: linear-gradient(180deg, var(--color-surface) 0%, var(--color-accent) 100%);

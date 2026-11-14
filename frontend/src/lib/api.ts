@@ -1,5 +1,5 @@
 // API Client Helper for Scholaris Multi-Agent Research System
-import { ChatHistoryMessage, ChatResponse } from "../types";
+import { AuthResponse, ChatHistoryMessage, ChatResponse, CitationGraphResponse, UserProfile } from "../types";
 
 export function getApiBaseUrl(): string {
   const envApiUrl = import.meta.env?.VITE_API_URL;
@@ -31,17 +31,26 @@ export async function fetchHealthStatus() {
 export async function createReviewTask(query: string, maxPapers: number = 10) {
   const res = await fetch(`${getApiBaseUrl()}/reviews/`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(),
+    },
     body: JSON.stringify({ query, max_papers: maxPapers }),
   });
   if (!res.ok) {
-    throw new Error(`Failed to initiate review task: ${res.statusText}`);
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Failed to initiate review task: ${res.statusText}`);
   }
   return res.json();
 }
 
 export async function getReviewStatus(reviewId: string) {
-  const res = await fetch(`${getApiBaseUrl()}/reviews/${reviewId}`);
+  const res = await fetch(`${getApiBaseUrl()}/reviews/${reviewId}`, {
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(),
+    },
+  });
   if (!res.ok) {
     throw new Error(`Failed to fetch review status: ${res.statusText}`);
   }
@@ -55,7 +64,10 @@ export async function submitHumanDecision(
 ) {
   const res = await fetch(`${getApiBaseUrl()}/reviews/${reviewId}/approve`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(),
+    },
     body: JSON.stringify({
       user_decision: decision,
       approved_paper_ids: approvedPaperIds,
@@ -101,7 +113,10 @@ export async function sendReviewChatMessage(
 ): Promise<ChatResponse> {
   const res = await fetch(`${getApiBaseUrl()}/reviews/${encodeURIComponent(reviewId)}/chat`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(),
+    },
     body: JSON.stringify({ question, history }),
     signal,
   });
@@ -121,7 +136,12 @@ export async function sendReviewChatMessage(
 }
 
 export async function fetchPastReviews(limit: number = 20) {
-  const res = await fetch(`${getApiBaseUrl()}/reviews/?limit=${limit}`);
+  const res = await fetch(`${getApiBaseUrl()}/reviews/?limit=${limit}`, {
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(),
+    },
+  });
   if (!res.ok) {
     throw new Error(`Failed to fetch past reviews: ${res.statusText}`);
   }
@@ -129,5 +149,133 @@ export async function fetchPastReviews(limit: number = 20) {
 }
 
 export function getReviewPdfDownloadUrl(reviewId: string): string {
-  return `${getApiBaseUrl()}/reviews/${reviewId}/export`;
+  const token = getAuthToken();
+  const base = `${getApiBaseUrl()}/reviews/${reviewId}/export`;
+  return token ? `${base}?token=${encodeURIComponent(token)}` : base;
+}
+
+
+// Auth API Helpers (Issue FE-11)
+export function getAuthToken(): string | null {
+  return localStorage.getItem("scholaris_token");
+}
+
+export function setAuthToken(token: string): void {
+  localStorage.setItem("scholaris_token", token);
+}
+
+export function clearAuthToken(): void {
+  localStorage.removeItem("scholaris_token");
+}
+
+export function getAuthHeaders(): HeadersInit {
+  const token = getAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+export async function loginUser(email: string, password: string): Promise<AuthResponse> {
+  const res = await fetch(`${getApiBaseUrl()}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Login failed with status ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function registerUser(email: string, password: string, name?: string): Promise<AuthResponse> {
+  const res = await fetch(`${getApiBaseUrl()}/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password, name }),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Registration failed with status ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function fetchCurrentUser(): Promise<UserProfile> {
+  const res = await fetch(`${getApiBaseUrl()}/auth/me`, {
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(),
+    },
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to fetch current user: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+
+// OAuth API Helpers (Issue FE-12)
+export async function authWithGoogle(
+  credential?: string,
+  code?: string,
+  redirectUri?: string
+): Promise<AuthResponse> {
+  const res = await fetch(`${getApiBaseUrl()}/auth/google`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ credential, code, redirect_uri: redirectUri }),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Google authentication failed: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function authWithGitHub(code: string): Promise<AuthResponse> {
+  const res = await fetch(`${getApiBaseUrl()}/auth/github`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code }),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || `GitHub authentication failed: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+
+// Pipeline Retry API (Issue FE-13)
+export async function retryReviewPipeline(reviewId: string | number): Promise<any> {
+  // TODO (Assignee - FE-13): POST /reviews/{reviewId}/retry
+  const res = await fetch(`${getApiBaseUrl()}/reviews/${reviewId}/retry`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(),
+    },
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Retry failed with status ${res.status}`);
+  }
+  return res.json();
+}
+
+
+// Citation Knowledge Graph API (Issue FE-14)
+export async function fetchReviewGraph(
+  reviewId: string | number
+): Promise<CitationGraphResponse> {
+  // TODO (Assignee - FE-14): GET /reviews/{reviewId}/graph
+  const res = await fetch(`${getApiBaseUrl()}/reviews/${reviewId}/graph`, {
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(),
+    },
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to fetch citation knowledge graph: ${res.statusText}`);
+  }
+  return res.json();
 }
