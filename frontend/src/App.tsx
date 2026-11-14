@@ -21,8 +21,9 @@ export default function App() {
 
           {/* Main App Routes */}
           <Route element={<MainLayout />}>
-            {/* Public Home Route */}
+            {/* Public App Routes */}
             <Route index element={<Home />} />
+            <Route path="chat" element={<Dashboard />} />
 
             {/* Authenticated Protected Routes */}
             <Route element={<ProtectedRoute />}>
@@ -31,7 +32,6 @@ export default function App() {
               <Route path="review/:reviewId" element={<ReviewDetail />} />
               <Route path="reviews/:reviewId" element={<ReviewDetail />} />
               <Route path="papers" element={<Dashboard />} />
-              <Route path="chat" element={<Dashboard />} />
               <Route path="reports" element={<Dashboard />} />
               <Route path="report" element={<Dashboard />} />
             </Route>

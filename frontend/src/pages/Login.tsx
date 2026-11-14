@@ -19,7 +19,7 @@ import loginImg from "../images/Login_img.png";
 export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { login, isAuthenticated } = useAuth();
+  const { login, isAuthenticated, setSession } = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -55,6 +55,18 @@ export default function Login() {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleDemoLogin = () => {
+    setSession("demo-guest-jwt-token", {
+      id: 1,
+      email: "researcher@scholaris.ai",
+      name: "Scholaris Researcher",
+      auth_provider: "local",
+      is_active: true,
+      created_at: new Date().toISOString(),
+    });
+    navigate(getDestination() || "/chat", { replace: true });
   };
 
 
@@ -142,6 +154,17 @@ export default function Login() {
               {isSubmitting ? "Signing in..." : "Login"}
             </button>
           </form>
+
+          {/* Quick Demo Bypass Button */}
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={handleDemoLogin}
+              className="w-full py-2 px-3 rounded-[var(--radius-sm)] border border-neutral-300 bg-white hover:bg-neutral-50 text-neutral-800 font-semibold text-xs transition cursor-pointer flex items-center justify-center gap-1.5 shadow-2xs"
+            >
+              <span>Explore Demo without Sign-In →</span>
+            </button>
+          </div>
 
           {/* Social Sign In Buttons */}
           <SocialLoginButtons

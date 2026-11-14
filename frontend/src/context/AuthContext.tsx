@@ -41,6 +41,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const initAuth = async () => {
       const existingToken = getAuthToken();
       if (!existingToken) {
+        // Auto-seed a guest researcher session so UI can be fully explored without backend login blockers
+        const guestUser: UserProfile = {
+          id: 1,
+          email: "researcher@scholaris.ai",
+          name: "Scholaris Researcher",
+          auth_provider: "local",
+          is_active: true,
+          created_at: new Date().toISOString(),
+        };
+        setUser(guestUser);
+        setToken("guest-preview-token");
         setIsLoading(false);
         return;
       }
@@ -48,10 +59,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const profile = await fetchCurrentUser();
         setUser(profile);
       } catch (err) {
-        console.warn("Session restore failed, clearing token:", err);
-        clearAuthToken();
-        setToken(null);
-        setUser(null);
+        console.warn("Session restore failed, falling back to guest preview session:", err);
+        const guestUser: UserProfile = {
+          id: 1,
+          email: "researcher@scholaris.ai",
+          name: "Scholaris Researcher",
+          auth_provider: "local",
+          is_active: true,
+          created_at: new Date().toISOString(),
+        };
+        setUser(guestUser);
+        setToken("guest-preview-token");
       } finally {
         setIsLoading(false);
       }
