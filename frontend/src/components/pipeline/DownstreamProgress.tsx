@@ -20,6 +20,7 @@ export interface DownstreamProgressProps {
   stages?: PipelineStage[];
   isRunning?: boolean;
   isCompleted?: boolean;
+  initialStatus?: string;
   onComplete?: () => void;
   className?: string;
   reviewId?: string;
@@ -30,6 +31,7 @@ export const DownstreamProgress: React.FC<DownstreamProgressProps> = ({
   stages: customStages,
   isRunning: customIsRunning,
   isCompleted: customIsCompleted = false,
+  initialStatus,
   onComplete,
   className = "",
   reviewId,
@@ -39,6 +41,7 @@ export const DownstreamProgress: React.FC<DownstreamProgressProps> = ({
     onComplete,
     isMock,
     initialCompleted: customIsCompleted,
+    initialStatus,
   });
 
   const stages = customStages ?? ws.stages ?? DOWNSTREAM_PIPELINE_STAGES;

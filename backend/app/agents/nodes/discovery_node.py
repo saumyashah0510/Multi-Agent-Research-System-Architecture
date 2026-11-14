@@ -164,6 +164,16 @@ async def discovery_node(state: AgentState) -> dict[str, Any]:
         seen_keys.update(paper_keys)
         discovered_papers.append(paper)
 
+    # Cap discovered papers to prevent excessive downstream token consumption
+    max_discovered_cap = 70
+    if len(discovered_papers) > max_discovered_cap:
+        logger.info(
+            "Capping discovered papers from %d to %d to manage token budgets.",
+            len(discovered_papers),
+            max_discovered_cap,
+        )
+        discovered_papers = discovered_papers[:max_discovered_cap]
+
     logger.info(
         "Discovery completed: %d unique papers from %d queries.",
         len(discovered_papers),

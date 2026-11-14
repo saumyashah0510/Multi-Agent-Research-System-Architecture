@@ -45,6 +45,7 @@ const ReviewDetailInner: React.FC = () => {
   const isGraphView = tabParam === "graph";
   const [copiedMarkdown, setCopiedMarkdown] = useState(false);
   const [reviewTopic, setReviewTopic] = useState<string | null>(null);
+  const [reviewStatus, setReviewStatus] = useState<string | null>(null);
   const [synthesizedReport, setSynthesizedReport] = useState<SynthesizedReview | null>(null);
   const [retryCount, setRetryCount] = useState(0);
   const [isRetrying, setIsRetrying] = useState(false);
@@ -57,6 +58,9 @@ const ReviewDetailInner: React.FC = () => {
       const data = await getReviewStatus(reviewId);
       if (data?.query || data?.user_query) {
         setReviewTopic(data.query || data.user_query);
+      }
+      if (data?.status) {
+        setReviewStatus(data.status);
       }
       const normStatus = String(data?.status || "").toLowerCase();
       if (normStatus === "completed" || normStatus === "synthesis_completed") {
@@ -87,6 +91,7 @@ const ReviewDetailInner: React.FC = () => {
 
     // Reset review state on reviewId change to avoid displaying stale data
     setReviewTopic(null);
+    setReviewStatus(null);
     setSynthesizedReport(null);
     setIsCompleted(false);
     setRetryCount(0);
@@ -239,6 +244,7 @@ const ReviewDetailInner: React.FC = () => {
       <DownstreamProgress
         reviewId={reviewId}
         isCompleted={isCompleted}
+        initialStatus={reviewStatus || undefined}
         onComplete={handlePipelineComplete}
       />
 
