@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents.orchestrator import build_literature_review_graph
 from app.api.deps import get_current_user_optional
 from app.core.guardrails import enforce_query_guardrail
+from app.core.rate_limit import RateLimiter
 from app.core.security import decode_access_token
 from app.db.session import AsyncSessionLocal, get_db
 from app.models.paper import Paper
@@ -47,6 +48,18 @@ from app.services.vector_service import similarity_search
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+# BE-14: Redis-backed rate limiters
+create_review_rate_limiter = RateLimiter(
+    times=5,
+    seconds=600,
+    key_prefix="rate_limit:review_create",
+)
+
+chat_review_rate_limiter = RateLimiter(
+    times=20,
+    seconds=60,
+    key_prefix="rate_limit:review_chat",
+)
 
 # The graph that was paused must be the same one that gets resumed,
 # because its in-memory checkpointer holds the saved state.
@@ -526,6 +539,7 @@ async def create_review_task(
     request: ReviewCreateRequest | None = None,
     background_tasks: BackgroundTasks = None,
     db: Annotated[AsyncSession, Depends(get_db)] = None,
+    _rate_limit: bool = Depends(create_review_rate_limiter),
     current_user: Annotated[Optional[User], Depends(get_current_user_optional)] = None,
 ) -> dict[str, Any]:
     """Endpoint for triggering literature review pipeline with input guardrails."""
@@ -836,6 +850,7 @@ async def chat_with_review(
     review_id: int,
     request: ChatRequest,
     db: AsyncSession = Depends(get_db),  # noqa: B008
+    _rate_limit: bool = Depends(chat_review_rate_limiter),
     current_user: Annotated[Optional[User], Depends(get_current_user_optional)] = None,
 ) -> ChatResponse:
     """Perform pgvector similarity search and generate a grounded chat response."""
