@@ -10,7 +10,7 @@ def isolate_groq_api_key_for_unit_tests(monkeypatch):
     monkeypatch.setattr(settings, "GROQ_API_KEY", "")
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def mock_rate_limiters():
     """Bypass Redis rate limiting in endpoint tests that do not test BE-14."""
 

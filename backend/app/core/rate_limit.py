@@ -1,5 +1,6 @@
 """Redis-Backed Sliding-Window Rate Limiting Engine."""
 
+import logging
 import math
 import time
 import uuid
@@ -8,6 +9,8 @@ from fastapi import HTTPException, Request, Response, status
 
 from app.core.security import decode_access_token
 from app.services.redis_service import get_redis_client
+
+logger = logging.getLogger(__name__)
 
 # Redis executes this script atomically.
 # Rejected requests are NOT added to the sliding window.
@@ -85,7 +88,9 @@ class RateLimiter:
         forwarded_for = request.headers.get("X-Forwarded-For")
 
         if forwarded_for:
-            client_ip = forwarded_for.split(",")[0].strip()
+            # CodeRabbit Security (CWE-807): Use the rightmost client IP appended by
+            # the trusted reverse proxy (Nginx) to prevent caller header spoofing.
+            client_ip = forwarded_for.split(",")[-1].strip()
         else:
             client_ip = request.client.host if request.client else "unknown"
 
@@ -96,7 +101,9 @@ class RateLimiter:
 
         identifier = self._resolve_identifier(request)
 
-        key = f"{self.key_prefix}:" f"{identifier}:" f"{request.url.path}"
+        # CodeRabbit Security (CWE-799): Enforce a single unified budget per caller and operation
+        # without baking raw request.url.path to prevent quota duplication on alternate paths.
+        key = f"{self.key_prefix}:{identifier}"
 
         redis = get_redis_client()
 
@@ -106,16 +113,21 @@ class RateLimiter:
         member = f"{now_ms}:{uuid.uuid4().hex}"
         ttl = math.ceil(self.seconds) + 1
 
-        result = await redis.eval(
-            SLIDING_WINDOW_SCRIPT,
-            1,
-            key,
-            now_ms,
-            window_ms,
-            self.times,
-            member,
-            ttl,
-        )
+        try:
+            result = await redis.eval(
+                SLIDING_WINDOW_SCRIPT,
+                1,
+                key,
+                now_ms,
+                window_ms,
+                self.times,
+                member,
+                ttl,
+            )
+        except Exception as exc:
+            # Resiliency: If Redis is unavailable or times out, fail open to avoid service outage
+            logger.warning("Redis rate limiter unavailable (%s). Failing open.", exc)
+            return True
 
         allowed = int(result[0])
         request_count = int(result[1])

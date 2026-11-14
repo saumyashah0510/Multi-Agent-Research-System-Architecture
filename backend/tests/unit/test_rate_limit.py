@@ -40,6 +40,31 @@ def test_resolve_identifier_ip_fallback():
     assert identifier == "ip:192.168.1.100"
 
 
+def test_resolve_identifier_x_forwarded_for_rightmost_trusted():
+    """Verify rate limiter takes rightmost IP from X-Forwarded-For to prevent spoofing."""
+    limiter = RateLimiter(times=10, seconds=60)
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/v1/reviews/",
+        "headers": [(b"x-forwarded-for", b"spoofed.ip.1, 203.0.113.195")],
+        "client": ("192.168.1.100", 54321),
+    }
+    request = Request(scope)
+    identifier = limiter._resolve_identifier(request)
+    assert identifier == "ip:203.0.113.195"
+
+
+def test_rate_limiter_key_construction_without_path():
+    """Verify rate limiter key does not include path to prevent quota duplication."""
+    limiter = RateLimiter(times=5, seconds=60, key_prefix="rate_limit:create")
+    request = create_request()
+    identifier = limiter._resolve_identifier(request)
+    key = f"{limiter.key_prefix}:{identifier}"
+    assert "/api/v1/reviews/" not in key
+    assert key == "rate_limit:create:ip:192.168.1.100"
+
+
 @pytest.mark.asyncio
 async def test_sliding_window_threshold_exceeded(monkeypatch):
     """Verify HTTP 429 is raised when the request limit is exceeded."""
@@ -93,3 +118,22 @@ async def test_request_within_rate_limit(monkeypatch):
     assert "X-RateLimit-Reset" in response.headers
 
     redis_mock.eval.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_rate_limiter_fails_open_on_redis_error(monkeypatch):
+    """Verify rate limiter allows requests if Redis is unavailable (fail-open)."""
+    redis_mock = MagicMock()
+    redis_mock.eval = AsyncMock(side_effect=Exception("Redis connection refused"))
+
+    monkeypatch.setattr(
+        "app.core.rate_limit.get_redis_client",
+        lambda: redis_mock,
+    )
+
+    limiter = RateLimiter(times=5, seconds=60)
+    request = create_request()
+    response = Response()
+
+    result = await limiter(request, response)
+    assert result is True
