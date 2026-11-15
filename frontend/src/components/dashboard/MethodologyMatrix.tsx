@@ -93,7 +93,7 @@ export const MethodologyMatrix: React.FC<MethodologyMatrixProps> = ({
       {/* Header */}
       <div className="flex items-center justify-between gap-3 pb-3 border-b border-neutral-100">
         <div className="flex items-center gap-2.5 flex-wrap">
-          <Layers className="w-5 h-5 text-[var(--color-sky-dark)] shrink-0" />
+          <Layers className="w-5 h-5 text-[var(--status-info)] shrink-0" />
           <h3 className="font-serif text-lg sm:text-xl font-bold text-neutral-900">
             Comparative methodology matrix
           </h3>
@@ -110,7 +110,7 @@ export const MethodologyMatrix: React.FC<MethodologyMatrixProps> = ({
       <div className="overflow-x-auto -mx-5 sm:mx-0 px-5 sm:px-0">
         <table className="w-full min-w-[760px] text-left text-xs border-collapse">
           <thead>
-            <tr className="bg-neutral-50 text-neutral-600 uppercase tracking-wider text-[11px] border-b border-neutral-200">
+            <tr className="bg-neutral-50 text-neutral-600 uppercase tracking-wider text-xs border-b border-neutral-200">
               <th className="py-3.5 px-4 font-semibold w-[22%]">Methodology</th>
               <th className="py-3.5 px-4 font-semibold w-[20%]">Papers Applied</th>
               <th className="py-3.5 px-4 font-semibold w-[29%]">
@@ -121,7 +121,7 @@ export const MethodologyMatrix: React.FC<MethodologyMatrixProps> = ({
               </th>
               <th className="py-3.5 px-4 font-semibold w-[29%]">
                 <span className="inline-flex items-center gap-1.5">
-                  <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
+                  <AlertCircle className="w-3.5 h-3.5 text-[var(--status-warning)]" />
                   <span>Known Limitations</span>
                 </span>
               </th>
@@ -136,7 +136,7 @@ export const MethodologyMatrix: React.FC<MethodologyMatrixProps> = ({
                 >
                   {/* Methodology Name */}
                   <td className="py-4 px-4 font-semibold text-neutral-900 align-top">
-                    <span className="font-serif text-[13px] sm:text-sm font-bold text-neutral-900">
+                    <span className="font-serif text-sm font-bold text-neutral-900">
                       {item.method_name}
                     </span>
                   </td>
@@ -153,7 +153,7 @@ export const MethodologyMatrix: React.FC<MethodologyMatrixProps> = ({
                             />
                             <a
                               href={findReferenceHref(paper, references)}
-                              className="text-[11.5px] font-medium text-neutral-700 underline decoration-neutral-300 underline-offset-2 hover:text-neutral-950 hover:decoration-neutral-600 transition-colors leading-snug"
+                              className="text-xs font-medium text-neutral-700 underline decoration-neutral-300 underline-offset-2 hover:text-neutral-950 hover:decoration-neutral-600 transition-colors leading-snug"
                               title={`Jump to reference for ${paper}`}
                             >
                               {paper}
@@ -162,7 +162,7 @@ export const MethodologyMatrix: React.FC<MethodologyMatrixProps> = ({
                         ))}
                       </ul>
                     ) : (
-                      <span className="text-neutral-400 text-[11px] italic">Not specified</span>
+                      <span className="text-neutral-400 text-xs italic">Not specified</span>
                     )}
                   </td>
 
@@ -173,7 +173,7 @@ export const MethodologyMatrix: React.FC<MethodologyMatrixProps> = ({
                         {item.strengths.map((str, sIdx) => (
                           <li
                             key={sIdx}
-                            className="flex items-start gap-2 text-[11.5px] leading-snug"
+                            className="flex items-start gap-2 text-xs leading-snug"
                           >
                             <CircleCheck className="w-3.5 h-3.5 text-[var(--color-success)] shrink-0 mt-0.5 stroke-[2.2]" />
                             <span>{str}</span>
@@ -181,7 +181,7 @@ export const MethodologyMatrix: React.FC<MethodologyMatrixProps> = ({
                         ))}
                       </ul>
                     ) : (
-                      <span className="text-neutral-400 text-[11px] italic">No strengths listed</span>
+                      <span className="text-neutral-400 text-xs italic">No strengths listed</span>
                     )}
                   </td>
 
@@ -192,15 +192,15 @@ export const MethodologyMatrix: React.FC<MethodologyMatrixProps> = ({
                         {item.limitations.map((lim, lIdx) => (
                           <li
                             key={lIdx}
-                            className="flex items-start gap-2 text-[11.5px] leading-snug text-neutral-600"
+                            className="flex items-start gap-2 text-xs leading-snug text-neutral-600"
                           >
-                            <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5 stroke-[2.2]" />
+                            <AlertCircle className="w-3.5 h-3.5 text-[var(--status-warning)] shrink-0 mt-0.5 stroke-[2.2]" />
                             <span>{lim}</span>
                           </li>
                         ))}
                       </ul>
                     ) : (
-                      <span className="text-neutral-400 text-[11px] italic">No limitations listed</span>
+                      <span className="text-neutral-400 text-xs italic">No limitations listed</span>
                     )}
                   </td>
                 </tr>

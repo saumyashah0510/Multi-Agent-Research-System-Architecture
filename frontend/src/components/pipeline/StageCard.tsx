@@ -32,8 +32,8 @@ interface StageStyleConfig {
 const DEFAULT_CONFIG: StageStyleConfig = {
   icon: <Sparkles className="w-4 h-4 text-neutral-800/80 shrink-0" aria-hidden="true" />,
   bg: "var(--tint-mint)",
-  border: "border-[#bfe8b2]",
-  activeBorder: "border-[#a5df97]",
+  border: "border-[var(--border-mint)]",
+  activeBorder: "border-[var(--border-mint-active)]",
   activeRing: "ring-[var(--color-success)]/20",
 };
 
@@ -42,50 +42,50 @@ const STAGE_CONFIG: Record<string, StageStyleConfig> = {
   "academic-search": {
     icon: <Search className="w-4 h-4 text-neutral-800/80 shrink-0" aria-hidden="true" />,
     bg: "var(--tint-sky)",
-    border: "border-[#b2dbfa]",
-    activeBorder: "border-[#9ed2fa]",
-    activeRing: "ring-blue-500/20",
+    border: "border-[var(--border-sky)]",
+    activeBorder: "border-[var(--border-sky-active)]",
+    activeRing: "ring-[var(--status-info)]/20",
   },
   "relevance-screening": {
     icon: <Filter className="w-4 h-4 text-neutral-800/80 shrink-0" aria-hidden="true" />,
     bg: "var(--tint-lavender)",
-    border: "border-[#c2c5f6]",
-    activeBorder: "border-[#b3b7f5]",
-    activeRing: "ring-indigo-500/20",
+    border: "border-[var(--border-lavender)]",
+    activeBorder: "border-[var(--border-lavender-active)]",
+    activeRing: "ring-[var(--accent-lavender-dark)]/20",
   },
   "pdf-extraction": {
     icon: <FileText className="w-4 h-4 text-neutral-800/80 shrink-0" aria-hidden="true" />,
     bg: "var(--tint-sky)",
-    border: "border-[#b2dbfa]",
-    activeBorder: "border-[#9ed2fa]",
-    activeRing: "ring-blue-500/20",
+    border: "border-[var(--border-sky)]",
+    activeBorder: "border-[var(--border-sky-active)]",
+    activeRing: "ring-[var(--status-info)]/20",
   },
   "vector-embedding": {
     icon: <Layers className="w-4 h-4 text-neutral-800/80 shrink-0" aria-hidden="true" />,
     bg: "var(--tint-lavender)",
-    border: "border-[#c2c5f6]",
-    activeBorder: "border-[#b3b7f5]",
-    activeRing: "ring-indigo-500/20",
+    border: "border-[var(--border-lavender)]",
+    activeBorder: "border-[var(--border-lavender-active)]",
+    activeRing: "ring-[var(--accent-lavender-dark)]/20",
   },
   "gap-analysis": {
     icon: <GitCompare className="w-4 h-4 text-neutral-800/80 shrink-0" aria-hidden="true" />,
     bg: "var(--tint-mint)",
-    border: "border-[#bfe8b2]",
-    activeBorder: "border-[#a5df97]",
+    border: "border-[var(--border-mint)]",
+    activeBorder: "border-[var(--border-mint-active)]",
     activeRing: "ring-[var(--color-success)]/20",
   },
   "citation-verification": {
     icon: <ShieldCheck className="w-4 h-4 text-neutral-800/80 shrink-0" aria-hidden="true" />,
     bg: "var(--tint-sky)",
-    border: "border-[#b2dbfa]",
-    activeBorder: "border-[#9ed2fa]",
-    activeRing: "ring-blue-500/20",
+    border: "border-[var(--border-sky)]",
+    activeBorder: "border-[var(--border-sky-active)]",
+    activeRing: "ring-[var(--status-info)]/20",
   },
   "report-synthesis": {
     icon: <BookOpen className="w-4 h-4 text-neutral-800/80 shrink-0" aria-hidden="true" />,
     bg: "var(--tint-mint)",
-    border: "border-[#bfe8b2]",
-    activeBorder: "border-[#a5df97]",
+    border: "border-[var(--border-mint)]",
+    activeBorder: "border-[var(--border-mint-active)]",
     activeRing: "ring-[var(--color-success)]/20",
   },
 };
@@ -125,8 +125,8 @@ export const StageCard: React.FC<StageCardProps> = ({
         <h3
           className={`font-serif tracking-compact text-neutral-900 leading-[1.1] ${
             isQueued
-              ? "text-[15px] sm:text-[15.5px] font-normal text-neutral-700"
-              : "text-[17px] sm:text-[18px] font-medium"
+              ? "text-sm sm:text-base font-normal text-neutral-700"
+              : "text-base sm:text-lg font-medium"
           }`}
         >
           {stage.title}
@@ -138,23 +138,23 @@ export const StageCard: React.FC<StageCardProps> = ({
 
       {/* Main Description (collapsed when queued/pending) */}
       {!isQueued && (
-        <p className="font-sans text-[13px] sm:text-[13.5px] text-neutral-700 leading-snug">
+        <p className="font-sans text-sm text-neutral-700 leading-snug">
           {stage.description}
         </p>
       )}
 
       {/* Supporting Status / Activity Detail (only when active/running and not completed) */}
       {!isQueued && stage.status === "running" && stage.supportingStatus && (
-        <p className="font-sans text-[11.5px] sm:text-[12px] text-neutral-500 mt-0.5 leading-normal">
+        <p className="font-sans text-xs text-neutral-500 mt-0.5 leading-normal">
           {stage.supportingStatus}
         </p>
       )}
 
       {/* Genuine Progress Bar (rendered only if genuine 0-100 numerical progress exists) */}
       {stage.status === "running" && typeof stage.progress === "number" && (
-        <div className="mt-2.5 w-full bg-[var(--tint-sky)] rounded-full h-1 overflow-hidden border border-[var(--color-pill-sky)]">
+        <div className="mt-2.5 w-full bg-[var(--status-info-bg)] rounded-full h-1 overflow-hidden border border-[var(--color-pill-sky)]">
           <div
-            className="bg-[var(--color-sky-dark)] h-full rounded-full transition-all duration-300"
+            className="bg-[var(--status-info)] h-full rounded-full transition-all duration-300"
             style={{ width: `${Math.min(Math.max(stage.progress, 0), 100)}%` }}
           />
         </div>
@@ -165,7 +165,7 @@ export const StageCard: React.FC<StageCardProps> = ({
         <div
           className={`${
             isQueued ? "mt-1.5" : "mt-3"
-          } flex items-center gap-2 text-[12px] sm:text-[12.5px] font-medium text-neutral-800`}
+          } flex items-center gap-2 text-xs font-medium text-neutral-800`}
         >
           <CircleCheck className="w-4 h-4 text-[var(--color-success)] shrink-0 stroke-[2.2]" />
           <span>{stage.result}</span>
@@ -174,9 +174,9 @@ export const StageCard: React.FC<StageCardProps> = ({
 
       {/* Running Animated Status Indicator */}
       {stage.status === "running" && (
-        <div className="mt-3 flex items-center gap-2 text-[12.5px] sm:text-[13px] font-semibold text-[var(--color-sky-dark)]">
+        <div className="mt-3 flex items-center gap-2 text-xs sm:text-sm font-semibold text-[var(--status-info)]">
           <LoaderCircle
-            className="w-4 h-4 text-[var(--color-sky-dark)] animate-spin shrink-0 stroke-[2.5]"
+            className="w-4 h-4 text-[var(--status-info)] animate-spin shrink-0 stroke-[2.5]"
             aria-hidden="true"
           />
           <span>{stage.message || stage.supportingStatus}</span>
@@ -185,7 +185,7 @@ export const StageCard: React.FC<StageCardProps> = ({
 
       {/* Failed Error Row */}
       {stage.status === "failed" && (
-        <div className="mt-3 flex items-center gap-2 text-[12.5px] sm:text-[13px] font-medium text-red-800">
+        <div className="mt-3 flex items-center gap-2 text-xs sm:text-sm font-medium text-red-800">
           <CircleAlert className="w-4 h-4 text-red-600 shrink-0" aria-hidden="true" />
           <span>{stage.error || "An error occurred while processing this stage."}</span>
         </div>

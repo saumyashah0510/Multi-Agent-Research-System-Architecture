@@ -35,7 +35,11 @@ export default function Dashboard() {
     pathname === "/report" ||
     pathname === "/reports";
   const isChatRoute = currentTab === "chat" || pathname === "/chat";
-  const isNonResearchView = (isPapersRoute && !urlReviewId) || isReportRoute;
+  const isChatDetailView = isChatRoute && Boolean(urlReviewId);
+  const isNonResearchView =
+    (isPapersRoute && !urlReviewId) ||
+    (isChatRoute && !urlReviewId) ||
+    isReportRoute;
   const isDirectPapersView = isPapersRoute && Boolean(urlReviewId);
   const targetSection: TargetSection = isChatRoute
     ? "chat"
@@ -76,14 +80,14 @@ export default function Dashboard() {
       });
       setHasSearched(true);
     } else {
-      if (isPapersRoute) {
+      if (isPapersRoute || isChatRoute) {
         setReviewId(null);
         setHasSearched(false);
         setPapers([]);
         setSelectedPaperIds([]);
       }
     }
-  }, [searchParams, isPapersRoute]);
+  }, [searchParams, isPapersRoute, isChatRoute]);
 
   // Fetch persisted review status and candidate papers from REST API as fallback/cache
   useEffect(() => {
@@ -179,6 +183,8 @@ export default function Dashboard() {
   // When all 3 stages finish in the active search workflow, redirect to the Papers view on completion transition
   useEffect(() => {
     if (
+      !isChatRoute &&
+      !isReportRoute &&
       hasSearched &&
       isPipelineDone &&
       papers.length > 0 &&
@@ -191,6 +197,8 @@ export default function Dashboard() {
       navigate(`/dashboard?tab=papers&review_id=${encodeURIComponent(reviewId)}`);
     }
   }, [
+    isChatRoute,
+    isReportRoute,
     hasSearched,
     isPipelineDone,
     papers.length,
@@ -355,6 +363,15 @@ export default function Dashboard() {
   };
 
   const handleSelectPastReview = (review: ReviewHistoryItem) => {
+    if (targetSection === "chat") {
+      setActiveQuery(review.query);
+      setReviewId(review.id);
+      const basePath = pathname === "/chat" ? "/chat" : "/dashboard";
+      const tabParam = pathname === "/chat" ? "" : "tab=chat&";
+      navigate(`${basePath}?${tabParam}review_id=${encodeURIComponent(review.id)}`);
+      return;
+    }
+
     if (targetSection === "papers") {
       setActiveQuery(review.query);
       setPapers([]);
@@ -386,11 +403,6 @@ export default function Dashboard() {
       return;
     }
 
-    if (targetSection === "chat") {
-      navigate(`/review/${encodeURIComponent(review.id)}?tab=chat`);
-      return;
-    }
-
     navigate(`/review/${encodeURIComponent(review.id)}`);
   };
 
@@ -398,6 +410,11 @@ export default function Dashboard() {
     setReviewId(null);
     setPapers([]);
     setSelectedPaperIds([]);
+    if (isChatRoute) {
+      const basePath = pathname === "/chat" ? "/chat" : "/dashboard?tab=chat";
+      navigate(basePath);
+      return;
+    }
     const basePath = pathname === "/papers" ? "/papers" : "/dashboard?tab=papers";
     navigate(basePath);
   };
@@ -407,23 +424,74 @@ export default function Dashboard() {
   return (
     <div
       id="dashboard-page"
+      style={!isChatDetailView ? { maxWidth: "1080px" } : undefined}
       className={cn(
-        "w-full mx-auto flex flex-col items-center px-3 sm:px-6 min-h-[calc(100vh-3.75rem)] pb-16",
-        isChatRoute ? "max-w-7xl" : "max-w-4xl"
+        "w-full mx-auto flex flex-col items-center px-4 sm:px-6",
+        isChatDetailView
+          ? "max-w-7xl h-full flex-1 min-h-0 overflow-hidden pt-1 pb-2 sm:pt-1.5 sm:pb-2.5"
+          : "max-w-4xl min-h-[calc(100vh-3.75rem)] pb-16"
       )}
     >
-      {isChatRoute ? (
-        <ReviewChat reviewId={urlReviewId || undefined} />
+      {isChatDetailView ? (
+        <div className="w-full flex-1 min-h-0 flex flex-col overflow-hidden">
+          {/* Top Bar with Back Button */}
+          <div className="w-full mb-2 shrink-0 flex items-center">
+            <button
+              type="button"
+              onClick={handleBackToPastReviews}
+              style={{
+                borderRadius: "var(--radius-sm)",
+                backgroundColor: "var(--surface-card)",
+                borderColor: "var(--border-default)",
+                color: "var(--text-primary)",
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border hover:bg-[var(--surface-muted)] transition-colors shadow-2xs cursor-pointer select-none"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Back to past reviews</span>
+            </button>
+          </div>
+
+          {/* Viewport-Locked Two-Column Chat Workspace */}
+          <div className="w-full flex-1 min-h-0 overflow-hidden">
+            <ReviewChat
+              reviewId={urlReviewId || reviewId || undefined}
+              topic={activeQuery || undefined}
+              onBackToPastReviews={handleBackToPastReviews}
+              onSelectReviewSession={(selectedId, selectedTopic) => {
+                setReviewId(selectedId);
+                if (selectedTopic) setActiveQuery(selectedTopic);
+                const basePath = pathname === "/chat" ? "/chat" : "/dashboard";
+                const tabParam = pathname === "/chat" ? "" : "tab=chat&";
+                navigate(`${basePath}?${tabParam}review_id=${encodeURIComponent(selectedId)}`);
+              }}
+              onStartNewChat={() => {
+                setReviewId(null);
+                setActiveQuery("");
+                const basePath = pathname === "/chat" ? "/chat" : "/dashboard?tab=chat";
+                navigate(basePath);
+              }}
+            />
+          </div>
+        </div>
       ) : isPapersDetailView ? (
         /* Papers Tab - Selected Review Papers View (No search box, No redirect) */
-        <div className="w-full flex flex-col items-start pt-6 sm:pt-8 animate-in fade-in duration-300">
+        <div
+          style={{ maxWidth: "1080px" }}
+          className="w-full max-w-4xl mx-auto flex flex-col items-start pt-6 sm:pt-8 animate-in fade-in duration-300"
+        >
           {/* 1. Topic Title Header + Back Button */}
           <div className="w-full mb-6">
             <button
               type="button"
               onClick={handleBackToPastReviews}
-              style={{ borderRadius: "var(--radius-sm)" }}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-neutral-700 bg-white hover:bg-neutral-50 hover:text-neutral-900 border border-neutral-200/90 shadow-2xs transition-colors cursor-pointer mb-3"
+              style={{
+                borderRadius: "var(--radius-sm)",
+                backgroundColor: "var(--surface-card)",
+                borderColor: "var(--border-default)",
+                color: "var(--text-primary)",
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border hover:bg-[var(--surface-muted)] transition-colors shadow-2xs cursor-pointer mb-3 select-none"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
               <span>Back to past reviews</span>
@@ -452,7 +520,7 @@ export default function Dashboard() {
           {/* 3. Most Relevant Papers List Container and Paper Cards */}
           {isLoadingReview && papers.length === 0 ? (
             <div className="w-full bg-white rounded-2xl border border-neutral-200/80 p-10 flex items-center justify-center gap-2.5 text-sm text-neutral-500 shadow-xs">
-              <Loader2 className="w-4 h-4 animate-spin text-[var(--color-sky-dark)]" />
+              <Loader2 className="w-4 h-4 animate-spin text-[var(--status-info)]" />
               <span>Loading review papers...</span>
             </div>
           ) : (
@@ -495,7 +563,10 @@ export default function Dashboard() {
               </div>
 
               {/* Main Research Search Card */}
-              <div className="w-full space-y-3">
+              <div
+                style={{ maxWidth: "860px" }}
+                className="w-full max-w-2xl mx-auto space-y-3"
+              >
                 <ResearchInput
                   initialQuery={activeQuery}
                   onSearch={handleSearch}

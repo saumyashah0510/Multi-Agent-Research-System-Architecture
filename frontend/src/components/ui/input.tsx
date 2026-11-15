@@ -89,7 +89,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
               rightIcon ? (inputSize === "lg" ? "pr-11" : "pr-9") : undefined,
               disabled ? "cursor-not-allowed opacity-50 bg-neutral-100" : undefined,
               error
-                ? "border-rose-500 text-rose-900 focus-visible:ring-rose-500"
+                ? "border-[var(--status-error)] text-red-900 focus-visible:ring-[var(--status-error)]"
                 : variantClasses,
               className
             )}
@@ -109,7 +109,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
         </div>
 
         {error && (
-          <p id={errorId} className="text-xs text-rose-500 tracking-compact">
+          <p id={errorId} className="text-xs text-[var(--status-error)] tracking-compact">
             {error}
           </p>
         )}

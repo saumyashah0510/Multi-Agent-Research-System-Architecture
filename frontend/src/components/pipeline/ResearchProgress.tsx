@@ -170,7 +170,7 @@ export const ResearchProgress: React.FC<ResearchProgressProps> = ({
 
             <div>
               <div className="flex items-center gap-2.5">
-                <h3 className="font-serif text-[17px] sm:text-lg font-medium tracking-compact text-neutral-900 leading-snug">
+                <h3 className="font-serif text-base sm:text-lg font-medium tracking-compact text-neutral-900 leading-snug">
                   Research Progress
                 </h3>
                 <span
@@ -265,21 +265,21 @@ export const ResearchProgress: React.FC<ResearchProgressProps> = ({
             {isRunning && (
               <span
                 style={{ borderRadius: "var(--radius-sm)" }}
-                className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--color-sky-dark)] bg-[var(--tint-sky)] border border-[var(--color-pill-sky)] px-2.5 py-0.5 select-none"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--status-info)] bg-[var(--status-info-bg)] border border-[var(--color-pill-sky)] px-2.5 py-0.5 select-none"
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-sky-dark)] animate-pulse shrink-0" />
+                <span className="w-1.5 h-1.5 rounded-full bg-[var(--status-info)] animate-pulse shrink-0" />
                 <span>Processing</span>
               </span>
             )}
           </div>
-          <p className="font-sans text-xs sm:text-[13px] text-neutral-500 mt-1">
+          <p className="font-sans text-xs sm:text-sm text-neutral-500 mt-1">
             Your literature review is being processed step by step
           </p>
         </div>
 
         {isMock && (
           <span
-            className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-neutral-100 text-neutral-600 border border-neutral-200/80 shadow-2xs select-none self-start sm:self-auto"
+            className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-neutral-100 text-neutral-600 border border-neutral-200/80 shadow-2xs select-none self-start sm:self-auto"
             title="Demonstration mode: Pipeline steps are simulated locally"
           >
             <Sparkles className="w-3 h-3 text-neutral-400" aria-hidden="true" />

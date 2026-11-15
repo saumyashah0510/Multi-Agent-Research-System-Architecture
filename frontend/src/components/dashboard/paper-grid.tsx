@@ -70,7 +70,7 @@ export default function PaperGrid({
           {/* Selected Badge */}
           <div
             style={{ borderRadius: "var(--radius-sm)" }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-[var(--color-pill-sky)] text-neutral-800 shrink-0 self-start sm:self-auto"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-[var(--color-pill-sky)] text-[var(--color-pill-sky-text)] shrink-0 self-start sm:self-auto"
           >
             <span>Selected</span>
             <span

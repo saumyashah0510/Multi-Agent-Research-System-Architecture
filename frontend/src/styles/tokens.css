@@ -41,6 +41,54 @@
   --color-sky-dark: #007CDB;
   --color-mint-dark: #549531;
 
+  /* --- Brand Tokens (Figma) --- */
+  --brand-primary: #C5E88A;
+  --brand-subtle: #F1FFDA;
+
+  /* --- Surface Tokens (Figma) --- */
+  --surface-page: var(--color-surface); /* #F6F8FB - already exists */
+  --surface-card: #FFFFFF;
+  --surface-muted: #F3F4F6;
+
+  /* --- Border Tokens (Figma) --- */
+  --border-default: #E5E7EB;
+  --border-subtle: #F0F1F3;
+
+  /* --- Text Tokens (Figma) --- */
+  --text-primary: var(--color-text-primary); /* #000000 - already exists */
+  --text-secondary: #4B5563;
+  --text-disabled: #9CA3AF;
+  --text-inverse: var(--color-button-primary-text); /* #FFFFFF - already exists */
+
+  /* --- Accent Tokens (Figma - mapped to existing tint variables) --- */
+  --accent-lavender: var(--tint-lavender); /* #E3E4FA */
+  --accent-sky: var(--tint-sky);           /* #DDEEFB */
+  --accent-mint: var(--tint-mint);         /* #E0FBC0 */
+  --accent-lavender-dark: var(--lavender-dark); /* #4449AC */
+  --accent-sky-dark: var(--sky-dark);           /* #007CDB */
+  --accent-mint-dark: var(--mint-dark);         /* #549531 */
+
+  /* --- Semantic Status Tokens (Figma + Single Source of Truth) --- */
+  --status-error: var(--color-danger);     /* #EF4444 */
+  --status-warning: #F59E0B;
+  --status-warning-light: #FEF3C7;
+  --status-success: #4C7A3F;
+
+  /* --- Semantic Info / Blue Tokens (Unified across the entire project) --- */
+  --status-info: var(--sky-dark);          /* #007CDB - primary semantic info/active blue */
+  --status-info-bg: var(--tint-sky);       /* #DDEEFB - soft sky blue surface/tint */
+  --status-info-pill: var(--color-pill-sky); /* #BDE3FA - pill/badge sky blue */
+
+  /* --- Tint Border & Interactive Hover Tokens --- */
+  --border-mint: #bfe8b2;
+  --border-mint-active: #a5df97;
+  --border-sky: #b2dbfa;
+  --border-sky-active: #9ed2fa;
+  --border-lavender: #c2c5f6;
+  --border-lavender-active: #b3b7f5;
+  --sky-hover: #005fa8;
+  --sky-border-hover: #90cdf4;
+
   /* Gradients */
   --gradient-card-mint: linear-gradient(135deg, #BFE8B2 0%, #D2F0C6 50%, #E2F6DB 100%);
   --gradient-card-lavender: linear-gradient(135deg, #C2C5F6 0%, #D4D7F8 50%, #E6E7FA 100%);
@@ -57,6 +105,15 @@
   --line-height-heading: 1.1;
   --line-height-body: 1.15;
 
+  /* 3.3 Text scale */
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-lg: 18px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+  --text-3xl: 36px;
+
   /* 3.4 Spacing scale */
   --space-1: 4px;
   --space-2: 8px;
@@ -70,6 +127,7 @@
 
   /* 3.5 Radius scale */
   --radius-sm: 8px;
+  --radius-md: 12px;
   --radius-lg: 16px;
   --radius-pill: 9999px;
 

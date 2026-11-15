@@ -109,9 +109,9 @@ export default function PastReviewsView({
         return (
           <span
             style={{ borderRadius: "var(--radius-sm)" }}
-            className="inline-flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200/90 shrink-0"
+            className="inline-flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-semibold bg-[var(--status-warning-light)] text-[var(--status-warning)] border border-[var(--status-warning)]/30 shrink-0"
           >
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+            <span className="w-1.5 h-1.5 rounded-full bg-[var(--status-warning)] shrink-0" />
             <span>Awaiting Approval</span>
           </span>
         );
@@ -119,9 +119,9 @@ export default function PastReviewsView({
         return (
           <span
             style={{ borderRadius: "var(--radius-sm)" }}
-            className="inline-flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-semibold bg-red-50 text-red-700 border border-red-200 shrink-0"
+            className="inline-flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-semibold bg-red-50 text-[var(--status-error)] border border-red-200 shrink-0"
           >
-            <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" />
+            <span className="w-1.5 h-1.5 rounded-full bg-[var(--status-error)] shrink-0" />
             <span>Failed</span>
           </span>
         );
@@ -129,9 +129,9 @@ export default function PastReviewsView({
         return (
           <span
             style={{ borderRadius: "var(--radius-sm)" }}
-            className="inline-flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-semibold bg-[var(--tint-sky)] text-[var(--color-sky-dark)] border border-[var(--color-pill-sky)] shrink-0"
+            className="inline-flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-semibold bg-[var(--status-info-bg)] text-[var(--status-info)] border border-[var(--color-pill-sky)] shrink-0"
           >
-            <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-sky-dark)] animate-pulse shrink-0" />
+            <span className="w-1.5 h-1.5 rounded-full bg-[var(--status-info)] animate-pulse shrink-0" />
             <span>Processing</span>
           </span>
         );
@@ -139,7 +139,10 @@ export default function PastReviewsView({
   };
 
   return (
-    <div className="w-full pt-8 sm:pt-12 pb-16 space-y-6 animate-in fade-in duration-300">
+    <div
+      style={{ maxWidth: "1080px" }}
+      className="w-full max-w-4xl mx-auto pt-8 sm:pt-12 pb-16 space-y-6 animate-in fade-in duration-300"
+    >
       {/* Header */}
       <div>
         <h1 className="font-serif text-2xl sm:text-3xl font-bold text-neutral-900 tracking-compact">
@@ -159,7 +162,12 @@ export default function PastReviewsView({
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Search past reviews or paper titles..."
           aria-label="Search past reviews or paper titles"
-          className="w-full bg-white border border-neutral-200/90 rounded-xl pl-10 pr-4 py-3 text-sm text-neutral-900 placeholder:text-neutral-400 shadow-xs focus:outline-none focus:ring-2 focus:ring-neutral-900/15 focus:border-neutral-300 transition-all"
+          style={{
+            backgroundColor: "var(--surface-card)",
+            border: "1px solid var(--border-default)",
+            borderRadius: "var(--radius-md)",
+          }}
+          className="w-full pl-10 pr-4 py-3 text-sm text-neutral-900 placeholder:text-neutral-400 shadow-xs focus:outline-none focus:ring-2 focus:ring-neutral-900/15 focus:border-neutral-300 transition-all"
         />
       </div>
 
@@ -170,12 +178,26 @@ export default function PastReviewsView({
         </h2>
 
         {isLoading ? (
-          <div className="w-full bg-white rounded-2xl border border-neutral-200/80 p-10 flex items-center justify-center gap-2.5 text-sm text-neutral-500 shadow-xs">
-            <Loader2 className="w-4 h-4 animate-spin text-[var(--color-sky-dark)]" />
+          <div
+            style={{
+              backgroundColor: "var(--surface-card)",
+              border: "1px solid var(--border-default)",
+              borderRadius: "var(--radius-lg)",
+            }}
+            className="w-full p-10 flex items-center justify-center gap-2.5 text-sm text-neutral-500 shadow-xs"
+          >
+            <Loader2 className="w-4 h-4 animate-spin text-[var(--status-info)]" />
             <span>Loading past reviews...</span>
           </div>
         ) : fetchError ? (
-          <div className="w-full bg-white rounded-2xl border border-red-200/80 p-10 text-center space-y-3 shadow-xs">
+          <div
+            style={{
+              backgroundColor: "var(--surface-card)",
+              border: "1px solid var(--border-default)",
+              borderRadius: "var(--radius-lg)",
+            }}
+            className="w-full p-10 text-center space-y-3 shadow-xs"
+          >
             <p className="text-sm font-medium text-neutral-900">
               Could not load past reviews
             </p>
@@ -193,7 +215,14 @@ export default function PastReviewsView({
             </button>
           </div>
         ) : filteredReviews.length === 0 ? (
-          <div className="w-full bg-white rounded-2xl border border-dashed border-neutral-200 p-10 text-center space-y-3">
+          <div
+            style={{
+              backgroundColor: "var(--surface-card)",
+              border: "1px dashed var(--border-default)",
+              borderRadius: "var(--radius-lg)",
+            }}
+            className="w-full p-10 text-center space-y-3"
+          >
             <p className="text-sm font-medium text-neutral-700">
               {searchQuery.trim()
                 ? "No past reviews match your search."
@@ -228,8 +257,13 @@ export default function PastReviewsView({
                     }
                   }
                 }}
+                style={{
+                  backgroundColor: "var(--surface-card)",
+                  border: "1px solid var(--border-default)",
+                  borderRadius: "var(--radius-lg)",
+                }}
                 className={cn(
-                  "bg-white rounded-2xl border border-neutral-200/80 p-5 shadow-xs hover:border-neutral-300 hover:shadow-sm transition-all flex flex-col justify-between gap-4 text-left cursor-pointer"
+                  "p-5 shadow-xs hover:border-neutral-300 hover:shadow-sm transition-all flex flex-col justify-between gap-4 text-left cursor-pointer"
                 )}
               >
                 <div className="space-y-1.5">
@@ -269,8 +303,11 @@ export default function PastReviewsView({
                         e.stopPropagation();
                         onSelectReview(review);
                       }}
-                      style={{ borderRadius: "var(--radius-sm)" }}
-                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold bg-white hover:bg-neutral-50 text-neutral-800 border border-neutral-200/90 transition-colors cursor-pointer"
+                      style={{
+                        borderRadius: "var(--radius-sm)",
+                        border: "1px solid var(--border-default)",
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold bg-white hover:bg-neutral-50 text-neutral-800 transition-colors cursor-pointer"
                     >
                       <span>Continue Review</span>
                     </button>
@@ -281,8 +318,11 @@ export default function PastReviewsView({
                         e.stopPropagation();
                         onSelectReview(review);
                       }}
-                      style={{ borderRadius: "var(--radius-sm)" }}
-                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold bg-white hover:bg-neutral-50 text-neutral-800 border border-neutral-200/90 transition-colors cursor-pointer"
+                      style={{
+                        borderRadius: "var(--radius-sm)",
+                        border: "1px solid var(--border-default)",
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold bg-white hover:bg-neutral-50 text-neutral-800 transition-colors cursor-pointer"
                     >
                       <span>{sectionActionLabel}</span>
                       <ArrowRight className="w-3.5 h-3.5" />

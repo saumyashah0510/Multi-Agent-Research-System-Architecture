@@ -15,6 +15,7 @@ import React, { useState } from "react";
 import { SynthesizedReview } from "../../types";
 import MethodologyMatrix from "./MethodologyMatrix";
 import ReferenceCard from "./ReferenceCard";
+import { cn } from "../../lib/utils";
 
 export interface SynthesisReportViewerProps {
   report: SynthesizedReview;
@@ -85,10 +86,10 @@ export function formatReportAsMarkdown(report: SynthesizedReview): string {
 }
 
 const CLUSTER_TINTS = [
-  { bg: "var(--tint-mint)", border: "#bfe8b2" },
-  { bg: "var(--tint-sky)", border: "#b2dbfa" },
-  { bg: "var(--tint-lavender)", border: "#c2c5f6" },
-  { bg: "var(--tint-mint)", border: "#bfe8b2" },
+  { bg: "var(--tint-mint)", border: "var(--border-mint)" },
+  { bg: "var(--tint-sky)", border: "var(--border-sky)" },
+  { bg: "var(--tint-lavender)", border: "var(--border-lavender)" },
+  { bg: "var(--tint-mint)", border: "var(--border-mint)" },
 ];
 
 export const SynthesisReportViewer: React.FC<SynthesisReportViewerProps> = ({
@@ -162,11 +163,12 @@ export const SynthesisReportViewer: React.FC<SynthesisReportViewerProps> = ({
             type="button"
             onClick={() => scrollToSection(sec.id)}
             style={{ borderRadius: "var(--radius-sm)" }}
-            className={`px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer select-none ${
+            className={cn(
+              "px-3 py-1.5 text-xs sm:text-sm font-semibold transition-all cursor-pointer select-none border",
               activeSection === sec.id
-                ? "bg-neutral-900 text-white shadow-2xs"
-                : "bg-white text-neutral-600 hover:text-neutral-900 hover:bg-neutral-50 border border-neutral-200/80"
-            }`}
+                ? "bg-neutral-900 text-white border-neutral-900 shadow-2xs"
+                : "bg-[var(--surface-card)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] border-[var(--border-default)]"
+            )}
           >
             {sec.label}
           </button>
@@ -181,7 +183,7 @@ export const SynthesisReportViewer: React.FC<SynthesisReportViewerProps> = ({
         <h2 className="font-serif text-lg sm:text-xl font-bold text-neutral-900 tracking-compact">
           Executive summary
         </h2>
-        <div className="text-neutral-700 leading-relaxed font-sans text-xs sm:text-[13.5px] whitespace-pre-line space-y-3">
+        <div className="text-neutral-700 leading-relaxed font-sans text-sm whitespace-pre-line space-y-3">
           {report.executive_summary}
         </div>
       </section>
@@ -197,7 +199,7 @@ export const SynthesisReportViewer: React.FC<SynthesisReportViewerProps> = ({
             {thematicClusters.map((cluster, idx) => {
               const tint = CLUSTER_TINTS[idx % CLUSTER_TINTS.length] ?? {
                 bg: "var(--tint-mint)",
-                border: "#c7edd5",
+                border: "var(--border-mint)",
               };
               return (
                 <div
@@ -211,14 +213,14 @@ export const SynthesisReportViewer: React.FC<SynthesisReportViewerProps> = ({
                   <h3 className="font-serif text-sm sm:text-base font-bold text-neutral-900">
                     {idx + 1}. {cluster.theme}
                   </h3>
-                  <p className="text-xs sm:text-[13px] text-neutral-700 leading-relaxed whitespace-pre-line">
+                  <p className="text-xs sm:text-sm text-neutral-700 leading-relaxed whitespace-pre-line">
                     {cluster.summary}
                   </p>
                   {cluster.citations && cluster.citations.length > 0 && (
                     <div className="pt-2">
                       <span
                         style={{ borderRadius: "var(--radius-sm)" }}
-                        className="inline-flex flex-wrap items-center gap-x-1.5 px-3 py-1.5 bg-white/85 border border-black/10 text-[11px] text-neutral-700 shadow-2xs"
+                        className="inline-flex flex-wrap items-center gap-x-1.5 px-3 py-1.5 bg-white/85 border border-black/10 text-xs text-neutral-700 shadow-2xs"
                       >
                         <span className="font-semibold text-neutral-600">
                           Cited:
@@ -252,7 +254,7 @@ export const SynthesisReportViewer: React.FC<SynthesisReportViewerProps> = ({
             {researchGaps.map((gap, gIdx) => (
               <li
                 key={gIdx}
-                className="flex items-start gap-3 text-xs sm:text-[13px] text-neutral-800 bg-white p-4 sm:p-4.5 rounded-xl border border-neutral-200/85 shadow-2xs hover:border-neutral-300 transition-colors"
+                className="flex items-start gap-3 text-xs sm:text-sm text-neutral-800 bg-white p-4 sm:p-4.5 rounded-xl border border-neutral-200/85 shadow-2xs hover:border-neutral-300 transition-colors"
               >
                 <span className="w-6 h-6 rounded-full bg-amber-100 text-amber-800 border border-amber-200/80 text-xs font-bold flex items-center justify-center shrink-0 mt-0.5 tabular-nums">
                   {gIdx + 1}
@@ -273,7 +275,7 @@ export const SynthesisReportViewer: React.FC<SynthesisReportViewerProps> = ({
           <h2 className="font-serif text-lg sm:text-xl font-bold text-neutral-900 tracking-compact">
             Conclusion &amp; future directions
           </h2>
-          <div className="text-xs sm:text-[13.5px] text-neutral-700 leading-relaxed font-sans whitespace-pre-line space-y-3">
+          <div className="text-sm text-neutral-700 leading-relaxed font-sans whitespace-pre-line space-y-3">
             {report.conclusion}
           </div>
         </section>
