@@ -287,7 +287,7 @@ async def _run_initial_graph(
             pass
 
 
-async def _resume_graph(review_id: str, resume_value: dict[str, Any]) -> None:
+async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> None:
     """Resume the paused LangGraph thread belonging to this review."""
     config = {"configurable": {"thread_id": str(review_id)}}
     numeric_id = int(review_id) if str(review_id).isdigit() else None
@@ -297,34 +297,38 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any]) -> None:
             logger.warning("No paused graph found for review %s; nothing to resume.", review_id)
             return
 
-        decision = resume_value.get("user_decision", "continue")
-        if decision == "find_more":
-            if numeric_id is not None:
-                await publish_review_event(
-                    numeric_id,
-                    {
-                        "event": "stage_update",
-                        "stage": "QUERY_EXPANSION",
-                        "status": "running",
-                        "message": "Expanding search queries for additional papers...",
-                        "review_id": str(review_id),
-                    },
-                )
+        if resume_value is None:
+            stream_input = None
         else:
-            if numeric_id is not None:
-                await publish_review_event(
-                    numeric_id,
-                    {
-                        "event": "stage_update",
-                        "stage": "PDF_EXTRACTION",
-                        "status": "running",
-                        "message": "Extracting scientific section text from approved PDFs...",
-                        "review_id": str(review_id),
-                    },
-                )
+            decision = resume_value.get("user_decision", "continue")
+            if decision == "find_more":
+                if numeric_id is not None:
+                    await publish_review_event(
+                        numeric_id,
+                        {
+                            "event": "stage_update",
+                            "stage": "QUERY_EXPANSION",
+                            "status": "running",
+                            "message": "Expanding search queries for additional papers...",
+                            "review_id": str(review_id),
+                        },
+                    )
+            else:
+                if numeric_id is not None:
+                    await publish_review_event(
+                        numeric_id,
+                        {
+                            "event": "stage_update",
+                            "stage": "PDF_EXTRACTION",
+                            "status": "running",
+                            "message": "Extracting scientific section text from approved PDFs...",
+                            "review_id": str(review_id),
+                        },
+                    )
+            stream_input = Command(resume=resume_value)
 
         async for update in graph.astream(
-            Command(resume=resume_value), config=config, stream_mode="updates"
+            stream_input, config=config, stream_mode="updates"
         ):
             if not isinstance(update, dict):
                 continue
@@ -533,6 +537,49 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any]) -> None:
                 pass
 
 
+
+async def _retry_failed_review(review_id: str) -> None:
+    """Inspect the latest checkpoint and resume a failed literature review."""
+    config = {"configurable": {"thread_id": str(review_id)}}
+    numeric_id = int(review_id) if str(review_id).isdigit() else None
+
+    try:
+        snapshot = await graph.aget_state(config)
+        next_nodes = snapshot.next if snapshot else ()
+
+        if not next_nodes:
+            logger.warning(
+                "No resumable LangGraph checkpoint found for review %s.",
+                review_id,
+            )
+            return
+
+        resuming_node = next_nodes[0]
+        if numeric_id is not None:
+            await publish_review_event(
+                numeric_id,
+                {
+                    "event": "stage_update",
+                    "stage": resuming_node.upper(),
+                    "status": "running",
+                    "message": (
+                        f"Resuming literature review from "
+                        f"{resuming_node.replace('_', ' ')}..."
+                    ),
+                    "review_id": str(review_id),
+                },
+            )
+
+            async with AsyncSessionLocal() as session:
+                db_review = await session.get(LiteratureReview, numeric_id)
+                if db_review:
+                    db_review.status = resuming_node
+                    await session.commit()
+
+        await _resume_graph(review_id, None)
+
+    except Exception as exc:
+        logger.exception("Failed to retry review %s: %s", review_id, exc)
 @router.post("/", summary="Submit new literature review task")
 @router.post("", include_in_schema=False)
 async def create_review_task(
@@ -896,12 +943,7 @@ async def retry_review(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[Optional[User], Depends(get_current_user_optional)] = None,
 ):
-    """Resume review execution from its last completed LangGraph checkpoint in Neon DB."""
-    # TODO (Assignee - BE-16):
-    # 1. Fetch review from DB. If not found, raise HTTPException 404.
-    # 2. Verify review is failed or interrupted. If completed, raise 400 Bad Request.
-    # 3. Inspect latest checkpoint state via graph.aget_state({"configurable": {"thread_id": str(review_id)}})
-    # 4. Trigger background resumption and emit Redis Pub/Sub stage update.
+    """Resume review execution from its latest LangGraph checkpoint."""
     review_result = await db.execute(
         select(LiteratureReview).where(LiteratureReview.id == review_id)
     )
@@ -917,7 +959,8 @@ async def retry_review(
             detail="Cannot retry a review that has already completed successfully.",
         )
 
-    # Placeholder background dispatch for BE-16
+    background_tasks.add_task(_retry_failed_review, str(review_id))
+
     return {
         "status": "resuming",
         "review_id": review_id,
