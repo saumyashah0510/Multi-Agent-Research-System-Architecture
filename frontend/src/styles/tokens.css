@@ -70,14 +70,21 @@
 
   /* --- Semantic Status Tokens (Figma + Single Source of Truth) --- */
   --status-error: var(--color-danger);     /* #EF4444 */
+  --status-error-dark: var(--color-danger-hover); /* #DC2626 */
+  --status-error-text: #B91C1C;
   --status-warning: #F59E0B;
   --status-warning-light: #FEF3C7;
+  --status-warning-text: #92400E;
   --status-success: #4C7A3F;
 
   /* --- Semantic Info / Blue Tokens (Unified across the entire project) --- */
   --status-info: var(--sky-dark);          /* #007CDB - primary semantic info/active blue */
+  --status-info-text: var(--sky-hover);    /* #005FA8 - high contrast text on info-bg */
   --status-info-bg: var(--tint-sky);       /* #DDEEFB - soft sky blue surface/tint */
   --status-info-pill: var(--color-pill-sky); /* #BDE3FA - pill/badge sky blue */
+
+  /* --- Graph & Visualization Tokens --- */
+  --graph-edge: #94A3B8;
 
   /* --- Tint Border & Interactive Hover Tokens --- */
   --border-mint: #bfe8b2;

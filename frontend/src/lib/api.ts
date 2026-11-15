@@ -166,6 +166,20 @@ export function setAuthToken(token: string): void {
 
 export function clearAuthToken(): void {
   localStorage.removeItem("scholaris_token");
+  if (typeof window !== "undefined" && window.sessionStorage) {
+    try {
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const key = sessionStorage.key(i);
+        if (key && key.startsWith("scholaris_chat_")) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach((key) => sessionStorage.removeItem(key));
+    } catch {
+      // sessionStorage errors ignored
+    }
+  }
 }
 
 export function getAuthHeaders(): HeadersInit {

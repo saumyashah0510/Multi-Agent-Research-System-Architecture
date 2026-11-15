@@ -109,7 +109,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
         </div>
 
         {error && (
-          <p id={errorId} className="text-xs text-[var(--status-error)] tracking-compact">
+          <p id={errorId} className="text-xs text-[var(--status-error-text)] tracking-compact">
             {error}
           </p>
         )}

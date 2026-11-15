@@ -363,6 +363,21 @@ export default function Dashboard() {
   };
 
   const handleSelectPastReview = (review: ReviewHistoryItem) => {
+    if (review.status === "awaiting_approval") {
+      setActiveQuery(review.query);
+      setPapers([]);
+      setSelectedPaperIds([]);
+      setApprovalError(null);
+      setApprovalSuccess(null);
+      setIsPipelineDone(false);
+      setHasCompletedActiveWorkflow(false);
+      setCompletedWorkflowReviewId(null);
+      setReviewId(review.id);
+      setHasSearched(true);
+      navigate(`/dashboard?tab=research&review_id=${encodeURIComponent(review.id)}`);
+      return;
+    }
+
     if (targetSection === "chat") {
       setActiveQuery(review.query);
       setReviewId(review.id);
@@ -383,23 +398,6 @@ export default function Dashboard() {
       const basePath = pathname === "/papers" ? "/papers" : "/dashboard";
       const tabParam = pathname === "/papers" ? "" : "tab=papers&";
       navigate(`${basePath}?${tabParam}review_id=${encodeURIComponent(review.id)}`);
-      return;
-    }
-
-    if (review.status === "awaiting_approval") {
-      if (review.id !== reviewId) {
-        setActiveQuery(review.query);
-        setPapers([]);
-        setSelectedPaperIds([]);
-        setApprovalError(null);
-        setApprovalSuccess(null);
-        setIsPipelineDone(false);
-        setHasCompletedActiveWorkflow(false);
-        setCompletedWorkflowReviewId(null);
-        setReviewId(review.id);
-      }
-      setHasSearched(true);
-      navigate(`/dashboard?review_id=${encodeURIComponent(review.id)}`);
       return;
     }
 
@@ -529,7 +527,14 @@ export default function Dashboard() {
                 papers={papers}
                 selectedPaperIds={selectedPaperIds}
                 onToggleSelect={togglePaperSelection}
-                showActions={false}
+                onProceed={handleProceed}
+                onFindMore={handleFindMore}
+                isProceeding={isProceeding}
+                isFindingMore={isFindingMore}
+                errorMessage={approvalError}
+                successMessage={approvalSuccess}
+                topic={activeQuery}
+                showActions={Boolean(ws.isPausedForInput || ws.status === "AWAITING_USER_INPUT")}
               />
             </div>
           )}

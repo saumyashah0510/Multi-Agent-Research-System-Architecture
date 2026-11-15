@@ -163,7 +163,7 @@ export default function PaperSummaryCard({
               }}
               className="w-full border p-3 sm:p-4 mt-3 transition-colors hover:border-[var(--sky-border-hover)]"
             >
-              <span className="text-xs font-semibold text-[var(--status-info)] block mb-1">
+              <span className="text-xs font-semibold text-[var(--status-info-text)] block mb-1">
                 Supporting summary
               </span>
               <p className="text-xs sm:text-sm text-[var(--color-pill-sky-text)] leading-relaxed font-sans">
@@ -174,7 +174,7 @@ export default function PaperSummaryCard({
                     e.stopPropagation();
                     handleCardClick();
                   }}
-                  className="not-italic font-semibold text-[var(--status-info)] hover:underline inline cursor-pointer whitespace-nowrap"
+                  className="not-italic font-semibold text-[var(--status-info-text)] hover:underline inline cursor-pointer whitespace-nowrap"
                 >
                   see more
                 </button>

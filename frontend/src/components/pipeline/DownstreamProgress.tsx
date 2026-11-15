@@ -83,7 +83,7 @@ export const DownstreamProgress: React.FC<DownstreamProgressProps> = ({
                     : isFailed
                     ? "bg-red-50 text-red-700 border border-red-200"
                     : isRunning
-                    ? "bg-[var(--status-info-bg)] text-[var(--status-info)] border border-[var(--status-info-pill)]"
+                    ? "bg-[var(--status-info-bg)] text-[var(--status-info-text)] border border-[var(--status-info-pill)]"
                     : "bg-neutral-100 text-neutral-600 border border-neutral-200"
                 )}
               >

@@ -89,8 +89,8 @@ export const PastReviewsDrawer: React.FC<PastReviewsDrawerProps> = ({ isOpen, on
         );
       case "awaiting_approval":
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-[var(--status-warning-light)] text-[var(--status-warning)] border border-[var(--status-warning)]/30">
-            <Clock className="w-3 h-3 text-[var(--status-warning)]" />
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-[var(--status-warning-light)] text-[var(--status-warning-text)] border border-[var(--status-warning)]/30">
+            <Clock className="w-3 h-3 text-[var(--status-warning-text)]" />
             Awaiting Approval
           </span>
         );
@@ -103,7 +103,7 @@ export const PastReviewsDrawer: React.FC<PastReviewsDrawerProps> = ({ isOpen, on
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-[var(--status-info-bg)] text-[var(--status-info)] border border-[var(--status-info-pill)]">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-[var(--status-info-bg)] text-[var(--status-info-text)] border border-[var(--status-info-pill)]">
             <span className="w-1.5 h-1.5 rounded-full bg-[var(--status-info)] animate-pulse" />
             Processing
           </span>

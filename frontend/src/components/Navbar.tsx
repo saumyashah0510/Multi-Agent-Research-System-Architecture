@@ -16,6 +16,7 @@ export default function Navbar() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const signOutBtnRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -26,7 +27,7 @@ export default function Navbar() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  // Dismiss user account popover on outside click or Escape key press
+  // Dismiss user account popover on outside click or Escape key press (returning focus to trigger)
   useEffect(() => {
     if (!isMenuOpen) return;
 
@@ -45,6 +46,7 @@ export default function Navbar() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setIsMenuOpen(false);
+        triggerRef.current?.focus();
       }
     };
 
@@ -54,6 +56,15 @@ export default function Navbar() {
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("keydown", handleKeyDown);
     };
+  }, [isMenuOpen]);
+
+  // Move focus to the Sign Out button when user menu popover opens
+  useEffect(() => {
+    if (isMenuOpen) {
+      requestAnimationFrame(() => {
+        signOutBtnRef.current?.focus();
+      });
+    }
   }, [isMenuOpen]);
 
   // Close menu on navigation
@@ -248,6 +259,7 @@ export default function Navbar() {
 
                   {/* Refined Action Area & Sign Out Button */}
                   <button
+                    ref={signOutBtnRef}
                     type="button"
                     role="menuitem"
                     onClick={() => {

@@ -86,7 +86,7 @@ export default function RetryBanner({
             onClick={handleRetryClick}
             disabled={isRetrying}
             style={{ borderRadius: "var(--radius-sm)" }}
-            className="flex items-center gap-2 px-4 py-2 bg-[var(--status-error)] hover:bg-[var(--color-danger-hover)] text-white font-medium text-xs sm:text-sm shadow-xs transition hover:shadow cursor-pointer disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 bg-[var(--status-error-dark)] hover:bg-[var(--status-error-text)] text-white font-medium text-xs sm:text-sm shadow-xs transition hover:shadow cursor-pointer disabled:opacity-50"
           >
             <RefreshCw className={`w-4 h-4 ${isRetrying ? "animate-spin" : ""}`} />
             {isRetrying ? "Resuming from Checkpoint..." : "Retry from Failed Step"}

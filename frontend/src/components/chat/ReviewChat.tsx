@@ -80,6 +80,20 @@ export const CitationChip: React.FC<CitationChipProps> = ({ citation, index }) =
     }, 150);
   };
 
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsHovered((prev) => !prev);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      setIsHovered((prev) => !prev);
+    } else if (e.key === "Escape") {
+      setIsHovered(false);
+    }
+  };
+
   const title = (citation.title && citation.title.trim()) || `Paper #${citation.paper_id}`;
 
   return (
@@ -90,6 +104,9 @@ export const CitationChip: React.FC<CitationChipProps> = ({ citation, index }) =
     >
       <button
         type="button"
+        onClick={handleClick}
+        onKeyDown={handleKeyDown}
+        aria-expanded={isHovered}
         style={{
           backgroundColor: "var(--color-success-light)",
           color: "var(--color-success-text)",
@@ -111,6 +128,11 @@ export const CitationChip: React.FC<CitationChipProps> = ({ citation, index }) =
           onMouseLeave={() => {
             isOverPopoverRef.current = false;
             setIsHovered(false);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              setIsHovered(false);
+            }
           }}
           style={{
             backgroundColor: "var(--surface-card)",
@@ -232,6 +254,16 @@ export const ReviewChat: React.FC<ReviewChatProps> = ({
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const activeReviewIdRef = useRef<string | undefined>(reviewId);
+
+  // Abort pending requests and clear controller on component unmount
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
 
   // Load past chat sessions for sidebar
   useEffect(() => {
@@ -286,8 +318,15 @@ export const ReviewChat: React.FC<ReviewChatProps> = ({
     }
   }, [reviewId, topic]);
 
-  // Load message history from session storage for this reviewId
+  // Load message history from session storage for this reviewId and cancel stale requests
   useEffect(() => {
+    activeReviewIdRef.current = reviewId;
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsLoading(false);
+
     if (!reviewId) {
       setMessages([]);
       return;
@@ -361,6 +400,7 @@ export const ReviewChat: React.FC<ReviewChatProps> = ({
     const trimmed = (questionText ?? inputQuery).trim();
     if (!trimmed || isLoading || !reviewId) return;
 
+    const targetReviewId = reviewId;
     const timeStr = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const turnId = `turn-${Date.now()}`;
     const userMsg: ChatMessage = {
@@ -391,7 +431,9 @@ export const ReviewChat: React.FC<ReviewChatProps> = ({
       .map((m) => ({ role: m.role, content: m.content }));
 
     try {
-      const res = await sendReviewChatMessage(reviewId, trimmed, historyPayload, controller.signal);
+      const res = await sendReviewChatMessage(targetReviewId, trimmed, historyPayload, controller.signal);
+      if (activeReviewIdRef.current !== targetReviewId) return;
+
       const assistantMsg: ChatMessage = {
         id: `a-${Date.now()}`,
         turnId,
@@ -403,12 +445,13 @@ export const ReviewChat: React.FC<ReviewChatProps> = ({
       };
 
       setMessages((prev) => {
+        if (activeReviewIdRef.current !== targetReviewId) return prev;
         const finalized = prev.map((m) =>
           m.turnId === turnId ? { ...m, status: "success" as const } : m
         );
         const newHistory = [...finalized, assistantMsg];
         try {
-          sessionStorage.setItem(`scholaris_chat_${reviewId}`, JSON.stringify(newHistory));
+          sessionStorage.setItem(`scholaris_chat_${targetReviewId}`, JSON.stringify(newHistory));
         } catch {
           // ignored
         }
@@ -416,6 +459,7 @@ export const ReviewChat: React.FC<ReviewChatProps> = ({
       });
     } catch (err: unknown) {
       if (err instanceof Error && err.name === "AbortError") return;
+      if (activeReviewIdRef.current !== targetReviewId) return;
 
       const errorMsg: ChatMessage = {
         id: `err-${Date.now()}`,
@@ -431,19 +475,22 @@ export const ReviewChat: React.FC<ReviewChatProps> = ({
       };
 
       setMessages((prev) => {
+        if (activeReviewIdRef.current !== targetReviewId) return prev;
         const finalized = prev.map((m) =>
           m.turnId === turnId ? { ...m, status: "error" as const } : m
         );
         const newHistory = [...finalized, errorMsg];
         try {
-          sessionStorage.setItem(`scholaris_chat_${reviewId}`, JSON.stringify(newHistory));
+          sessionStorage.setItem(`scholaris_chat_${targetReviewId}`, JSON.stringify(newHistory));
         } catch {
           // ignored
         }
         return newHistory;
       });
     } finally {
-      setIsLoading(false);
+      if (activeReviewIdRef.current === targetReviewId) {
+        setIsLoading(false);
+      }
     }
   };
 

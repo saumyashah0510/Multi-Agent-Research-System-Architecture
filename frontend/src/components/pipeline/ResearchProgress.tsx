@@ -93,6 +93,17 @@ export const ResearchProgress: React.FC<ResearchProgressProps> = ({
           result = `${screenedCount} papers screened · ${relevantCount ?? screenedCount} relevant papers retained`;
         }
 
+        if (stage.status === "failed") {
+          return {
+            ...stage,
+            result: stage.result || "Failed",
+          };
+        }
+
+        if (stage.status === "running") {
+          return stage;
+        }
+
         return {
           ...stage,
           status: "completed" as const,

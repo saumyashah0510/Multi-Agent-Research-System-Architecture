@@ -109,7 +109,7 @@ export default function PastReviewsView({
         return (
           <span
             style={{ borderRadius: "var(--radius-sm)" }}
-            className="inline-flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-semibold bg-[var(--status-warning-light)] text-[var(--status-warning)] border border-[var(--status-warning)]/30 shrink-0"
+            className="inline-flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-semibold bg-[var(--status-warning-light)] text-[var(--status-warning-text)] border border-[var(--status-warning)]/30 shrink-0"
           >
             <span className="w-1.5 h-1.5 rounded-full bg-[var(--status-warning)] shrink-0" />
             <span>Awaiting Approval</span>
@@ -129,7 +129,7 @@ export default function PastReviewsView({
         return (
           <span
             style={{ borderRadius: "var(--radius-sm)" }}
-            className="inline-flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-semibold bg-[var(--status-info-bg)] text-[var(--status-info)] border border-[var(--color-pill-sky)] shrink-0"
+            className="inline-flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-semibold bg-[var(--status-info-bg)] text-[var(--status-info-text)] border border-[var(--color-pill-sky)] shrink-0"
           >
             <span className="w-1.5 h-1.5 rounded-full bg-[var(--status-info)] animate-pulse shrink-0" />
             <span>Processing</span>

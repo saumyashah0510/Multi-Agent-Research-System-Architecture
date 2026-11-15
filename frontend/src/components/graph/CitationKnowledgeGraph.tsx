@@ -197,7 +197,7 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
         )}
 
         {error && (
-          <div className="flex flex-col items-center gap-2 text-[var(--status-warning)] p-6 text-center max-w-md">
+          <div className="flex flex-col items-center gap-2 text-[var(--status-error-text)] p-6 text-center max-w-md">
             <AlertCircle className="w-6 h-6" />
             <p className="text-xs">{error}</p>
           </div>
@@ -255,7 +255,7 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
                       y1={y1}
                       x2={x2}
                       y2={y2}
-                      stroke="var(--border-default)"
+                      stroke="var(--graph-edge)"
                       strokeWidth={Math.max(1, (link.weight || 0.5) * 3)}
                       strokeDasharray={
                         link.type === "co_authorship" ? "4,4" : undefined
