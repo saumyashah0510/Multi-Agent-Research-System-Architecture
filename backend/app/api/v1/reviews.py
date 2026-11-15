@@ -327,9 +327,7 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                     )
             stream_input = Command(resume=resume_value)
 
-        async for update in graph.astream(
-            stream_input, config=config, stream_mode="updates"
-        ):
+        async for update in graph.astream(stream_input, config=config, stream_mode="updates"):
             if not isinstance(update, dict):
                 continue
 
@@ -537,7 +535,6 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                 pass
 
 
-
 async def _retry_failed_review(review_id: str) -> None:
     """Inspect the latest checkpoint and resume a failed literature review."""
     config = {"configurable": {"thread_id": str(review_id)}}
@@ -563,8 +560,7 @@ async def _retry_failed_review(review_id: str) -> None:
                     "stage": resuming_node.upper(),
                     "status": "running",
                     "message": (
-                        f"Resuming literature review from "
-                        f"{resuming_node.replace('_', ' ')}..."
+                        f"Resuming literature review from " f"{resuming_node.replace('_', ' ')}..."
                     ),
                     "review_id": str(review_id),
                 },
@@ -580,6 +576,8 @@ async def _retry_failed_review(review_id: str) -> None:
 
     except Exception as exc:
         logger.exception("Failed to retry review %s: %s", review_id, exc)
+
+
 @router.post("/", summary="Submit new literature review task")
 @router.post("", include_in_schema=False)
 async def create_review_task(
