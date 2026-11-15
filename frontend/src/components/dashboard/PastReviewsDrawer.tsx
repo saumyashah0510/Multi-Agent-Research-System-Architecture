@@ -82,29 +82,29 @@ export const PastReviewsDrawer: React.FC<PastReviewsDrawerProps> = ({ isOpen, on
     switch (status) {
       case "completed":
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-            <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-[var(--tint-mint)] text-[var(--color-success-dark)] border border-[var(--color-success-border)]">
+            <CheckCircle2 className="w-3 h-3 text-[var(--color-success)]" />
             Completed
           </span>
         );
       case "awaiting_approval":
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-            <Clock className="w-3 h-3 text-amber-500" />
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-[var(--status-warning-light)] text-[var(--status-warning-text)] border border-[var(--status-warning)]/30">
+            <Clock className="w-3 h-3 text-[var(--status-warning-text)]" />
             Awaiting Approval
           </span>
         );
       case "failed":
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">
-            <AlertCircle className="w-3 h-3 text-rose-500" />
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-red-50 text-[var(--status-error)] border border-red-200">
+            <AlertCircle className="w-3 h-3 text-[var(--status-error)]" />
             Failed
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-sky-50 text-sky-700 border border-sky-200">
-            <span className="w-1.5 h-1.5 rounded-full bg-sky-500 animate-pulse" />
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-[var(--status-info-bg)] text-[var(--status-info-text)] border border-[var(--status-info-pill)]">
+            <span className="w-1.5 h-1.5 rounded-full bg-[var(--status-info)] animate-pulse" />
             Processing
           </span>
         );
@@ -186,7 +186,7 @@ export const PastReviewsDrawer: React.FC<PastReviewsDrawerProps> = ({ isOpen, on
                     {getStatusBadge(rev.status)}
                   </div>
 
-                  <div className="flex items-center justify-between text-[11px] text-neutral-500 pt-1 border-t border-neutral-100">
+                  <div className="flex items-center justify-between text-xs text-neutral-500 pt-1 border-t border-neutral-100">
                     <span className="flex items-center gap-1">
                       <Clock className="w-3 h-3 text-neutral-400" />
                       {new Date(rev.created_at).toLocaleDateString([], {

@@ -1,4 +1,4 @@
-import { ExternalLink } from "lucide-react";
+import { FiExternalLink } from "react-icons/fi";
 
 export interface ReferenceItem {
   title?: string;
@@ -51,10 +51,15 @@ export default function ReferenceCard({ reference, index }: ReferenceCardProps) 
           rel="noopener noreferrer"
           title="Open source paper in new tab"
           aria-label={`Open source link for ${title}`}
-          style={{ borderRadius: "var(--radius-sm)" }}
-          className="w-7 h-7 inline-flex items-center justify-center text-[var(--color-sky-dark)] hover:text-[#005fa8] bg-white hover:bg-[var(--tint-sky)] transition-colors border border-neutral-200/90 hover:border-[var(--color-pill-sky)] shrink-0 shadow-2xs"
+          style={{
+            backgroundColor: "var(--surface-card)",
+            border: "1px solid var(--border-default)",
+            borderRadius: "var(--radius-sm)",
+            color: "var(--text-secondary)",
+          }}
+          className="w-8 h-8 inline-flex items-center justify-center transition-colors shrink-0 shadow-2xs hover:bg-[var(--tint-sky)] hover:text-[var(--sky-dark)] hover:border-[var(--sky-dark)] cursor-pointer"
         >
-          <ExternalLink className="w-3.5 h-3.5 stroke-[2.25]" />
+          <FiExternalLink className="w-3.5 h-3.5 stroke-[2]" />
         </a>
       )}
     </div>

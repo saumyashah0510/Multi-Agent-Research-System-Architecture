@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { FileText, Check, X, ExternalLink } from "lucide-react";
+import { FileText, Check, X } from "lucide-react";
+import { FiExternalLink, FiAlertTriangle } from "react-icons/fi";
 import { cn } from "../lib/utils";
 import { type PaperSummary } from "./PaperSummaryCard";
 
@@ -195,17 +196,14 @@ export default function ExpandedPaperModal({
           </button>
         </div>
 
-        {/* Paper Title & Authors Heading */}
-        <div>
+        {/* Paper Title Heading */}
+        <div className="pb-3 border-b border-[var(--border-subtle)]">
           <h2
             id="paper-modal-title"
             className="font-serif text-xl sm:text-2xl font-bold text-[var(--color-text-primary)] leading-tight tracking-compact"
           >
             {paper.title}
           </h2>
-          <p className="text-xs text-[var(--color-text-secondary)] mt-2 pb-4 border-b border-neutral-100 font-sans">
-            {paper.authors} · {paper.year} · {paper.venue}
-          </p>
         </div>
 
         {/* Content Layout: 2 Columns with Increased Width for Expanded Summary */}
@@ -220,17 +218,22 @@ export default function ExpandedPaperModal({
                 href={paperUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                style={{ borderRadius: "var(--radius-sm)" }}
-                className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium bg-[var(--tint-sky)] text-[var(--color-pill-sky-text)] hover:bg-[var(--color-pill-sky)] transition-colors border border-[var(--color-pill-sky)] shrink-0"
+                style={{
+                  backgroundColor: "var(--surface-card)",
+                  border: "1px solid var(--border-default)",
+                  borderRadius: "var(--radius-sm)",
+                  color: "var(--text-secondary)",
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors shrink-0 shadow-2xs hover:bg-[var(--tint-sky)] hover:text-[var(--sky-dark)] hover:border-[var(--sky-dark)] cursor-pointer"
               >
                 <span>Open paper</span>
-                <ExternalLink className="w-3 h-3" />
+                <FiExternalLink className="w-3.5 h-3.5" />
               </a>
             </div>
 
             {/* Inner Summary Box: Only Clean Generated Summary */}
             <div className="bg-[var(--color-surface)] rounded-2xl p-5 sm:p-6 border border-neutral-200/80 text-left">
-              <div className="text-[13px] sm:text-[13.5px] text-neutral-700 leading-relaxed font-normal space-y-3 font-sans">
+              <div className="text-sm text-neutral-700 leading-relaxed font-normal space-y-3 font-sans">
                 {paragraphs.length > 0 ? (
                   paragraphs.map((para, idx) => (
                     <p key={idx}>{para}</p>
@@ -250,40 +253,50 @@ export default function ExpandedPaperModal({
 
             <div className="space-y-3.5 text-left">
               <div>
-                <span className="text-[10px] sm:text-[10.5px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider block">
+                <span className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider block">
                   Authors
                 </span>
-                <span className="text-xs sm:text-[13px] font-medium text-neutral-800 leading-snug block mt-0.5">
+                <span className="text-sm font-semibold text-[var(--text-primary)] leading-snug block mt-1">
                   {paper.authors || "Not specified"}
                 </span>
               </div>
 
               <div>
-                <span className="text-[10px] sm:text-[10.5px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider block">
+                <span className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider block">
                   Published
                 </span>
-                <span className="text-xs sm:text-[13px] font-medium text-neutral-800 leading-snug block mt-0.5">
+                <span className="text-sm font-semibold text-[var(--text-primary)] leading-snug block mt-1">
                   {paper.year || "Unknown"}
                 </span>
               </div>
 
               <div>
-                <span className="text-[10px] sm:text-[10.5px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider block">
+                <span className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider block">
                   Journal
                 </span>
-                <span className="text-xs sm:text-[13px] font-medium text-neutral-800 leading-snug block mt-0.5">
+                <span className="text-sm font-semibold text-[var(--text-primary)] leading-snug block mt-1">
                   {paper.venue || "Academic Publication"}
                 </span>
               </div>
             </div>
 
-            {/* Read in context callout */}
-            <div className="bg-[var(--color-surface)] rounded-xl p-3 sm:p-3.5 border border-neutral-200/80 mt-5 text-left">
-              <span className="text-xs font-bold text-[var(--color-text-primary)] block">
-                Read in context
-              </span>
-              <p className="text-[11px] text-[var(--color-text-secondary)] leading-tight mt-1">
-                Check the original paper before using it as evidence in your review.
+            {/* Verification Warning Callout */}
+            <div
+              style={{
+                borderRadius: "var(--radius-md)",
+                backgroundColor: "var(--status-warning-light)",
+                border: "1px solid color-mix(in srgb, var(--status-warning) 40%, transparent)",
+              }}
+              className="p-3 sm:p-3.5 mt-5 text-left"
+            >
+              <div className="flex items-center gap-1.5 mb-1">
+                <FiAlertTriangle className="w-3.5 h-3.5 text-[var(--status-warning)] shrink-0" />
+                <span className="text-sm font-bold text-[var(--text-primary)] leading-none">
+                  Verify source
+                </span>
+              </div>
+              <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+                Verify the original paper before trusting or citing this summary.
               </p>
             </div>
           </div>

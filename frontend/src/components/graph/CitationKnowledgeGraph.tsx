@@ -39,12 +39,12 @@ interface CitationKnowledgeGraphProps {
 }
 
 const CLUSTER_COLORS = [
-  "#3B82F6", // blue
-  "#10B981", // emerald
-  "#8B5CF6", // purple
-  "#F59E0B", // amber
-  "#EC4899", // pink
-  "#06B6D4", // cyan
+  "var(--status-info)",
+  "var(--status-success)",
+  "var(--accent-lavender-dark)",
+  "var(--status-warning)",
+  "var(--color-danger)",
+  "var(--color-primary-blue)",
 ];
 
 export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
@@ -75,10 +75,10 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
     if (node.cluster && node.cluster.trim()) {
       const cIdx = uniqueClusters.indexOf(node.cluster.trim());
       if (cIdx >= 0) {
-        return CLUSTER_COLORS[cIdx % CLUSTER_COLORS.length] || "#3B82F6";
+        return CLUSTER_COLORS[cIdx % CLUSTER_COLORS.length] || "var(--status-info)";
       }
     }
-    return CLUSTER_COLORS[fallbackIndex % CLUSTER_COLORS.length] || "#3B82F6";
+    return CLUSTER_COLORS[fallbackIndex % CLUSTER_COLORS.length] || "var(--status-info)";
   };
 
   useEffect(() => {
@@ -132,7 +132,7 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
       {/* Header Bar */}
       <div className="px-6 py-4 border-b border-neutral-100 flex flex-wrap items-center justify-between gap-3 bg-neutral-50/50">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
+          <div className="w-8 h-8 rounded-lg bg-[var(--tint-lavender)] flex items-center justify-center text-[var(--lavender-dark)]">
             <Network className="w-4 h-4" />
           </div>
           <div>
@@ -191,13 +191,13 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
       <div className="relative flex-1 min-h-[460px] bg-radial from-neutral-50/50 to-white flex items-center justify-center overflow-hidden">
         {isLoading && (
           <div className="flex flex-col items-center gap-2 text-neutral-500">
-            <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
+            <Loader2 className="w-6 h-6 animate-spin text-[var(--lavender-dark)]" />
             <span className="text-xs font-medium">Constructing knowledge graph...</span>
           </div>
         )}
 
         {error && (
-          <div className="flex flex-col items-center gap-2 text-amber-700 p-6 text-center max-w-md">
+          <div className="flex flex-col items-center gap-2 text-[var(--status-error-text)] p-6 text-center max-w-md">
             <AlertCircle className="w-6 h-6" />
             <p className="text-xs">{error}</p>
           </div>
@@ -255,7 +255,7 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
                       y1={y1}
                       x2={x2}
                       y2={y2}
-                      stroke="#E2E8F0"
+                      stroke="var(--graph-edge)"
                       strokeWidth={Math.max(1, (link.weight || 0.5) * 3)}
                       strokeDasharray={
                         link.type === "co_authorship" ? "4,4" : undefined
@@ -283,14 +283,14 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
                         r={isSelected ? 18 : 14}
                         fill={color}
                         fillOpacity={0.9}
-                        stroke={isSelected ? "#1E293B" : "#FFFFFF"}
+                        stroke={isSelected ? "var(--text-primary)" : "var(--surface-card)"}
                         strokeWidth={isSelected ? 3 : 2}
                         className="shadow-sm"
                       />
                       <text
                         dy={26}
                         textAnchor="middle"
-                        className="text-[10px] font-sans fill-neutral-700 select-none pointer-events-none font-medium"
+                        className="text-xs font-sans fill-neutral-700 select-none pointer-events-none font-medium"
                       >
                         {node.label.length > 20
                           ? `${node.label.slice(0, 18)}...`
@@ -307,11 +307,11 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
               <div className="absolute top-4 right-4 w-72 bg-white/95 backdrop-blur-sm rounded-xl border border-neutral-200/90 shadow-lg p-4 space-y-3 text-xs animate-in fade-in">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-1.5 text-neutral-500 font-medium">
-                    <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                    <FileText className="w-3.5 h-3.5 text-[var(--lavender-dark)]" />
                     <span>Selected Paper</span>
                   </div>
                   {selectedNode.relevance_score && (
-                    <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-semibold text-[10px]">
+                    <span className="px-2 py-0.5 rounded-full bg-[var(--tint-mint)] text-[var(--color-success-dark)] border border-[var(--color-success-border)] font-semibold text-xs">
                       {Math.round(selectedNode.relevance_score * 100)}% Match
                     </span>
                   )}
@@ -340,7 +340,7 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
 
                 {selectedNode.cluster && (
                   <div className="pt-1">
-                    <span className="inline-block px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 text-[10px] font-medium">
+                    <span className="inline-block px-2 py-0.5 rounded bg-[var(--tint-lavender)] text-[var(--lavender-dark)] text-xs font-medium">
                       Cluster: {selectedNode.cluster}
                     </span>
                   </div>
@@ -352,7 +352,7 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
                       href={selectedNode.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-indigo-600 hover:text-indigo-800 font-medium transition-colors"
+                      className="inline-flex items-center gap-1 text-[var(--lavender-dark)] hover:opacity-80 font-medium transition-opacity"
                     >
                       <span>Open Source Document</span>
                       <ExternalLink className="w-3 h-3" />
@@ -365,7 +365,7 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
             {/* Thematic Cluster Color Legend */}
             {uniqueClusters.length > 0 && (
               <div className="absolute bottom-3 left-4 max-w-xl flex flex-wrap items-center gap-3 bg-white/95 backdrop-blur-xs px-3.5 py-2 rounded-xl border border-neutral-200/90 shadow-sm text-xs text-neutral-600">
-                <span className="font-semibold text-neutral-500 uppercase tracking-wider text-[10px]">
+                <span className="font-semibold text-neutral-500 uppercase tracking-wider text-xs">
                   Thematic Clusters:
                 </span>
                 {uniqueClusters.map((clusterName, cIdx) => (
@@ -374,11 +374,11 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
                       className="w-2.5 h-2.5 rounded-full shrink-0"
                       style={{
                         backgroundColor:
-                          CLUSTER_COLORS[cIdx % CLUSTER_COLORS.length] || "#3B82F6",
+                          CLUSTER_COLORS[cIdx % CLUSTER_COLORS.length] || "var(--status-info)",
                       }}
                     />
                     <span
-                      className="truncate max-w-[150px] font-medium text-[11px]"
+                      className="truncate max-w-[150px] font-medium text-xs"
                       title={clusterName}
                     >
                       {clusterName}

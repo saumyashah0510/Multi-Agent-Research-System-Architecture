@@ -54,7 +54,7 @@ export default function RetryBanner({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         {/* Left: Status & Reassurance */}
         <div className="flex items-start gap-3">
-          <div className="p-2 rounded-xl bg-rose-100 text-rose-600 shrink-0 mt-0.5">
+          <div className="p-2 rounded-xl bg-rose-100 text-[var(--status-error)] shrink-0 mt-0.5">
             <AlertCircle className="w-5 h-5" />
           </div>
           <div>
@@ -85,7 +85,8 @@ export default function RetryBanner({
             type="button"
             onClick={handleRetryClick}
             disabled={isRetrying}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-medium text-xs sm:text-sm shadow-xs transition hover:shadow cursor-pointer disabled:opacity-50"
+            style={{ borderRadius: "var(--radius-sm)" }}
+            className="flex items-center gap-2 px-4 py-2 bg-[var(--status-error-dark)] hover:bg-[var(--status-error-text)] text-white font-medium text-xs sm:text-sm shadow-xs transition hover:shadow cursor-pointer disabled:opacity-50"
           >
             <RefreshCw className={`w-4 h-4 ${isRetrying ? "animate-spin" : ""}`} />
             {isRetrying ? "Resuming from Checkpoint..." : "Retry from Failed Step"}

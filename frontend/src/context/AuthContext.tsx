@@ -37,7 +37,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   useEffect(() => {
-    // TODO (Assignee - FE-11): Restore user session if token exists
+    // Restore user session if token exists
     const initAuth = async () => {
       const existingToken = getAuthToken();
       if (!existingToken) {
@@ -61,7 +61,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const login = async (email: string, password: string) => {
-    // TODO (Assignee - FE-11): Call loginUser, set token in storage and state, set user
     setIsLoading(true);
     try {
       const data = await loginUser(email, password);
@@ -74,7 +73,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const register = async (email: string, password: string, name?: string) => {
-    // TODO (Assignee - FE-11): Call registerUser, set token in storage and state, set user
     setIsLoading(true);
     try {
       const data = await registerUser(email, password, name);
@@ -87,7 +85,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = () => {
-    // TODO (Assignee - FE-11): Clear token from storage and state, reset user
     clearAuthToken();
     setToken(null);
     setUser(null);

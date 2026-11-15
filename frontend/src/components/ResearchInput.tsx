@@ -15,6 +15,7 @@ export interface ResearchInputProps {
   initialQuery?: string;
   initialNumPapers?: string;
   isSearchingActive?: boolean;
+  className?: string;
 }
 
 export default function ResearchInput({
@@ -22,6 +23,7 @@ export default function ResearchInput({
   isLoading = false,
   initialQuery = "",
   isSearchingActive = false,
+  className = "",
 }: ResearchInputProps) {
   const [query, setQuery] = useState(initialQuery);
 
@@ -59,7 +61,7 @@ export default function ResearchInput({
     return (
       <div className="w-full flex justify-end">
         <div className="w-full sm:w-[75%] max-w-[75%] bg-white border border-neutral-200/90 text-neutral-900 rounded-2xl rounded-tr-xs px-5 py-3.5 shadow-xs transition-all">
-          <p className="font-sans text-sm sm:text-[15px] leading-relaxed text-neutral-900 whitespace-pre-wrap break-words">
+          <p className="font-sans text-sm sm:text-base leading-relaxed text-neutral-900 whitespace-pre-wrap break-words">
             {query}
           </p>
         </div>
@@ -70,7 +72,15 @@ export default function ResearchInput({
   return (
     <form
       onSubmit={handleSubmit}
-      className="w-full bg-white rounded-[22px] border border-neutral-200/90 shadow-[0_12px_40px_rgba(0,0,0,0.08)] px-5 sm:px-6 py-3.5 sm:py-4 transition-all hover:shadow-[0_16px_48px_rgba(0,0,0,0.11)] flex items-center justify-between gap-4"
+      style={{
+        backgroundColor: "var(--surface-card)",
+        borderRadius: "var(--radius-lg)",
+        boxShadow: "var(--shadow-container)",
+      }}
+      className={cn(
+        "w-full border border-neutral-200/90 px-5 sm:px-6 py-3.5 sm:py-4 transition-all hover:shadow-[var(--shadow-container-hover)] flex items-center justify-between gap-4",
+        className
+      )}
     >
       {/* Research Input Textarea (Accommodates ~2 visible lines without auto-scaling) */}
       <textarea
@@ -80,7 +90,7 @@ export default function ResearchInput({
         placeholder="What do you want to research?"
         aria-label="What do you want to research?"
         rows={2}
-        className="flex-1 bg-transparent border-0 outline-none resize-none h-[48px] sm:h-[52px] text-base sm:text-[17px] text-neutral-900 placeholder:text-neutral-500 font-sans tracking-tight focus:ring-0 focus:outline-none leading-snug sm:leading-relaxed overflow-y-auto block p-0"
+        className="flex-1 bg-transparent border-0 outline-none resize-none h-[48px] sm:h-[52px] text-base text-neutral-900 placeholder:text-neutral-500 font-sans tracking-tight focus:ring-0 focus:outline-none leading-snug sm:leading-relaxed overflow-y-auto block p-0"
       />
 
       {/* Black Squircle Submit Button with White Arrow Up */}

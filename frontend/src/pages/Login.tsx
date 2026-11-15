@@ -64,7 +64,7 @@ export default function Login() {
       className="min-h-screen w-full flex items-center justify-center p-4 sm:p-6 md:p-8"
       style={{ background: "var(--gradient-auth-bg)" }}
     >
-      <div className="w-full max-w-[880px] md:min-h-[520px] bg-white rounded-2xl shadow-2xl shadow-blue-900/10 overflow-hidden grid grid-cols-1 md:grid-cols-2 border border-white/60">
+      <div className="w-full max-w-[880px] md:min-h-[520px] bg-white rounded-2xl shadow-2xl shadow-neutral-900/10 overflow-hidden grid grid-cols-1 md:grid-cols-2 border border-white/60">
         {/* Left Side: Illustration Panel */}
         <div
           className="flex items-center justify-center relative overflow-hidden w-full h-full min-h-[300px] md:min-h-[520px]"

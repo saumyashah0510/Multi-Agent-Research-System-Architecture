@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { Sparkles, CircleCheck, ChevronDown, ChevronUp, RotateCcw } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { PipelineStage } from "./types";
@@ -51,22 +51,80 @@ export const ResearchProgress: React.FC<ResearchProgressProps> = ({
     onComplete: customIsMock === false ? undefined : onComplete,
   });
 
-  const stages = customStages ?? mock.stages;
+  const stages = customStages && customStages.length > 0 ? customStages : mock.stages;
   const isRunning = customIsRunning ?? mock.isRunning;
   const isCompleted = customIsCompleted ?? mock.isCompleted;
 
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(() => Boolean(isCompleted));
+  const prevIsCompletedRef = useRef(isCompleted);
 
   useEffect(() => {
-    setIsCollapsed(Boolean(isCompleted));
+    // Automatically collapse into summary view when isCompleted transitions to true
+    if (isCompleted && !prevIsCompletedRef.current) {
+      setIsCollapsed(true);
+    }
+    prevIsCompletedRef.current = isCompleted;
   }, [isCompleted]);
 
-  const completedStages = stages.filter((s) => s.status === "completed").length;
+  // When pipeline is completed, force all stages into completed visual state
+  const displayStages: PipelineStage[] = useMemo(() => {
+    if (isCompleted) {
+      return stages.map((stage, idx) => {
+        let result = stage.result;
+        if (!result) {
+          if (stage.id === "query-expansion" || idx === 0) {
+            result = "Search queries generated";
+          } else if (stage.id === "academic-search" || idx === 1) {
+            result =
+              screenedCount !== undefined && screenedCount > 0
+                ? `${screenedCount} candidate papers discovered`
+                : "Candidate papers discovered";
+          } else if (stage.id === "relevance-screening" || idx === 2) {
+            result =
+              screenedCount !== undefined && screenedCount > 0
+                ? `${screenedCount} papers screened · ${relevantCount ?? screenedCount} relevant papers retained`
+                : "Papers screened and scored";
+          }
+        } else if (
+          (stage.id === "relevance-screening" || idx === 2) &&
+          screenedCount !== undefined &&
+          screenedCount > 0
+        ) {
+          result = `${screenedCount} papers screened · ${relevantCount ?? screenedCount} relevant papers retained`;
+        }
+
+        if (stage.status === "failed") {
+          return {
+            ...stage,
+            result: stage.result || "Failed",
+          };
+        }
+
+        if (stage.status === "running") {
+          return stage;
+        }
+
+        return {
+          ...stage,
+          status: "completed" as const,
+          supportingStatus: "",
+          message: null,
+          detail: null,
+          progress: null,
+          result: result || stage.result || "Completed",
+          error: null,
+        };
+      });
+    }
+    return stages;
+  }, [stages, isCompleted, screenedCount, relevantCount]);
+
+  const completedStages = displayStages.filter((s) => s.status === "completed").length;
 
   // Compute dynamic summary text without any hardcoded numbers
   const dynamicSummaryText = (() => {
     const parts: string[] = [];
-    if (completedStages > 0) {
+    if (completedStages > 0 && completedStages < displayStages.length) {
       parts.push(`${completedStages} ${completedStages === 1 ? "stage" : "stages"} finished`);
     } else {
       parts.push("Pipeline completed");
@@ -87,7 +145,7 @@ export const ResearchProgress: React.FC<ResearchProgressProps> = ({
 
   const renderStagesList = () => (
     <div className="flex flex-col">
-      {stages.map((stage, index) => {
+      {displayStages.map((stage, index) => {
         const isCompact = stage.status === "pending";
         return (
           <div
@@ -123,7 +181,7 @@ export const ResearchProgress: React.FC<ResearchProgressProps> = ({
 
             <div>
               <div className="flex items-center gap-2.5">
-                <h3 className="font-serif text-[17px] sm:text-lg font-medium tracking-compact text-neutral-900 leading-snug">
+                <h3 className="font-serif text-base sm:text-lg font-medium tracking-compact text-neutral-900 leading-snug">
                   Research Progress
                 </h3>
                 <span
@@ -218,21 +276,21 @@ export const ResearchProgress: React.FC<ResearchProgressProps> = ({
             {isRunning && (
               <span
                 style={{ borderRadius: "var(--radius-sm)" }}
-                className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--color-sky-dark)] bg-[var(--tint-sky)] border border-[var(--color-pill-sky)] px-2.5 py-0.5 select-none"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--status-info)] bg-[var(--status-info-bg)] border border-[var(--color-pill-sky)] px-2.5 py-0.5 select-none"
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-sky-dark)] animate-pulse shrink-0" />
+                <span className="w-1.5 h-1.5 rounded-full bg-[var(--status-info)] animate-pulse shrink-0" />
                 <span>Processing</span>
               </span>
             )}
           </div>
-          <p className="font-sans text-xs sm:text-[13px] text-neutral-500 mt-1">
+          <p className="font-sans text-xs sm:text-sm text-neutral-500 mt-1">
             Your literature review is being processed step by step
           </p>
         </div>
 
         {isMock && (
           <span
-            className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-neutral-100 text-neutral-600 border border-neutral-200/80 shadow-2xs select-none self-start sm:self-auto"
+            className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-neutral-100 text-neutral-600 border border-neutral-200/80 shadow-2xs select-none self-start sm:self-auto"
             title="Demonstration mode: Pipeline steps are simulated locally"
           >
             <Sparkles className="w-3 h-3 text-neutral-400" aria-hidden="true" />

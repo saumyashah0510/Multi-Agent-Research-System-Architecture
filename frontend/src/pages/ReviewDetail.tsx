@@ -7,7 +7,7 @@
  * - Stream remaining stages 5 to 9 via WebSocket connection to /api/v1/ws/reviews/{reviewId}
  * - Display review topic header and session status
  * - Mount downstream pipeline progress tracker (Stages 5 to 9)
- * - Integrate accessible tab switcher (Report | Matrix | RAG Chat) when isCompleted is true
+ * - Integrate accessible tab switcher (Synthesis Report | Knowledge Graph) when isCompleted is true
  * - Pass synthesized review to SynthesisReportViewer and methodology_matrix to MethodologyMatrix
  */
 
@@ -21,6 +21,7 @@ import {
   RefreshCw,
   AlertCircle,
   Network,
+  ArrowLeft,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import DownstreamProgress from "../components/pipeline/DownstreamProgress";
@@ -28,7 +29,6 @@ import RetryBanner from "../components/pipeline/RetryBanner";
 import SynthesisReportViewer, {
   formatReportAsMarkdown,
 } from "../components/dashboard/SynthesisReportViewer";
-import ReviewChat from "../components/chat/ReviewChat";
 import CitationKnowledgeGraph from "../components/graph/CitationKnowledgeGraph";
 import { getReviewStatus, getReviewPdfDownloadUrl, retryReviewPipeline } from "../lib/api";
 import { SynthesizedReview } from "../types";
@@ -41,7 +41,6 @@ const ReviewDetailInner: React.FC = () => {
   const [isCompleted, setIsCompleted] = useState(false);
   const [isFailed, setIsFailed] = useState(false);
   const [failedMessage, setFailedMessage] = useState<string | null>(null);
-  const isChatView = tabParam === "chat";
   const isGraphView = tabParam === "graph";
   const [copiedMarkdown, setCopiedMarkdown] = useState(false);
   const [reviewTopic, setReviewTopic] = useState<string | null>(null);
@@ -74,7 +73,7 @@ const ReviewDetailInner: React.FC = () => {
         setIsFailed(true);
         setFailedMessage(
           data?.error_message ||
-            "Pipeline was interrupted. Click 'Retry from Failed Step' to resume from your latest checkpoint."
+          "Pipeline was interrupted. Click 'Retry from Failed Step' to resume from your latest checkpoint."
         );
       } else {
         setIsFailed(false);
@@ -163,29 +162,44 @@ const ReviewDetailInner: React.FC = () => {
     URL.revokeObjectURL(url);
 
     if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(markdown).catch(() => {});
+      navigator.clipboard.writeText(markdown).catch(() => { });
     }
     setCopiedMarkdown(true);
     window.setTimeout(() => setCopiedMarkdown(false), 2000);
   };
 
   return (
-    <div className={cn("w-full mx-auto px-4 py-8 space-y-6", isChatView ? "max-w-7xl" : "max-w-5xl")}>
+    <div
+      style={{ maxWidth: "var(--container-max-width)" }}
+      className="w-full max-w-[var(--container-max-width)] mx-auto px-4 sm:px-6 py-8 space-y-6"
+    >
+      {/* Back to Past Reviews Link */}
+      <div>
+        <Link
+          to="/dashboard?tab=report"
+          style={{
+            borderRadius: "var(--radius-sm)",
+            backgroundColor: "var(--surface-card)",
+            borderColor: "var(--border-default)",
+            color: "var(--text-primary)",
+          }}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border hover:bg-[var(--surface-muted)] transition-colors shadow-2xs cursor-pointer select-none"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          <span>Back to past reviews</span>
+        </Link>
+      </div>
+
       {/* Session Header Bar */}
       <div className="border-b border-neutral-200/80 pb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="min-w-0">
-          {isChatView && (
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--color-sky-dark)] mb-1.5">
-              Review Q&A
-            </p>
-          )}
           <h1 className="text-2xl sm:text-3xl font-serif font-bold text-neutral-900 leading-tight">
             {activeReport?.title || reviewTopic || "Literature Review Session"}
           </h1>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          {isCompleted && !isChatView && (
+          {isCompleted && (
             <>
               <a
                 href={getReviewPdfDownloadUrl(reviewId || "")}
@@ -200,28 +214,28 @@ const ReviewDetailInner: React.FC = () => {
               </a>
 
               {activeReport && (
-              <button
-                type="button"
-                onClick={handleExportMarkdown}
-                style={{ borderRadius: "var(--radius-sm)" }}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white border border-neutral-200 text-neutral-800 text-xs font-semibold hover:bg-neutral-50 transition-colors cursor-pointer shadow-xs"
-                title="Download Markdown report and copy to clipboard"
-              >
-                {copiedMarkdown ? (
-                  <>
-                    <Check className="w-3.5 h-3.5 text-[var(--color-success)]" />
-                    <span>Exported</span>
-                  </>
-                ) : (
-                  <>
-                    <FileText className="w-3.5 h-3.5" />
-                    <span>Markdown</span>
-                  </>
-                )}
-              </button>
-            )}
-          </>
-        )}
+                <button
+                  type="button"
+                  onClick={handleExportMarkdown}
+                  style={{ borderRadius: "var(--radius-sm)" }}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white border border-neutral-200 text-neutral-800 text-xs font-semibold hover:bg-neutral-50 transition-colors cursor-pointer shadow-xs"
+                  title="Download Markdown report and copy to clipboard"
+                >
+                  {copiedMarkdown ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-[var(--color-success)]" />
+                      <span>Exported</span>
+                    </>
+                  ) : (
+                    <>
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>Markdown</span>
+                    </>
+                  )}
+                </button>
+              )}
+            </>
+          )}
         </div>
       </div>
 
@@ -248,18 +262,24 @@ const ReviewDetailInner: React.FC = () => {
         onComplete={handlePipelineComplete}
       />
 
-      {/* Synthesis Report, Interactive RAG Chat, or Citation Graph View */}
+      {/* Synthesis Report or Citation Graph View */}
       {isCompleted && (
         <div className="space-y-5 animate-in fade-in duration-300">
           {/* Tab Switcher */}
-          <div className="flex items-center gap-2 border-b border-neutral-200/80 pb-3">
+          <div className="flex items-center gap-2 border-b border-[var(--border-subtle)] pb-3">
             <Link
               to={`/review/${reviewId}`}
+              style={{
+                borderRadius: "var(--radius-sm)",
+                backgroundColor: !isGraphView ? "var(--tint-sky)" : "var(--surface-card)",
+                borderColor: !isGraphView ? "var(--sky-dark)" : "var(--border-default)",
+                color: !isGraphView ? "var(--sky-dark)" : "var(--text-secondary)",
+              }}
               className={cn(
-                "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors",
-                !isChatView && !isGraphView
-                  ? "bg-neutral-900 text-white shadow-2xs"
-                  : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
+                "inline-flex items-center gap-1.5 px-3 py-1.5 text-xs sm:text-sm font-semibold border transition-colors select-none",
+                !isGraphView
+                  ? "shadow-2xs"
+                  : "hover:bg-[var(--tint-sky)]/40 hover:text-[var(--sky-dark)]"
               )}
             >
               <FileText className="w-3.5 h-3.5" />
@@ -267,46 +287,33 @@ const ReviewDetailInner: React.FC = () => {
             </Link>
             <Link
               to={`/review/${reviewId}?tab=graph`}
+              style={{
+                borderRadius: "var(--radius-sm)",
+                backgroundColor: isGraphView ? "var(--tint-sky)" : "var(--surface-card)",
+                borderColor: isGraphView ? "var(--sky-dark)" : "var(--border-default)",
+                color: isGraphView ? "var(--sky-dark)" : "var(--text-secondary)",
+              }}
               className={cn(
-                "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors",
+                "inline-flex items-center gap-1.5 px-3 py-1.5 text-xs sm:text-sm font-semibold border transition-colors select-none",
                 isGraphView
-                  ? "bg-neutral-900 text-white shadow-2xs"
-                  : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
+                  ? "shadow-2xs"
+                  : "hover:bg-[var(--tint-sky)]/40 hover:text-[var(--sky-dark)]"
               )}
             >
               <Network className="w-3.5 h-3.5" />
               <span>Knowledge Graph</span>
             </Link>
-            <Link
-              to={`/review/${reviewId}?tab=chat`}
-              className={cn(
-                "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors",
-                isChatView
-                  ? "bg-neutral-900 text-white shadow-2xs"
-                  : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
-              )}
-            >
-              <span>Q&A Chat</span>
-            </Link>
           </div>
 
-          {isChatView ? (
-            reviewId ? (
-              <ReviewChat reviewId={reviewId} />
-            ) : (
-              <div className="w-full bg-white rounded-2xl border border-neutral-200/90 shadow-xs p-8 text-center text-neutral-500 text-xs sm:text-sm">
-                No literature review ID provided in the route.
-              </div>
-            )
-          ) : isGraphView ? (
+          {isGraphView ? (
             <CitationKnowledgeGraph reviewId={reviewId || ""} />
           ) : activeReport ? (
             <SynthesisReportViewer report={activeReport} />
           ) : (
             <div className="w-full bg-white rounded-2xl border border-neutral-200/90 shadow-xs p-8 text-center space-y-4">
-              <div className="w-10 h-10 mx-auto rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600">
+              <div className="w-10 h-10 mx-auto rounded-full bg-[var(--tint-lavender)] flex items-center justify-center text-[var(--lavender-dark)]">
                 {fetchError && retryCount >= 5 ? (
-                  <AlertCircle className="w-5 h-5 text-amber-600" />
+                  <AlertCircle className="w-5 h-5 text-[var(--status-warning)]" />
                 ) : (
                   <Loader2 className="w-5 h-5 animate-spin" />
                 )}
@@ -328,7 +335,7 @@ const ReviewDetailInner: React.FC = () => {
                   onClick={handleManualRetry}
                   disabled={isRetrying}
                   style={{ borderRadius: "var(--radius-sm)" }}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[var(--tint-lavender)] hover:bg-[var(--tint-lavender)]/80 text-[var(--lavender-dark)] text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
                 >
                   <RefreshCw className={cn("w-3.5 h-3.5", isRetrying && "animate-spin")} />
                   <span>{isRetrying ? "Checking..." : "Refresh Report"}</span>

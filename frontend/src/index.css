@@ -26,6 +26,36 @@
   --color-tint-mint: var(--tint-mint);
   --color-tint-lavender: var(--tint-lavender);
   --color-tint-sky: var(--tint-sky);
+
+  --color-brand-primary: var(--brand-primary);
+  --color-brand-subtle: var(--brand-subtle);
+  --color-surface-page: var(--surface-page);
+  --color-surface-card: var(--surface-card);
+  --color-surface-muted: var(--surface-muted);
+  --color-border-default: var(--border-default);
+  --color-border-subtle: var(--border-subtle);
+  --color-text-disabled: var(--text-disabled);
+  --color-text-inverse: var(--text-inverse);
+
+  --color-status-error: var(--status-error);
+  --color-status-warning: var(--status-warning);
+  --color-status-warning-light: var(--status-warning-light);
+  --color-status-success: var(--status-success);
+  --color-status-info: var(--status-info);
+  --color-status-info-bg: var(--status-info-bg);
+  --color-status-info-pill: var(--status-info-pill);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-pill: var(--radius-pill);
+
+  --container-max-width: var(--container-max-width);
+}
+
+.max-w-container,
+[class*="max-w-[var(--container-max-width)]"] {
+  max-width: var(--container-max-width, 1200px);
 }
 
 body {
