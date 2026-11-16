@@ -331,6 +331,146 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
             if not isinstance(update, dict):
                 continue
 
+            if "query_expansion" in update:
+                node_out = update["query_expansion"]
+                sub_queries = node_out.get("search_queries", [])
+                if numeric_id is not None:
+                    try:
+                        async with AsyncSessionLocal() as session:
+                            rev = await session.get(LiteratureReview, numeric_id)
+                            if rev:
+                                rev.status = ReviewStatus.PAPER_DISCOVERY.value
+                                await session.commit()
+                    except Exception as db_exc:
+                        logger.debug("DB status error: %s", db_exc)
+
+                    await publish_review_event(
+                        numeric_id,
+                        {
+                            "event": "stage_completed",
+                            "stage": "QUERY_EXPANSION",
+                            "status": "completed",
+                            "message": f"Expanded into {len(sub_queries)} academic queries",
+                            "data": {"sub_queries": sub_queries, "queries": sub_queries},
+                            "review_id": str(review_id),
+                        },
+                    )
+                    await publish_review_event(
+                        numeric_id,
+                        {
+                            "event": "stage_update",
+                            "stage": "PAPER_DISCOVERY",
+                            "status": "running",
+                            "message": "Querying arXiv, PubMed, and academic repositories...",
+                            "review_id": str(review_id),
+                        },
+                    )
+
+            elif "paper_discovery" in update:
+                node_out = update["paper_discovery"]
+                discovered = node_out.get("discovered_papers", [])
+                if numeric_id is not None:
+                    try:
+                        async with AsyncSessionLocal() as session:
+                            rev = await session.get(LiteratureReview, numeric_id)
+                            if rev:
+                                rev.status = ReviewStatus.SCREENING.value
+                                await session.commit()
+                    except Exception as db_exc:
+                        logger.debug("DB status error: %s", db_exc)
+
+                    await publish_review_event(
+                        numeric_id,
+                        {
+                            "event": "stage_completed",
+                            "stage": "PAPER_DISCOVERY",
+                            "status": "completed",
+                            "message": f"Discovered {len(discovered)} candidate papers",
+                            "data": {
+                                "total_count": len(discovered),
+                                "count": len(discovered),
+                            },
+                            "review_id": str(review_id),
+                        },
+                    )
+                    await publish_review_event(
+                        numeric_id,
+                        {
+                            "event": "stage_update",
+                            "stage": "SCREENING",
+                            "status": "running",
+                            "message": "Screening candidate papers against relevance criteria...",
+                            "review_id": str(review_id),
+                        },
+                    )
+
+            elif "screening" in update:
+                node_out = update["screening"]
+                screened = node_out.get("screened_papers", [])
+                if numeric_id is not None:
+                    try:
+                        async with AsyncSessionLocal() as session:
+                            rev = await session.get(LiteratureReview, numeric_id)
+                            if rev:
+                                rev.status = ReviewStatus.AWAITING_USER_INPUT.value
+
+                            paper_pairs = []
+                            for paper_data in screened:
+                                paper_obj = Paper(
+                                    title=paper_data.get("title") or "Untitled Paper",
+                                    authors=paper_data.get("authors"),
+                                    abstract=paper_data.get("abstract"),
+                                    published_year=paper_data.get("published_year")
+                                    or paper_data.get("year"),
+                                    arxiv_id=paper_data.get("arxiv_id"),
+                                    doi=paper_data.get("doi"),
+                                    pubmed_id=paper_data.get("pubmed_id"),
+                                    pdf_url=paper_data.get("pdf_url"),
+                                    source=paper_data.get("source") or "arxiv",
+                                    relevance_score=float(paper_data.get("relevance_score") or 0.0),
+                                    is_approved=False,
+                                    review_id=numeric_id,
+                                )
+                                session.add(paper_obj)
+                                paper_pairs.append((paper_data, paper_obj))
+
+                            await session.commit()
+                            for paper_data, paper_obj in paper_pairs:
+                                if getattr(paper_obj, "id", None) is not None:
+                                    paper_data["id"] = str(paper_obj.id)
+                                    paper_data["paper_id"] = str(paper_obj.id)
+                    except Exception as db_exc:
+                        logger.debug("DB paper persistence error: %s", db_exc)
+
+                    await publish_review_event(
+                        numeric_id,
+                        {
+                            "event": "stage_completed",
+                            "stage": "SCREENING",
+                            "status": "completed",
+                            "message": f"Screened {len(screened)} relevant papers",
+                            "data": {
+                                "screened_papers": screened,
+                                "total_screened": len(screened),
+                            },
+                            "review_id": str(review_id),
+                        },
+                    )
+                    await publish_review_event(
+                        numeric_id,
+                        {
+                            "event": "awaiting_user_input",
+                            "stage": "AWAITING_USER_INPUT",
+                            "status": "paused",
+                            "message": ("Awaiting human-in-the-loop candidate paper selection"),
+                            "data": {
+                                "screened_papers": screened,
+                                "total_screened": len(screened),
+                            },
+                            "review_id": str(review_id),
+                        },
+                    )
+
             if "pdf_extraction" in update:
                 node_out = update["pdf_extraction"]
                 pdf_contents = node_out.get("extracted_pdf_contents", {})
@@ -514,8 +654,11 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
         if numeric_id is not None:
             try:
                 async with AsyncSessionLocal() as session:
-                    rev = await session.get(LiteratureReview, numeric_id)
-                    if rev:
+                    rev = await session.get(LiteratureReview, numeric_id, with_for_update=True)
+                    if rev and rev.status not in {
+                        ReviewStatus.COMPLETED.value,
+                        ReviewStatus.AWAITING_USER_INPUT.value,
+                    }:
                         rev.status = ReviewStatus.FAILED.value
                         await session.commit()
             except Exception:
@@ -536,7 +679,7 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
 
 
 async def _retry_failed_review(review_id: str) -> None:
-    """Inspect the latest checkpoint and resume a failed literature review."""
+    """Inspect the latest checkpoint and resume a review that is still failed."""
     config = {"configurable": {"thread_id": str(review_id)}}
     numeric_id = int(review_id) if str(review_id).isdigit() else None
 
@@ -546,13 +689,64 @@ async def _retry_failed_review(review_id: str) -> None:
 
         if not next_nodes:
             logger.warning(
-                "No resumable LangGraph checkpoint found for review %s.",
+                "No resumable LangGraph checkpoint found for failed review %s.",
                 review_id,
             )
             return
 
         resuming_node = next_nodes[0]
+
+        if resuming_node == "human_interrupt":
+            screened = []
+            if snapshot and isinstance(snapshot.values, dict):
+                screened = snapshot.values.get("screened_papers", []) or []
+
+            if numeric_id is not None:
+                async with AsyncSessionLocal() as session:
+                    db_review = await session.get(
+                        LiteratureReview, numeric_id, with_for_update=True
+                    )
+                    if not db_review or db_review.status != ReviewStatus.FAILED.value:
+                        logger.info(
+                            (
+                                "Skipping retry for review %s because its status is "
+                                "no longer failed."
+                            ),
+                            review_id,
+                        )
+                        return
+                    db_review.status = ReviewStatus.AWAITING_USER_INPUT.value
+                    await session.commit()
+
+                await publish_review_event(
+                    numeric_id,
+                    {
+                        "event": "awaiting_user_input",
+                        "stage": "AWAITING_USER_INPUT",
+                        "status": "paused",
+                        "message": "Awaiting human-in-the-loop candidate paper selection",
+                        "data": {
+                            "screened_papers": screened,
+                            "total_screened": len(screened),
+                        },
+                        "review_id": str(review_id),
+                    },
+                )
+            return
+
         if numeric_id is not None:
+            async with AsyncSessionLocal() as session:
+                db_review = await session.get(LiteratureReview, numeric_id, with_for_update=True)
+                if not db_review or db_review.status != ReviewStatus.FAILED.value:
+                    logger.info(
+                        ("Skipping retry for review %s because its status is " "no longer failed."),
+                        review_id,
+                    )
+                    return
+
+                db_review.status = resuming_node
+                await session.commit()
+
             await publish_review_event(
                 numeric_id,
                 {
@@ -566,16 +760,37 @@ async def _retry_failed_review(review_id: str) -> None:
                 },
             )
 
-            async with AsyncSessionLocal() as session:
-                db_review = await session.get(LiteratureReview, numeric_id)
-                if db_review:
-                    db_review.status = resuming_node
-                    await session.commit()
-
         await _resume_graph(review_id, None)
 
     except Exception as exc:
         logger.exception("Failed to retry review %s: %s", review_id, exc)
+        if numeric_id is not None:
+            try:
+                async with AsyncSessionLocal() as session:
+                    db_review = await session.get(
+                        LiteratureReview, numeric_id, with_for_update=True
+                    )
+                    if db_review and db_review.status not in {
+                        ReviewStatus.COMPLETED.value,
+                        ReviewStatus.AWAITING_USER_INPUT.value,
+                    }:
+                        db_review.status = ReviewStatus.FAILED.value
+                        await session.commit()
+            except Exception:
+                pass
+            try:
+                await publish_review_event(
+                    numeric_id,
+                    {
+                        "event": "stage_failed",
+                        "stage": "FAILED",
+                        "status": "failed",
+                        "message": f"Pipeline execution failed: {str(exc)}",
+                        "review_id": str(review_id),
+                    },
+                )
+            except Exception:
+                pass
 
 
 @router.post("/", summary="Submit new literature review task")
@@ -951,10 +1166,13 @@ async def retry_review(
 
     _check_review_access(review, current_user)
 
-    if review.status == ReviewStatus.COMPLETED.value:
+    if review.status != ReviewStatus.FAILED.value:
         raise HTTPException(
             status_code=400,
-            detail="Cannot retry a review that has already completed successfully.",
+            detail=(
+                f"Cannot retry review with status '{review.status}'. "
+                "Only failed reviews can be resumed."
+            ),
         )
 
     background_tasks.add_task(_retry_failed_review, str(review_id))
