@@ -169,6 +169,8 @@ const ReviewDetailInner: React.FC = () => {
   }, [loadReviewData]);
 
   const handlePipelineFailed = useCallback((stageName?: string, errorMsg?: string) => {
+    // Invalidate pending status requests so they cannot overwrite the failure UI
+    activeRequestIdRef.current += 1;
     isResumingRef.current = false;
     if (resumeTimerRef.current) {
       clearTimeout(resumeTimerRef.current);

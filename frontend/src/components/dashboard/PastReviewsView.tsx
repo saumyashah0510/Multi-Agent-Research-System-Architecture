@@ -55,6 +55,10 @@ export default function PastReviewsView({
               id: String(item.id),
               query: item.query || item.user_query || "Untitled Literature Review",
               status: normalizeStatus(item.status),
+              failed_stage: item.failed_stage || item.failedStage || undefined,
+              stage: item.stage || undefined,
+              current_step: item.current_step || item.currentStep || undefined,
+              raw_status: item.status || undefined,
             }))
           : [];
         setReviews(list);

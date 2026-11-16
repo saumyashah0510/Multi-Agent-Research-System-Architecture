@@ -6,7 +6,7 @@ import ResearchInput, { type ResearchSearchParams } from "../components/Research
 import PaperGrid from "../components/dashboard/paper-grid";
 import PastReviewsView, { type TargetSection } from "../components/dashboard/PastReviewsView";
 import { type PaperSummary } from "../components/PaperSummaryCard";
-import { createReviewTask, submitHumanDecision, getReviewStatus } from "../lib/api";
+import { createReviewTask, submitHumanDecision, getReviewStatus, retryReviewPipeline } from "../lib/api";
 import ResearchProgress from "../components/pipeline/ResearchProgress";
 import useReviewWebSocket, { normalizePaper } from "../hooks/useReviewWebSocket";
 import { type ReviewHistoryItem } from "../types";
@@ -390,18 +390,24 @@ export default function Dashboard() {
     navigate(`/dashboard?tab=research&review_id=${encodeURIComponent(review.id)}`);
   };
 
-  const handleSelectPastReview = (review: ReviewHistoryItem) => {
+  const handleSelectPastReview = async (review: ReviewHistoryItem) => {
     if (review.status === "failed") {
       const stageIdentifier =
-        (review as any).failed_stage ||
-        (review as any).stage ||
-        (review as any).current_step ||
-        (review as any).raw_status ||
+        review.failed_stage ||
+        review.stage ||
+        review.current_step ||
+        review.raw_status ||
         null;
 
       if (isUpstreamApprovalStage(stageIdentifier)) {
-        openApprovalView(review);
-        return;
+        try {
+          await retryReviewPipeline(review.id);
+          openApprovalView(review);
+          return;
+        } catch {
+          navigate(`/review/${encodeURIComponent(review.id)}`);
+          return;
+        }
       }
 
       navigate(`/review/${encodeURIComponent(review.id)}`);

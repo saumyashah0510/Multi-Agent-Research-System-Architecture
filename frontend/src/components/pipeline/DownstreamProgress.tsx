@@ -64,9 +64,11 @@ export const DownstreamProgress: React.FC<DownstreamProgressProps> = ({
       const failed = stages.find((s) => s.status === "failed");
       if (failed) {
         onFailed(failed.title, failed.error || ws.error || undefined);
+      } else if (ws.status === "FAILED") {
+        onFailed(undefined, ws.error || undefined);
       }
     }
-  }, [isCompleted, stages, ws.error, onFailed]);
+  }, [isCompleted, stages, ws.status, ws.error, onFailed]);
 
   return (
     <div
