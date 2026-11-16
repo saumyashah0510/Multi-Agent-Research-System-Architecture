@@ -42,7 +42,9 @@ const ReviewDetailInner: React.FC = () => {
   const [isFailed, setIsFailed] = useState(false);
   const [failedMessage, setFailedMessage] = useState<string | null>(null);
   const [failedStage, setFailedStage] = useState<string | null>(null);
+  const [retryEpoch, setRetryEpoch] = useState(0);
   const isResumingRef = useRef(false);
+  const resumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isGraphView = tabParam === "graph";
   const [copiedMarkdown, setCopiedMarkdown] = useState(false);
   const [reviewTopic, setReviewTopic] = useState<string | null>(null);
@@ -70,6 +72,10 @@ const ReviewDetailInner: React.FC = () => {
         setFailedMessage(null);
         setFailedStage(null);
         isResumingRef.current = false;
+        if (resumeTimerRef.current) {
+          clearTimeout(resumeTimerRef.current);
+          resumeTimerRef.current = null;
+        }
         if (data?.synthesized_review) {
           setSynthesizedReport(data.synthesized_review);
           setFetchError(null);
@@ -93,6 +99,10 @@ const ReviewDetailInner: React.FC = () => {
       } else {
         setIsFailed(false);
         isResumingRef.current = false;
+        if (resumeTimerRef.current) {
+          clearTimeout(resumeTimerRef.current);
+          resumeTimerRef.current = null;
+        }
       }
       return data;
     } catch (err) {
@@ -112,8 +122,13 @@ const ReviewDetailInner: React.FC = () => {
     setIsFailed(false);
     setFailedMessage(null);
     setFailedStage(null);
+    if (resumeTimerRef.current) {
+      clearTimeout(resumeTimerRef.current);
+      resumeTimerRef.current = null;
+    }
     isResumingRef.current = false;
     setRetryCount(0);
+    setRetryEpoch(0);
     setFetchError(null);
 
     let isMounted = true;
@@ -123,6 +138,10 @@ const ReviewDetailInner: React.FC = () => {
 
     return () => {
       isMounted = false;
+      if (resumeTimerRef.current) {
+        clearTimeout(resumeTimerRef.current);
+        resumeTimerRef.current = null;
+      }
     };
   }, [reviewId, loadReviewData]);
 
@@ -131,11 +150,19 @@ const ReviewDetailInner: React.FC = () => {
     setRetryCount(0);
     setFetchError(null);
     isResumingRef.current = false;
+    if (resumeTimerRef.current) {
+      clearTimeout(resumeTimerRef.current);
+      resumeTimerRef.current = null;
+    }
     loadReviewData();
   }, [loadReviewData]);
 
   const handlePipelineFailed = useCallback((stageName?: string, errorMsg?: string) => {
     isResumingRef.current = false;
+    if (resumeTimerRef.current) {
+      clearTimeout(resumeTimerRef.current);
+      resumeTimerRef.current = null;
+    }
     setIsFailed(true);
     if (stageName) setFailedStage(stageName);
     if (errorMsg) setFailedMessage(errorMsg);
@@ -145,12 +172,24 @@ const ReviewDetailInner: React.FC = () => {
     if (!reviewId || isRetrying) return;
     setIsRetrying(true);
     isResumingRef.current = true;
+    if (resumeTimerRef.current) {
+      clearTimeout(resumeTimerRef.current);
+    }
+    // Safeguard: Never leave the UI stuck in processing indefinitely if backend fails to resume
+    resumeTimerRef.current = setTimeout(() => {
+      isResumingRef.current = false;
+      resumeTimerRef.current = null;
+      loadReviewData();
+    }, 6000);
+
     try {
       await retryReviewPipeline(reviewId);
       // Immediately transition local state from failed back to processing
       setIsFailed(false);
       setReviewStatus("processing");
       setFailedMessage(null);
+      // Restore retry-specific remount mechanism to establish fresh WebSocket connection
+      setRetryEpoch((prev) => prev + 1);
 
       // Refresh review data after giving the backend background task time to claim the checkpoint
       window.setTimeout(() => {
@@ -158,6 +197,10 @@ const ReviewDetailInner: React.FC = () => {
       }, 1000);
     } catch (err) {
       isResumingRef.current = false;
+      if (resumeTimerRef.current) {
+        clearTimeout(resumeTimerRef.current);
+        resumeTimerRef.current = null;
+      }
       throw err;
     } finally {
       setIsRetrying(false);
@@ -303,10 +346,14 @@ const ReviewDetailInner: React.FC = () => {
 
       {/* Downstream Checkpoints Tracker (Stages 5 to 9) */}
       <DownstreamProgress
-        key={reviewId}
+        key={`${reviewId}-${retryEpoch}`}
         reviewId={reviewId}
         isCompleted={isCompleted}
-        initialStatus={reviewStatus || undefined}
+        initialStatus={
+          isFailed
+            ? (reviewStatus || "failed")
+            : (failedStage || reviewStatus || undefined)
+        }
         onComplete={handlePipelineComplete}
         onFailed={handlePipelineFailed}
       />

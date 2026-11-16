@@ -51,7 +51,7 @@ export default function RetryBanner({
     setRetryError(null);
     try {
       await onRetry();
-    } catch (err: any) {
+    } catch (err: unknown) {
       let message = "Failed to resume pipeline. Please try again.";
       if (err instanceof Error) {
         if (
@@ -65,6 +65,13 @@ export default function RetryBanner({
         }
       } else if (typeof err === "string") {
         message = err;
+      } else if (
+        err &&
+        typeof err === "object" &&
+        "message" in err &&
+        typeof (err as { message: unknown }).message === "string"
+      ) {
+        message = (err as { message: string }).message;
       }
       setRetryError(message);
     } finally {
