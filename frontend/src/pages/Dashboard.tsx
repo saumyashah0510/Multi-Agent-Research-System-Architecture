@@ -222,6 +222,9 @@ export default function Dashboard() {
       return;
     }
 
+    // Advance selection epoch so pending retries become stale
+    reviewSelectionEpochRef.current += 1;
+
     setActiveQuery(params.query);
     setHasSearched(true);
     setIsPipelineDone(false);
