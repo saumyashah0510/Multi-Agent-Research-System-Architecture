@@ -261,7 +261,7 @@ export async function authWithGitHub(code: string): Promise<AuthResponse> {
 
 // Pipeline Retry API (Issue FE-13)
 export async function retryReviewPipeline(reviewId: string | number): Promise<any> {
-  const res = await fetch(`${getApiBaseUrl()}/reviews/${reviewId}/retry`, {
+  const res = await fetch(`${getApiBaseUrl()}/reviews/${encodeURIComponent(reviewId)}/retry`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

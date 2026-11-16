@@ -8,7 +8,7 @@
  */
 
 import { useState } from "react";
-import { AlertCircle, RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
+import { AlertCircle, RefreshCw, ChevronDown, ChevronUp, X } from "lucide-react";
 
 export interface RetryBannerProps {
   reviewId: string | number;
@@ -52,12 +52,20 @@ export default function RetryBanner({
     try {
       await onRetry();
     } catch (err: any) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : typeof err === "string"
-          ? err
-          : "Failed to resume pipeline. Please try again.";
+      let message = "Failed to resume pipeline. Please try again.";
+      if (err instanceof Error) {
+        if (
+          err.message.includes("Failed to fetch") ||
+          err.message.includes("NetworkError") ||
+          err.message.toLowerCase().includes("network")
+        ) {
+          message = "Network error: Unable to reach the server. Please check your connection and try again.";
+        } else {
+          message = err.message;
+        }
+      } else if (typeof err === "string") {
+        message = err;
+      }
       setRetryError(message);
     } finally {
       setIsRetrying(false);
@@ -125,10 +133,20 @@ export default function RetryBanner({
       {retryError && (
         <div
           role="alert"
-          className="mt-3 text-xs text-red-700 bg-white/80 p-3 rounded-lg border border-red-200 flex items-start gap-2"
+          className="mt-3 text-xs text-red-700 bg-white/90 p-3 rounded-lg border border-red-200 flex items-start justify-between gap-2 shadow-2xs"
         >
-          <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
-          <span className="flex-1">{retryError}</span>
+          <div className="flex items-start gap-2 flex-1">
+            <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+            <span className="flex-1 font-medium">{retryError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setRetryError(null)}
+            className="text-red-400 hover:text-red-700 p-0.5 rounded cursor-pointer transition-colors"
+            aria-label="Dismiss error"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
     </div>

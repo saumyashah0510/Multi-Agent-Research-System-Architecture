@@ -11,7 +11,7 @@
  * - Pass synthesized review to SynthesisReportViewer and methodology_matrix to MethodologyMatrix
  */
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useSearchParams, Link } from "react-router-dom";
 import {
   FileText,
@@ -42,7 +42,7 @@ const ReviewDetailInner: React.FC = () => {
   const [isFailed, setIsFailed] = useState(false);
   const [failedMessage, setFailedMessage] = useState<string | null>(null);
   const [failedStage, setFailedStage] = useState<string | null>(null);
-  const [retryEpoch, setRetryEpoch] = useState(0);
+  const isResumingRef = useRef(false);
   const isGraphView = tabParam === "graph";
   const [copiedMarkdown, setCopiedMarkdown] = useState(false);
   const [reviewTopic, setReviewTopic] = useState<string | null>(null);
@@ -69,22 +69,30 @@ const ReviewDetailInner: React.FC = () => {
         setIsFailed(false);
         setFailedMessage(null);
         setFailedStage(null);
+        isResumingRef.current = false;
         if (data?.synthesized_review) {
           setSynthesizedReport(data.synthesized_review);
           setFetchError(null);
         }
       } else if (normStatus === "failed") {
-        setIsFailed(true);
-        setFailedMessage(
-          data?.error_message ||
-          "Pipeline was interrupted. Click 'Retry from Failed Step' to resume from your latest checkpoint."
-        );
-        const stage = data?.failed_stage || data?.current_step || data?.stage;
-        if (stage) {
-          setFailedStage(stage);
+        // Prevent stale GET response from reverting status right after retry was accepted
+        if (isResumingRef.current) {
+          setReviewStatus("processing");
+          setIsFailed(false);
+        } else {
+          setIsFailed(true);
+          setFailedMessage(
+            data?.error_message ||
+            "Pipeline was interrupted. Click 'Retry from Failed Step' to resume from your latest checkpoint."
+          );
+          const stage = data?.failed_stage || data?.current_step || data?.stage;
+          if (stage) {
+            setFailedStage(stage);
+          }
         }
       } else {
         setIsFailed(false);
+        isResumingRef.current = false;
       }
       return data;
     } catch (err) {
@@ -104,8 +112,8 @@ const ReviewDetailInner: React.FC = () => {
     setIsFailed(false);
     setFailedMessage(null);
     setFailedStage(null);
+    isResumingRef.current = false;
     setRetryCount(0);
-    setRetryEpoch(0);
     setFetchError(null);
 
     let isMounted = true;
@@ -122,22 +130,38 @@ const ReviewDetailInner: React.FC = () => {
     setIsCompleted(true);
     setRetryCount(0);
     setFetchError(null);
+    isResumingRef.current = false;
     loadReviewData();
   }, [loadReviewData]);
 
   const handlePipelineFailed = useCallback((stageName?: string, errorMsg?: string) => {
+    isResumingRef.current = false;
     setIsFailed(true);
     if (stageName) setFailedStage(stageName);
     if (errorMsg) setFailedMessage(errorMsg);
   }, []);
 
   const handleRetryPipeline = async () => {
-    if (!reviewId) return;
-    await retryReviewPipeline(reviewId);
-    setIsFailed(false);
-    setReviewStatus("processing");
-    setRetryEpoch((prev) => prev + 1);
-    await loadReviewData();
+    if (!reviewId || isRetrying) return;
+    setIsRetrying(true);
+    isResumingRef.current = true;
+    try {
+      await retryReviewPipeline(reviewId);
+      // Immediately transition local state from failed back to processing
+      setIsFailed(false);
+      setReviewStatus("processing");
+      setFailedMessage(null);
+
+      // Refresh review data after giving the backend background task time to claim the checkpoint
+      window.setTimeout(() => {
+        loadReviewData();
+      }, 1000);
+    } catch (err) {
+      isResumingRef.current = false;
+      throw err;
+    } finally {
+      setIsRetrying(false);
+    }
   };
 
   // Auto-retry polling if pipeline completed but synthesized_review is not yet available
@@ -279,7 +303,7 @@ const ReviewDetailInner: React.FC = () => {
 
       {/* Downstream Checkpoints Tracker (Stages 5 to 9) */}
       <DownstreamProgress
-        key={`${reviewId}-${retryEpoch}`}
+        key={reviewId}
         reviewId={reviewId}
         isCompleted={isCompleted}
         initialStatus={reviewStatus || undefined}
