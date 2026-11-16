@@ -24,6 +24,7 @@ export default function Dashboard() {
   const [reviewId, setReviewId] = useState<string | null>(null);
   const activeReviewIdRef = useRef<string | null>(reviewId);
   activeReviewIdRef.current = reviewId;
+  const reviewSelectionEpochRef = useRef(0);
 
   const currentTab = (searchParams.get("tab") || "").toLowerCase();
   const urlReviewId = searchParams.get("review_id");
@@ -391,6 +392,8 @@ export default function Dashboard() {
   };
 
   const handleSelectPastReview = async (review: ReviewHistoryItem) => {
+    const currentEpoch = ++reviewSelectionEpochRef.current;
+
     if (review.status === "failed") {
       const stageIdentifier =
         review.failed_stage ||
@@ -402,9 +405,11 @@ export default function Dashboard() {
       if (isUpstreamApprovalStage(stageIdentifier)) {
         try {
           await retryReviewPipeline(review.id);
+          if (currentEpoch !== reviewSelectionEpochRef.current) return;
           openApprovalView(review);
           return;
         } catch {
+          if (currentEpoch !== reviewSelectionEpochRef.current) return;
           navigate(`/review/${encodeURIComponent(review.id)}`);
           return;
         }
