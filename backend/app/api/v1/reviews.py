@@ -441,6 +441,7 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                                     paper_data["paper_id"] = str(paper_obj.id)
                     except Exception as db_exc:
                         logger.debug("DB paper persistence error: %s", db_exc)
+                        raise
 
                     await publish_review_event(
                         numeric_id,
@@ -663,6 +664,13 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                         await session.commit()
             except Exception:
                 pass
+
+            if rev and rev.status in {
+                ReviewStatus.COMPLETED.value,
+                ReviewStatus.AWAITING_USER_INPUT.value,
+            }:
+                return
+            
             try:
                 await publish_review_event(
                     numeric_id,
@@ -682,6 +690,7 @@ async def _retry_failed_review(review_id: str) -> None:
     """Inspect the latest checkpoint and resume a review that is still failed."""
     config = {"configurable": {"thread_id": str(review_id)}}
     numeric_id = int(review_id) if str(review_id).isdigit() else None
+    claimed = False
 
     try:
         snapshot = await graph.aget_state(config)
@@ -717,6 +726,7 @@ async def _retry_failed_review(review_id: str) -> None:
                         return
                     db_review.status = ReviewStatus.AWAITING_USER_INPUT.value
                     await session.commit()
+                    claimed = True
 
                 await publish_review_event(
                     numeric_id,
@@ -736,16 +746,22 @@ async def _retry_failed_review(review_id: str) -> None:
 
         if numeric_id is not None:
             async with AsyncSessionLocal() as session:
-                db_review = await session.get(LiteratureReview, numeric_id, with_for_update=True)
+                db_review = await session.get(
+                    LiteratureReview, numeric_id, with_for_update=True
+                )
                 if not db_review or db_review.status != ReviewStatus.FAILED.value:
                     logger.info(
-                        ("Skipping retry for review %s because its status is " "no longer failed."),
+                        (
+                            "Skipping retry for review %s because its status is "
+                            "no longer failed."
+                        ),
                         review_id,
                     )
                     return
 
                 db_review.status = resuming_node
                 await session.commit()
+                claimed = True
 
             await publish_review_event(
                 numeric_id,
@@ -754,7 +770,8 @@ async def _retry_failed_review(review_id: str) -> None:
                     "stage": resuming_node.upper(),
                     "status": "running",
                     "message": (
-                        f"Resuming literature review from " f"{resuming_node.replace('_', ' ')}..."
+                        f"Resuming literature review from "
+                        f"{resuming_node.replace('_', ' ')}..."
                     ),
                     "review_id": str(review_id),
                 },
@@ -764,7 +781,7 @@ async def _retry_failed_review(review_id: str) -> None:
 
     except Exception as exc:
         logger.exception("Failed to retry review %s: %s", review_id, exc)
-        if numeric_id is not None:
+        if claimed and numeric_id is not None:
             try:
                 async with AsyncSessionLocal() as session:
                     db_review = await session.get(
@@ -778,6 +795,7 @@ async def _retry_failed_review(review_id: str) -> None:
                         await session.commit()
             except Exception:
                 pass
+
             try:
                 await publish_review_event(
                     numeric_id,
@@ -791,7 +809,6 @@ async def _retry_failed_review(review_id: str) -> None:
                 )
             except Exception:
                 pass
-
 
 @router.post("/", summary="Submit new literature review task")
 @router.post("", include_in_schema=False)
