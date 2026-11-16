@@ -60,11 +60,13 @@ export const DownstreamProgress: React.FC<DownstreamProgressProps> = ({
   }, [isCompleted]);
 
   useEffect(() => {
-    if (isFailed && onFailed) {
+    if (!isCompleted && onFailed) {
       const failed = stages.find((s) => s.status === "failed");
-      onFailed(failed?.title, ws.error || undefined);
+      if (failed) {
+        onFailed(failed.title, failed.error || ws.error || undefined);
+      }
     }
-  }, [isFailed, stages, ws.error, onFailed]);
+  }, [isCompleted, stages, ws.error, onFailed]);
 
   return (
     <div

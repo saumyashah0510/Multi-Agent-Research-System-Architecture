@@ -45,6 +45,7 @@ const ReviewDetailInner: React.FC = () => {
   const [retryEpoch, setRetryEpoch] = useState(0);
   const isResumingRef = useRef(false);
   const resumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeRequestIdRef = useRef(0);
   const isGraphView = tabParam === "graph";
   const [copiedMarkdown, setCopiedMarkdown] = useState(false);
   const [reviewTopic, setReviewTopic] = useState<string | null>(null);
@@ -57,8 +58,13 @@ const ReviewDetailInner: React.FC = () => {
   // Load review status and synthesized report via GET /api/v1/reviews/{reviewId}
   const loadReviewData = useCallback(async () => {
     if (!reviewId) return null;
+    const currentRequestId = ++activeRequestIdRef.current;
     try {
       const data = await getReviewStatus(reviewId);
+      // Suppress stale results from superseded requests or overlapping refreshes
+      if (currentRequestId !== activeRequestIdRef.current) {
+        return null;
+      }
       if (data?.query || data?.user_query) {
         setReviewTopic(data.query || data.user_query);
       }
@@ -106,13 +112,18 @@ const ReviewDetailInner: React.FC = () => {
       }
       return data;
     } catch (err) {
-      console.warn("Could not retrieve review status:", err);
+      if (currentRequestId === activeRequestIdRef.current) {
+        console.warn("Could not retrieve review status:", err);
+      }
       return null;
     }
   }, [reviewId]);
 
   useEffect(() => {
     if (!reviewId) return;
+
+    // Invalidate any in-flight requests from the previous review session
+    activeRequestIdRef.current += 1;
 
     // Reset review state on reviewId change to avoid displaying stale data
     setReviewTopic(null);
@@ -184,6 +195,8 @@ const ReviewDetailInner: React.FC = () => {
 
     try {
       await retryReviewPipeline(reviewId);
+      // Invalidate any in-flight GET requests started prior to or during the retry call
+      activeRequestIdRef.current += 1;
       // Immediately transition local state from failed back to processing
       setIsFailed(false);
       setReviewStatus("processing");

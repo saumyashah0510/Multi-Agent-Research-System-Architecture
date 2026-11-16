@@ -362,24 +362,54 @@ export default function Dashboard() {
     }
   };
 
+  const isUpstreamApprovalStage = (stageName?: string | null): boolean => {
+    if (!stageName) return false;
+    const s = String(stageName).toLowerCase().replace(/[\s-]/g, "_");
+    return (
+      s.includes("query_expansion") ||
+      s.includes("discovery") ||
+      s.includes("search") ||
+      s.includes("screen") ||
+      s.includes("approval") ||
+      s.includes("awaiting") ||
+      s.includes("interrupt")
+    );
+  };
+
+  const openApprovalView = (review: ReviewHistoryItem) => {
+    setActiveQuery(review.query);
+    setPapers([]);
+    setSelectedPaperIds([]);
+    setApprovalError(null);
+    setApprovalSuccess(null);
+    setIsPipelineDone(false);
+    setHasCompletedActiveWorkflow(false);
+    setCompletedWorkflowReviewId(null);
+    setReviewId(review.id);
+    setHasSearched(true);
+    navigate(`/dashboard?tab=research&review_id=${encodeURIComponent(review.id)}`);
+  };
+
   const handleSelectPastReview = (review: ReviewHistoryItem) => {
     if (review.status === "failed") {
+      const stageIdentifier =
+        (review as any).failed_stage ||
+        (review as any).stage ||
+        (review as any).current_step ||
+        (review as any).raw_status ||
+        null;
+
+      if (isUpstreamApprovalStage(stageIdentifier)) {
+        openApprovalView(review);
+        return;
+      }
+
       navigate(`/review/${encodeURIComponent(review.id)}`);
       return;
     }
 
     if (review.status === "awaiting_approval") {
-      setActiveQuery(review.query);
-      setPapers([]);
-      setSelectedPaperIds([]);
-      setApprovalError(null);
-      setApprovalSuccess(null);
-      setIsPipelineDone(false);
-      setHasCompletedActiveWorkflow(false);
-      setCompletedWorkflowReviewId(null);
-      setReviewId(review.id);
-      setHasSearched(true);
-      navigate(`/dashboard?tab=research&review_id=${encodeURIComponent(review.id)}`);
+      openApprovalView(review);
       return;
     }
 
