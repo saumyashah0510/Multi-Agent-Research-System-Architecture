@@ -223,7 +223,7 @@ export default function Dashboard() {
     }
 
     // Advance selection epoch so pending retries become stale
-    reviewSelectionEpochRef.current += 1;
+    const currentEpoch = ++reviewSelectionEpochRef.current;
 
     setActiveQuery(params.query);
     setHasSearched(true);
@@ -241,6 +241,7 @@ export default function Dashboard() {
     // Call backend API createReviewTask to obtain the real review_id
     try {
       const res = await createReviewTask(params.query, params.max_papers || 10);
+      if (currentEpoch !== reviewSelectionEpochRef.current) return;
       if (res && res.review_id) {
         setReviewId(res.review_id);
         if (typeof window !== "undefined") {
@@ -257,6 +258,7 @@ export default function Dashboard() {
         setApprovalError("Failed to initialize review session. Please try searching again.");
       }
     } catch (err: any) {
+      if (currentEpoch !== reviewSelectionEpochRef.current) return;
       console.warn("Could not initiate backend review task:", err);
       if (
         err?.message?.includes("401") ||
@@ -454,6 +456,7 @@ export default function Dashboard() {
   };
 
   const handleBackToPastReviews = () => {
+    reviewSelectionEpochRef.current += 1;
     setReviewId(null);
     setPapers([]);
     setSelectedPaperIds([]);
