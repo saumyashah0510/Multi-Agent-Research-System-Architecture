@@ -653,24 +653,27 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
     except Exception as exc:
         logger.error("Failed to resume graph for review %s: %s", review_id, exc, exc_info=True)
         if numeric_id is not None:
+            failure_review = None
             try:
                 async with AsyncSessionLocal() as session:
-                    rev = await session.get(LiteratureReview, numeric_id, with_for_update=True)
-                    if rev and rev.status not in {
+                    failure_review = await session.get(
+                        LiteratureReview, numeric_id, with_for_update=True
+                    )
+                    if failure_review and failure_review.status not in {
                         ReviewStatus.COMPLETED.value,
                         ReviewStatus.AWAITING_USER_INPUT.value,
                     }:
-                        rev.status = ReviewStatus.FAILED.value
+                        failure_review.status = ReviewStatus.FAILED.value
                         await session.commit()
             except Exception:
                 pass
 
-            if rev and rev.status in {
+            if failure_review and failure_review.status in {
                 ReviewStatus.COMPLETED.value,
                 ReviewStatus.AWAITING_USER_INPUT.value,
             }:
                 return
-            
+
             try:
                 await publish_review_event(
                     numeric_id,
@@ -746,15 +749,10 @@ async def _retry_failed_review(review_id: str) -> None:
 
         if numeric_id is not None:
             async with AsyncSessionLocal() as session:
-                db_review = await session.get(
-                    LiteratureReview, numeric_id, with_for_update=True
-                )
+                db_review = await session.get(LiteratureReview, numeric_id, with_for_update=True)
                 if not db_review or db_review.status != ReviewStatus.FAILED.value:
                     logger.info(
-                        (
-                            "Skipping retry for review %s because its status is "
-                            "no longer failed."
-                        ),
+                        ("Skipping retry for review %s because its status is " "no longer failed."),
                         review_id,
                     )
                     return
@@ -770,8 +768,7 @@ async def _retry_failed_review(review_id: str) -> None:
                     "stage": resuming_node.upper(),
                     "status": "running",
                     "message": (
-                        f"Resuming literature review from "
-                        f"{resuming_node.replace('_', ' ')}..."
+                        f"Resuming literature review from " f"{resuming_node.replace('_', ' ')}..."
                     ),
                     "review_id": str(review_id),
                 },
@@ -809,6 +806,7 @@ async def _retry_failed_review(review_id: str) -> None:
                 )
             except Exception:
                 pass
+
 
 @router.post("/", summary="Submit new literature review task")
 @router.post("", include_in_schema=False)
