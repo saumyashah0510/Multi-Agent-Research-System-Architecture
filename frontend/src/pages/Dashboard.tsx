@@ -363,6 +363,11 @@ export default function Dashboard() {
   };
 
   const handleSelectPastReview = (review: ReviewHistoryItem) => {
+    if (review.status === "failed") {
+      navigate(`/review/${encodeURIComponent(review.id)}`);
+      return;
+    }
+
     if (review.status === "awaiting_approval") {
       setActiveQuery(review.query);
       setPapers([]);

@@ -261,7 +261,6 @@ export async function authWithGitHub(code: string): Promise<AuthResponse> {
 
 // Pipeline Retry API (Issue FE-13)
 export async function retryReviewPipeline(reviewId: string | number): Promise<any> {
-  // TODO (Assignee - FE-13): POST /reviews/{reviewId}/retry
   const res = await fetch(`${getApiBaseUrl()}/reviews/${reviewId}/retry`, {
     method: "POST",
     headers: {
@@ -270,8 +269,23 @@ export async function retryReviewPipeline(reviewId: string | number): Promise<an
     },
   });
   if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.detail || `Retry failed with status ${res.status}`);
+    let errorDetail = "Failed to resume pipeline";
+    try {
+      const errorJson = await res.json();
+      if (errorJson && errorJson.detail) {
+        errorDetail =
+          typeof errorJson.detail === "string"
+            ? errorJson.detail
+            : JSON.stringify(errorJson.detail);
+      } else if (res.statusText) {
+        errorDetail = `Failed to resume pipeline: ${res.statusText}`;
+      }
+    } catch {
+      if (res.statusText) {
+        errorDetail = `Failed to resume pipeline: ${res.statusText}`;
+      }
+    }
+    throw new Error(errorDetail);
   }
   return res.json();
 }

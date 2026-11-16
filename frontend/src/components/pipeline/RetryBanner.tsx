@@ -18,6 +18,20 @@ export interface RetryBannerProps {
   className?: string;
 }
 
+function formatStageName(stage?: string): string {
+  if (!stage) return "Report Synthesis";
+  const cleaned = stage.replace(/[_-]+/g, " ").trim();
+  return cleaned
+    .split(/\s+/)
+    .map((w) => {
+      const lower = w.toLowerCase();
+      if (lower === "pdf") return "PDF";
+      if (lower === "llm") return "LLM";
+      return w.charAt(0).toUpperCase() + lower.slice(1);
+    })
+    .join(" ");
+}
+
 export default function RetryBanner({
   reviewId,
   failedStage = "Report Synthesis",
@@ -29,18 +43,22 @@ export default function RetryBanner({
   const [showDetails, setShowDetails] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
 
+  const displayStage = formatStageName(failedStage);
+
   const handleRetryClick = async () => {
-    // TODO (Assignee - FE-13):
-    // 1. Set isRetrying(true)
-    // 2. Invoke onRetry()
-    // 3. Catch errors and setRetryError
-    // 4. Finally set isRetrying(false)
+    if (isRetrying) return;
     setIsRetrying(true);
     setRetryError(null);
     try {
       await onRetry();
     } catch (err: any) {
-      setRetryError(err.message || "Failed to resume pipeline. Please try again.");
+      const message =
+        err instanceof Error
+          ? err.message
+          : typeof err === "string"
+          ? err
+          : "Failed to resume pipeline. Please try again.";
+      setRetryError(message);
     } finally {
       setIsRetrying(false);
     }
@@ -49,6 +67,8 @@ export default function RetryBanner({
   return (
     <div
       data-review-id={reviewId}
+      role="alert"
+      aria-live="polite"
       className={`rounded-2xl border border-rose-200 bg-rose-50/70 p-5 backdrop-blur-xs text-neutral-900 shadow-xs ${className}`}
     >
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -59,7 +79,7 @@ export default function RetryBanner({
           </div>
           <div>
             <h4 className="font-semibold text-sm sm:text-base text-rose-950">
-              Pipeline Execution Paused at {failedStage}
+              Pipeline Execution Paused at {displayStage}
             </h4>
             <p className="text-xs sm:text-sm text-rose-800/80 mt-0.5">
               Don't worry — your discovered papers, approvals, and extracted texts are safely
@@ -85,8 +105,9 @@ export default function RetryBanner({
             type="button"
             onClick={handleRetryClick}
             disabled={isRetrying}
+            aria-busy={isRetrying}
             style={{ borderRadius: "var(--radius-sm)" }}
-            className="flex items-center gap-2 px-4 py-2 bg-[var(--status-error-dark)] hover:bg-[var(--status-error-text)] text-white font-medium text-xs sm:text-sm shadow-xs transition hover:shadow cursor-pointer disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 bg-[var(--status-error-dark)] hover:bg-[var(--status-error-text)] text-white font-medium text-xs sm:text-sm shadow-xs transition hover:shadow cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <RefreshCw className={`w-4 h-4 ${isRetrying ? "animate-spin" : ""}`} />
             {isRetrying ? "Resuming from Checkpoint..." : "Retry from Failed Step"}
@@ -96,14 +117,18 @@ export default function RetryBanner({
 
       {/* Expandable Technical Trace / Error */}
       {showDetails && errorMessage && (
-        <div className="mt-4 pt-3 border-t border-rose-200/60 text-xs font-mono text-rose-900 bg-rose-100/50 p-3 rounded-lg overflow-x-auto">
+        <div className="mt-4 pt-3 border-t border-rose-200/60 text-xs font-mono text-rose-900 bg-rose-100/50 p-3 rounded-lg overflow-x-auto whitespace-pre-wrap break-words">
           {errorMessage}
         </div>
       )}
 
       {retryError && (
-        <div className="mt-3 text-xs text-red-600 bg-white/60 p-2 rounded-lg border border-red-200">
-          {retryError}
+        <div
+          role="alert"
+          className="mt-3 text-xs text-red-700 bg-white/80 p-3 rounded-lg border border-red-200 flex items-start gap-2"
+        >
+          <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+          <span className="flex-1">{retryError}</span>
         </div>
       )}
     </div>

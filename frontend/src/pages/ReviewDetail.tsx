@@ -41,6 +41,8 @@ const ReviewDetailInner: React.FC = () => {
   const [isCompleted, setIsCompleted] = useState(false);
   const [isFailed, setIsFailed] = useState(false);
   const [failedMessage, setFailedMessage] = useState<string | null>(null);
+  const [failedStage, setFailedStage] = useState<string | null>(null);
+  const [retryEpoch, setRetryEpoch] = useState(0);
   const isGraphView = tabParam === "graph";
   const [copiedMarkdown, setCopiedMarkdown] = useState(false);
   const [reviewTopic, setReviewTopic] = useState<string | null>(null);
@@ -65,6 +67,8 @@ const ReviewDetailInner: React.FC = () => {
       if (normStatus === "completed" || normStatus === "synthesis_completed") {
         setIsCompleted(true);
         setIsFailed(false);
+        setFailedMessage(null);
+        setFailedStage(null);
         if (data?.synthesized_review) {
           setSynthesizedReport(data.synthesized_review);
           setFetchError(null);
@@ -75,6 +79,10 @@ const ReviewDetailInner: React.FC = () => {
           data?.error_message ||
           "Pipeline was interrupted. Click 'Retry from Failed Step' to resume from your latest checkpoint."
         );
+        const stage = data?.failed_stage || data?.current_step || data?.stage;
+        if (stage) {
+          setFailedStage(stage);
+        }
       } else {
         setIsFailed(false);
       }
@@ -93,7 +101,11 @@ const ReviewDetailInner: React.FC = () => {
     setReviewStatus(null);
     setSynthesizedReport(null);
     setIsCompleted(false);
+    setIsFailed(false);
+    setFailedMessage(null);
+    setFailedStage(null);
     setRetryCount(0);
+    setRetryEpoch(0);
     setFetchError(null);
 
     let isMounted = true;
@@ -112,6 +124,21 @@ const ReviewDetailInner: React.FC = () => {
     setFetchError(null);
     loadReviewData();
   }, [loadReviewData]);
+
+  const handlePipelineFailed = useCallback((stageName?: string, errorMsg?: string) => {
+    setIsFailed(true);
+    if (stageName) setFailedStage(stageName);
+    if (errorMsg) setFailedMessage(errorMsg);
+  }, []);
+
+  const handleRetryPipeline = async () => {
+    if (!reviewId) return;
+    await retryReviewPipeline(reviewId);
+    setIsFailed(false);
+    setReviewStatus("processing");
+    setRetryEpoch((prev) => prev + 1);
+    await loadReviewData();
+  };
 
   // Auto-retry polling if pipeline completed but synthesized_review is not yet available
   useEffect(() => {
@@ -243,23 +270,21 @@ const ReviewDetailInner: React.FC = () => {
       {isFailed && (
         <RetryBanner
           reviewId={reviewId || ""}
+          failedStage={failedStage || undefined}
           errorMessage={failedMessage || undefined}
-          onRetry={async () => {
-            if (!reviewId) return;
-            await retryReviewPipeline(reviewId);
-            setIsFailed(false);
-            loadReviewData();
-          }}
+          onRetry={handleRetryPipeline}
           className="mb-6"
         />
       )}
 
       {/* Downstream Checkpoints Tracker (Stages 5 to 9) */}
       <DownstreamProgress
+        key={`${reviewId}-${retryEpoch}`}
         reviewId={reviewId}
         isCompleted={isCompleted}
         initialStatus={reviewStatus || undefined}
         onComplete={handlePipelineComplete}
+        onFailed={handlePipelineFailed}
       />
 
       {/* Synthesis Report or Citation Graph View */}

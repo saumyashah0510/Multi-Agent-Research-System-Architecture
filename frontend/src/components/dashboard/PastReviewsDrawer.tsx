@@ -211,10 +211,23 @@ export const PastReviewsDrawer: React.FC<PastReviewsDrawerProps> = ({ isOpen, on
                         onClose();
                         navigate(`/review/${rev.id}`);
                       }}
-                      className="flex-1 inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-neutral-900 text-white hover:bg-neutral-800 transition-colors"
+                      className={
+                        rev.status === "failed"
+                          ? "flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-600 text-white hover:bg-rose-700 transition-colors cursor-pointer"
+                          : "flex-1 inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-neutral-900 text-white hover:bg-neutral-800 transition-colors cursor-pointer"
+                      }
                     >
-                      <span>Open Review</span>
-                      <ExternalLink className="w-3 h-3" />
+                      {rev.status === "failed" ? (
+                        <>
+                          <RefreshCw className="w-3 h-3" />
+                          <span>Resume</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>Open Review</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </>
+                      )}
                     </button>
 
                     {rev.status === "completed" && (

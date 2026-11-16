@@ -214,6 +214,12 @@ export function useDownstreamWebSocket(
   // Synchronize active downstream stage if initialStatus is supplied via REST or parent props
   useEffect(() => {
     if (!initialStatus || isCompletedRef.current) return;
+    const normInit = initialStatus.toLowerCase();
+    if (normInit === "failed" || normInit === "error") {
+      setStatus("FAILED");
+      setIsRunning(false);
+      return;
+    }
     const idx = getDownstreamStageIndex(initialStatus);
     if (idx !== null) {
       setStages((prev) =>
@@ -523,16 +529,22 @@ export function useDownstreamWebSocket(
 
     // Set initial stage if passed (e.g. from GET /api/v1/reviews/{reviewId})
     if (initialStatus) {
-      const idx = getDownstreamStageIndex(initialStatus);
-      if (idx !== null) {
-        setStages((prev) =>
-          prev.map((s, i) => ({
-            ...s,
-            status: i < idx ? "completed" : i === idx ? "running" : "pending",
-            message: i === idx ? s.supportingStatus : null,
-            result: i < idx ? getDefaultCompletedResult(i) : null,
-          }))
-        );
+      const normInit = initialStatus.toLowerCase();
+      if (normInit === "failed" || normInit === "error") {
+        setStatus("FAILED");
+        setIsRunning(false);
+      } else {
+        const idx = getDownstreamStageIndex(initialStatus);
+        if (idx !== null) {
+          setStages((prev) =>
+            prev.map((s, i) => ({
+              ...s,
+              status: i < idx ? "completed" : i === idx ? "running" : "pending",
+              message: i === idx ? s.supportingStatus : null,
+              result: i < idx ? getDefaultCompletedResult(i) : null,
+            }))
+          );
+        }
       }
     }
 
