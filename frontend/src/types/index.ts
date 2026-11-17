@@ -168,6 +168,10 @@ export interface ReviewHistoryItem {
   paper_count?: number;
   created_at: string;
   pdf_url?: string;
+  failed_stage?: string;
+  stage?: string;
+  current_step?: string;
+  raw_status?: string;
 }
 
 export interface WebSocketStageUpdateEvent {

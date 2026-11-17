@@ -6,7 +6,7 @@ import ResearchInput, { type ResearchSearchParams } from "../components/Research
 import PaperGrid from "../components/dashboard/paper-grid";
 import PastReviewsView, { type TargetSection } from "../components/dashboard/PastReviewsView";
 import { type PaperSummary } from "../components/PaperSummaryCard";
-import { createReviewTask, submitHumanDecision, getReviewStatus } from "../lib/api";
+import { createReviewTask, submitHumanDecision, getReviewStatus, retryReviewPipeline } from "../lib/api";
 import ResearchProgress from "../components/pipeline/ResearchProgress";
 import useReviewWebSocket, { normalizePaper } from "../hooks/useReviewWebSocket";
 import { type ReviewHistoryItem } from "../types";
@@ -24,6 +24,7 @@ export default function Dashboard() {
   const [reviewId, setReviewId] = useState<string | null>(null);
   const activeReviewIdRef = useRef<string | null>(reviewId);
   activeReviewIdRef.current = reviewId;
+  const reviewSelectionEpochRef = useRef(0);
 
   const currentTab = (searchParams.get("tab") || "").toLowerCase();
   const urlReviewId = searchParams.get("review_id");
@@ -221,6 +222,9 @@ export default function Dashboard() {
       return;
     }
 
+    // Advance selection epoch so pending retries become stale
+    const currentEpoch = ++reviewSelectionEpochRef.current;
+
     setActiveQuery(params.query);
     setHasSearched(true);
     setIsPipelineDone(false);
@@ -237,6 +241,7 @@ export default function Dashboard() {
     // Call backend API createReviewTask to obtain the real review_id
     try {
       const res = await createReviewTask(params.query, params.max_papers || 10);
+      if (currentEpoch !== reviewSelectionEpochRef.current) return;
       if (res && res.review_id) {
         setReviewId(res.review_id);
         if (typeof window !== "undefined") {
@@ -253,6 +258,7 @@ export default function Dashboard() {
         setApprovalError("Failed to initialize review session. Please try searching again.");
       }
     } catch (err: any) {
+      if (currentEpoch !== reviewSelectionEpochRef.current) return;
       console.warn("Could not initiate backend review task:", err);
       if (
         err?.message?.includes("401") ||
@@ -362,19 +368,64 @@ export default function Dashboard() {
     }
   };
 
-  const handleSelectPastReview = (review: ReviewHistoryItem) => {
+  const isUpstreamApprovalStage = (stageName?: string | null): boolean => {
+    if (!stageName) return false;
+    const s = String(stageName).toLowerCase().replace(/[\s-]/g, "_");
+    return (
+      s.includes("query_expansion") ||
+      s.includes("discovery") ||
+      s.includes("search") ||
+      s.includes("screen") ||
+      s.includes("approval") ||
+      s.includes("awaiting") ||
+      s.includes("interrupt")
+    );
+  };
+
+  const openApprovalView = (review: ReviewHistoryItem) => {
+    setActiveQuery(review.query);
+    setPapers([]);
+    setSelectedPaperIds([]);
+    setApprovalError(null);
+    setApprovalSuccess(null);
+    setIsPipelineDone(false);
+    setHasCompletedActiveWorkflow(false);
+    setCompletedWorkflowReviewId(null);
+    setReviewId(review.id);
+    setHasSearched(true);
+    navigate(`/dashboard?tab=research&review_id=${encodeURIComponent(review.id)}`);
+  };
+
+  const handleSelectPastReview = async (review: ReviewHistoryItem) => {
+    const currentEpoch = ++reviewSelectionEpochRef.current;
+
+    if (review.status === "failed") {
+      const stageIdentifier =
+        review.failed_stage ||
+        review.stage ||
+        review.current_step ||
+        review.raw_status ||
+        null;
+
+      if (isUpstreamApprovalStage(stageIdentifier)) {
+        try {
+          await retryReviewPipeline(review.id);
+          if (currentEpoch !== reviewSelectionEpochRef.current) return;
+          openApprovalView(review);
+          return;
+        } catch {
+          if (currentEpoch !== reviewSelectionEpochRef.current) return;
+          navigate(`/review/${encodeURIComponent(review.id)}`);
+          return;
+        }
+      }
+
+      navigate(`/review/${encodeURIComponent(review.id)}`);
+      return;
+    }
+
     if (review.status === "awaiting_approval") {
-      setActiveQuery(review.query);
-      setPapers([]);
-      setSelectedPaperIds([]);
-      setApprovalError(null);
-      setApprovalSuccess(null);
-      setIsPipelineDone(false);
-      setHasCompletedActiveWorkflow(false);
-      setCompletedWorkflowReviewId(null);
-      setReviewId(review.id);
-      setHasSearched(true);
-      navigate(`/dashboard?tab=research&review_id=${encodeURIComponent(review.id)}`);
+      openApprovalView(review);
       return;
     }
 
@@ -405,6 +456,7 @@ export default function Dashboard() {
   };
 
   const handleBackToPastReviews = () => {
+    reviewSelectionEpochRef.current += 1;
     setReviewId(null);
     setPapers([]);
     setSelectedPaperIds([]);

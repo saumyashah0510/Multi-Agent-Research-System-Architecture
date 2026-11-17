@@ -22,6 +22,7 @@ export interface DownstreamProgressProps {
   isCompleted?: boolean;
   initialStatus?: string;
   onComplete?: () => void;
+  onFailed?: (failedStage?: string, errorMsg?: string) => void;
   className?: string;
   reviewId?: string;
   isMock?: boolean;
@@ -33,6 +34,7 @@ export const DownstreamProgress: React.FC<DownstreamProgressProps> = ({
   isCompleted: customIsCompleted = false,
   initialStatus,
   onComplete,
+  onFailed,
   className = "",
   reviewId,
   isMock = false,
@@ -56,6 +58,17 @@ export const DownstreamProgress: React.FC<DownstreamProgressProps> = ({
       setIsCollapsed(true);
     }
   }, [isCompleted]);
+
+  useEffect(() => {
+    if (!isCompleted && onFailed) {
+      const failed = stages.find((s) => s.status === "failed");
+      if (failed) {
+        onFailed(failed.title, failed.error || ws.error || undefined);
+      } else if (ws.status === "FAILED") {
+        onFailed(undefined, ws.error || undefined);
+      }
+    }
+  }, [isCompleted, stages, ws.status, ws.error, onFailed]);
 
   return (
     <div

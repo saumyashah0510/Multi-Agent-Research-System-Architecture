@@ -55,6 +55,10 @@ export default function PastReviewsView({
               id: String(item.id),
               query: item.query || item.user_query || "Untitled Literature Review",
               status: normalizeStatus(item.status),
+              failed_stage: item.failed_stage || item.failedStage || undefined,
+              stage: item.stage || undefined,
+              current_step: item.current_step || item.currentStep || undefined,
+              raw_status: item.status || undefined,
             }))
           : [];
         setReviews(list);
@@ -311,7 +315,23 @@ export default function PastReviewsView({
                     >
                       <span>Continue Review</span>
                     </button>
-                  ) : review.status !== "failed" ? (
+                  ) : review.status === "failed" ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelectReview(review);
+                      }}
+                      style={{
+                        borderRadius: "var(--radius-sm)",
+                        border: "1px solid var(--border-default)",
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold bg-rose-50 hover:bg-rose-100 text-[var(--status-error)] border border-rose-200 transition-colors cursor-pointer"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Resume</span>
+                    </button>
+                  ) : (
                     <button
                       type="button"
                       onClick={(e) => {
@@ -327,7 +347,7 @@ export default function PastReviewsView({
                       <span>{sectionActionLabel}</span>
                       <ArrowRight className="w-3.5 h-3.5" />
                     </button>
-                  ) : null}
+                  )}
                 </div>
               </div>
             ))}

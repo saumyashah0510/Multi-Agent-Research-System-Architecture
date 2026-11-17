@@ -11,7 +11,7 @@
  * - Pass synthesized review to SynthesisReportViewer and methodology_matrix to MethodologyMatrix
  */
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useSearchParams, Link } from "react-router-dom";
 import {
   FileText,
@@ -41,6 +41,11 @@ const ReviewDetailInner: React.FC = () => {
   const [isCompleted, setIsCompleted] = useState(false);
   const [isFailed, setIsFailed] = useState(false);
   const [failedMessage, setFailedMessage] = useState<string | null>(null);
+  const [failedStage, setFailedStage] = useState<string | null>(null);
+  const [retryEpoch, setRetryEpoch] = useState(0);
+  const isResumingRef = useRef(false);
+  const resumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeRequestIdRef = useRef(0);
   const isGraphView = tabParam === "graph";
   const [copiedMarkdown, setCopiedMarkdown] = useState(false);
   const [reviewTopic, setReviewTopic] = useState<string | null>(null);
@@ -53,8 +58,13 @@ const ReviewDetailInner: React.FC = () => {
   // Load review status and synthesized report via GET /api/v1/reviews/{reviewId}
   const loadReviewData = useCallback(async () => {
     if (!reviewId) return null;
+    const currentRequestId = ++activeRequestIdRef.current;
     try {
       const data = await getReviewStatus(reviewId);
+      // Suppress stale results from superseded requests or overlapping refreshes
+      if (currentRequestId !== activeRequestIdRef.current) {
+        return null;
+      }
       if (data?.query || data?.user_query) {
         setReviewTopic(data.query || data.user_query);
       }
@@ -65,22 +75,46 @@ const ReviewDetailInner: React.FC = () => {
       if (normStatus === "completed" || normStatus === "synthesis_completed") {
         setIsCompleted(true);
         setIsFailed(false);
+        setFailedMessage(null);
+        setFailedStage(null);
+        isResumingRef.current = false;
+        if (resumeTimerRef.current) {
+          clearTimeout(resumeTimerRef.current);
+          resumeTimerRef.current = null;
+        }
         if (data?.synthesized_review) {
           setSynthesizedReport(data.synthesized_review);
           setFetchError(null);
         }
       } else if (normStatus === "failed") {
-        setIsFailed(true);
-        setFailedMessage(
-          data?.error_message ||
-          "Pipeline was interrupted. Click 'Retry from Failed Step' to resume from your latest checkpoint."
-        );
+        // Prevent stale GET response from reverting status right after retry was accepted
+        if (isResumingRef.current) {
+          setReviewStatus("processing");
+          setIsFailed(false);
+        } else {
+          setIsFailed(true);
+          setFailedMessage(
+            data?.error_message ||
+            "Pipeline was interrupted. Click 'Retry from Failed Step' to resume from your latest checkpoint."
+          );
+          const stage = data?.failed_stage || data?.current_step || data?.stage;
+          if (stage) {
+            setFailedStage(stage);
+          }
+        }
       } else {
         setIsFailed(false);
+        isResumingRef.current = false;
+        if (resumeTimerRef.current) {
+          clearTimeout(resumeTimerRef.current);
+          resumeTimerRef.current = null;
+        }
       }
       return data;
     } catch (err) {
-      console.warn("Could not retrieve review status:", err);
+      if (currentRequestId === activeRequestIdRef.current) {
+        console.warn("Could not retrieve review status:", err);
+      }
       return null;
     }
   }, [reviewId]);
@@ -88,12 +122,24 @@ const ReviewDetailInner: React.FC = () => {
   useEffect(() => {
     if (!reviewId) return;
 
+    // Invalidate any in-flight requests from the previous review session
+    activeRequestIdRef.current += 1;
+
     // Reset review state on reviewId change to avoid displaying stale data
     setReviewTopic(null);
     setReviewStatus(null);
     setSynthesizedReport(null);
     setIsCompleted(false);
+    setIsFailed(false);
+    setFailedMessage(null);
+    setFailedStage(null);
+    if (resumeTimerRef.current) {
+      clearTimeout(resumeTimerRef.current);
+      resumeTimerRef.current = null;
+    }
+    isResumingRef.current = false;
     setRetryCount(0);
+    setRetryEpoch(0);
     setFetchError(null);
 
     let isMounted = true;
@@ -103,6 +149,10 @@ const ReviewDetailInner: React.FC = () => {
 
     return () => {
       isMounted = false;
+      if (resumeTimerRef.current) {
+        clearTimeout(resumeTimerRef.current);
+        resumeTimerRef.current = null;
+      }
     };
   }, [reviewId, loadReviewData]);
 
@@ -110,8 +160,67 @@ const ReviewDetailInner: React.FC = () => {
     setIsCompleted(true);
     setRetryCount(0);
     setFetchError(null);
+    isResumingRef.current = false;
+    if (resumeTimerRef.current) {
+      clearTimeout(resumeTimerRef.current);
+      resumeTimerRef.current = null;
+    }
     loadReviewData();
   }, [loadReviewData]);
+
+  const handlePipelineFailed = useCallback((stageName?: string, errorMsg?: string) => {
+    // Invalidate pending status requests so they cannot overwrite the failure UI
+    activeRequestIdRef.current += 1;
+    isResumingRef.current = false;
+    if (resumeTimerRef.current) {
+      clearTimeout(resumeTimerRef.current);
+      resumeTimerRef.current = null;
+    }
+    setIsFailed(true);
+    if (stageName) setFailedStage(stageName);
+    if (errorMsg) setFailedMessage(errorMsg);
+  }, []);
+
+  const handleRetryPipeline = async () => {
+    if (!reviewId || isRetrying) return;
+    setIsRetrying(true);
+    isResumingRef.current = true;
+    if (resumeTimerRef.current) {
+      clearTimeout(resumeTimerRef.current);
+    }
+    // Safeguard: Never leave the UI stuck in processing indefinitely if backend fails to resume
+    resumeTimerRef.current = setTimeout(() => {
+      isResumingRef.current = false;
+      resumeTimerRef.current = null;
+      loadReviewData();
+    }, 6000);
+
+    try {
+      await retryReviewPipeline(reviewId);
+      // Invalidate any in-flight GET requests started prior to or during the retry call
+      activeRequestIdRef.current += 1;
+      // Immediately transition local state from failed back to processing
+      setIsFailed(false);
+      setReviewStatus("processing");
+      setFailedMessage(null);
+      // Restore retry-specific remount mechanism to establish fresh WebSocket connection
+      setRetryEpoch((prev) => prev + 1);
+
+      // Refresh review data after giving the backend background task time to claim the checkpoint
+      window.setTimeout(() => {
+        loadReviewData();
+      }, 1000);
+    } catch (err) {
+      isResumingRef.current = false;
+      if (resumeTimerRef.current) {
+        clearTimeout(resumeTimerRef.current);
+        resumeTimerRef.current = null;
+      }
+      throw err;
+    } finally {
+      setIsRetrying(false);
+    }
+  };
 
   // Auto-retry polling if pipeline completed but synthesized_review is not yet available
   useEffect(() => {
@@ -243,23 +352,25 @@ const ReviewDetailInner: React.FC = () => {
       {isFailed && (
         <RetryBanner
           reviewId={reviewId || ""}
+          failedStage={failedStage || undefined}
           errorMessage={failedMessage || undefined}
-          onRetry={async () => {
-            if (!reviewId) return;
-            await retryReviewPipeline(reviewId);
-            setIsFailed(false);
-            loadReviewData();
-          }}
+          onRetry={handleRetryPipeline}
           className="mb-6"
         />
       )}
 
       {/* Downstream Checkpoints Tracker (Stages 5 to 9) */}
       <DownstreamProgress
+        key={`${reviewId}-${retryEpoch}`}
         reviewId={reviewId}
         isCompleted={isCompleted}
-        initialStatus={reviewStatus || undefined}
+        initialStatus={
+          isFailed
+            ? (reviewStatus || "failed")
+            : (failedStage || reviewStatus || undefined)
+        }
         onComplete={handlePipelineComplete}
+        onFailed={handlePipelineFailed}
       />
 
       {/* Synthesis Report or Citation Graph View */}
