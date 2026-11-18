@@ -353,3 +353,50 @@ def test_graph_forbidden_for_other_user():
     response = client.get("/api/v1/reviews/30/graph")
     assert response.status_code == 403
     assert "permission" in response.json()["detail"].lower()
+
+
+def test_graph_not_found_returns_404():
+    """The graph endpoint preserves the review-not-found response."""
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = None
+    mock_db = AsyncMock()
+    mock_db.execute.return_value = mock_result
+    app.dependency_overrides[get_db] = lambda: mock_db
+
+    response = TestClient(app).get("/api/v1/reviews/999/graph")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Literature review not found"
+
+
+def test_graph_endpoint_returns_service_graph():
+    """The graph endpoint delegates after review existence and ownership checks."""
+    from app.schemas.graph import CitationGraphResponse, GraphNode
+
+    review = LiteratureReview(
+        id=31,
+        user_query="Knowledge graph",
+        status=ReviewStatus.COMPLETED.value,
+        user_id=None,
+    )
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = review
+    mock_db = AsyncMock()
+    mock_db.execute.return_value = mock_result
+    app.dependency_overrides[get_db] = lambda: mock_db
+    expected = CitationGraphResponse(
+        review_id=31,
+        nodes=[GraphNode(id="paper_1", label="A paper")],
+        total_nodes=1,
+    )
+
+    with patch(
+        "app.api.v1.reviews.CitationGraphService.build_citation_graph",
+        new_callable=AsyncMock,
+        return_value=expected,
+    ) as build_graph:
+        response = TestClient(app).get("/api/v1/reviews/31/graph")
+
+    assert response.status_code == 200
+    assert response.json()["nodes"][0]["id"] == "paper_1"
+    build_graph.assert_awaited_once_with(mock_db, 31)

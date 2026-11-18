@@ -1242,10 +1242,6 @@ async def get_review_graph(
     current_user: Annotated[Optional[User], Depends(get_current_user_optional)] = None,
 ) -> CitationGraphResponse:
     """Fetch topological graph of approved papers, clusters, and citation links."""
-    # TODO (Assignee - BE-18):
-    # 1. Verify review existence in DB. If not found, raise 404 HTTPException.
-    # 2. Call CitationGraphService.build_citation_graph(db, review_id).
-    # 3. Return CitationGraphResponse.
     review_result = await db.execute(
         select(LiteratureReview).where(LiteratureReview.id == review_id)
     )

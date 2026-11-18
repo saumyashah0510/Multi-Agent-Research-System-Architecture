@@ -1,18 +1,8 @@
-"""Citation Knowledge Graph Topology Service.
+"""Citation knowledge graph topology service."""
 
-Assignee Task (Issue BE-18):
-- Query approved papers for a given review_id from Neon PostgreSQL.
-- Extract thematic clusters and citations from LiteratureReview.synthesized_review.
-- Construct nodes for all approved papers and/or thematic clusters.
-- Compute topological links:
-  1. Thematic similarity links (papers appearing together in a thematic cluster).
-  2. Co-authorship links (papers sharing common authors).
-  3. Direct citation / reference links (where available in paper metadata).
-- Return CitationGraphResponse schema with nodes and links ready for D3.js force simulation.
-"""
-
-import logging
-from typing import List, Optional
+import re
+from itertools import combinations
+from typing import Any, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,107 +11,163 @@ from app.models.paper import Paper
 from app.models.review import LiteratureReview
 from app.schemas.graph import CitationGraphResponse, GraphLink, GraphNode
 
-logger = logging.getLogger(__name__)
+
+def _normalize_title(value: str) -> str:
+    """Normalize citation and paper titles for case- and punctuation-insensitive matching."""
+    return " ".join(re.findall(r"\w+", value.casefold()))
+
+
+def _as_authors(value: Any) -> list[str]:
+    """Return author names as strings from the JSON or legacy string representations."""
+    if isinstance(value, str):
+        return [author.strip() for author in value.split(",") if author.strip()]
+    if isinstance(value, list):
+        authors = []
+        for author in value:
+            if isinstance(author, str) and author.strip():
+                authors.append(author.strip())
+            elif isinstance(author, dict):
+                name = author.get("name") or author.get("full_name")
+                if isinstance(name, str) and name.strip():
+                    authors.append(name.strip())
+        return authors
+    return []
+
+
+def _cluster_memberships(synthesized_review: Any, papers: list[Paper]) -> dict[int, set[str]]:
+    """Resolve cluster citations to approved papers and retain every membership."""
+    if not isinstance(synthesized_review, dict):
+        return {}
+
+    clusters = synthesized_review.get("thematic_clusters")
+    if not isinstance(clusters, list):
+        return {}
+
+    papers_by_title: dict[str, set[int]] = {}
+    for paper in papers:
+        normalized_title = _normalize_title(paper.title)
+        if normalized_title:
+            papers_by_title.setdefault(normalized_title, set()).add(paper.id)
+
+    titles_by_citation_key: dict[str, set[str]] = {}
+    references = synthesized_review.get("references", [])
+    if isinstance(references, list):
+        for reference in references:
+            if not isinstance(reference, dict):
+                continue
+            citation_key = reference.get("citation_key")
+            title = reference.get("title")
+            if not isinstance(citation_key, str) or not isinstance(title, str):
+                continue
+            normalized_key = _normalize_title(citation_key)
+            normalized_title = _normalize_title(title)
+            if normalized_key and normalized_title:
+                titles_by_citation_key.setdefault(normalized_key, set()).add(normalized_title)
+
+    memberships: dict[int, set[str]] = {}
+    for index, cluster in enumerate(clusters):
+        if not isinstance(cluster, dict):
+            continue
+        theme = cluster.get("theme") or cluster.get("name") or f"Cluster {index + 1}"
+        if not isinstance(theme, str):
+            theme = str(theme)
+        citations = cluster.get("citations", [])
+        if not isinstance(citations, list):
+            continue
+        for citation in citations:
+            title: Optional[str] = None
+            if isinstance(citation, str):
+                title = citation
+            elif isinstance(citation, dict):
+                candidate = citation.get("title") or citation.get("paper_title")
+                if isinstance(candidate, str):
+                    title = candidate
+            if title:
+                normalized = _normalize_title(title)
+                if not normalized:
+                    continue
+
+                # A citation may be a title or a citation key. Combine both interpretations;
+                # only accept it when they resolve to one approved paper in total.
+                referenced_titles = titles_by_citation_key.get(normalized, set())
+                if len(referenced_titles) > 1:
+                    continue
+                candidate_ids = set(papers_by_title.get(normalized, set()))
+                for referenced_title in referenced_titles:
+                    candidate_ids.update(papers_by_title.get(referenced_title, set()))
+                if len(candidate_ids) == 1:
+                    paper_id = next(iter(candidate_ids))
+                    memberships.setdefault(paper_id, set()).add(theme)
+    return memberships
 
 
 class CitationGraphService:
-    """Service to construct citation and semantic topology graph for literature reviews."""
+    """Construct an in-memory graph from approved papers and synthesized themes."""
 
     @staticmethod
     async def build_citation_graph(
         db: AsyncSession,
         review_id: int,
     ) -> CitationGraphResponse:
-        """Construct the citation knowledge graph topology for an approved literature review.
-
-        Args:
-            db: AsyncSession connection to PostgreSQL.
-            review_id: ID of the literature review.
-
-        Returns:
-            CitationGraphResponse containing nodes and links.
-        """
-        # 1. Fetch Review
+        """Build graph nodes and evidence-supported thematic and coauthor edges."""
         review_result = await db.execute(
             select(LiteratureReview).where(LiteratureReview.id == review_id)
         )
         review = review_result.scalar_one_or_none()
-        if not review:
-            return CitationGraphResponse(
-                review_id=review_id,
-                nodes=[],
-                links=[],
-                total_nodes=0,
-                total_links=0,
-            )
+        if review is None:
+            return CitationGraphResponse(review_id=review_id)
 
-        # 2. Fetch Approved Papers
         papers_result = await db.execute(
             select(Paper).where(
                 Paper.review_id == review_id,
                 Paper.is_approved.is_(True),
             )
         )
-        papers: List[Paper] = list(papers_result.scalars().all())
-
+        papers = list(papers_result.scalars().all())
         if not papers:
-            return CitationGraphResponse(
-                review_id=review_id,
-                nodes=[],
-                links=[],
-                total_nodes=0,
-                total_links=0,
-            )
+            return CitationGraphResponse(review_id=review_id)
 
-        # TODO (Assignee - BE-18):
-        # 1. Map papers to GraphNode instances:
-        #    - id: f"paper_{p.id}"
-        #    - label: p.title
-        #    - year: p.published_year
-        #    - authors: parsed list of authors
-        #    - relevance_score: p.relevance_score
-        #    - url: p.pdf_url or arxiv URL
-        # 2. Extract clusters from review.synthesized_review:
-        #    - Map papers to clusters based on title similarity or citation list in clusters
-        # 3. Create GraphLink instances:
-        #    - Pairwise links for papers within the same thematic cluster
-        #    - Pairwise links for papers sharing at least one author
-        # 4. Filter duplicate links and return populated CitationGraphResponse.
-
-        nodes: List[GraphNode] = []
-        for p in papers:
-            authors_list: Optional[List[str]] = None
-            if isinstance(p.authors, list):
-                authors_list = [str(a) for a in p.authors]
-            elif isinstance(p.authors, str):
-                authors_list = [a.strip() for a in p.authors.split(",") if a.strip()]
-
+        paper_clusters = _cluster_memberships(review.synthesized_review, papers)
+        nodes: list[GraphNode] = []
+        paper_authors: dict[str, set[str]] = {}
+        clusters_by_node: dict[str, set[str]] = {}
+        for paper in papers:
+            authors = _as_authors(paper.authors)
+            node_id = f"paper_{paper.id}"
+            memberships = paper_clusters.get(paper.id, set())
             nodes.append(
                 GraphNode(
-                    id=f"paper_{p.id}",
-                    label=p.title,
+                    id=node_id,
+                    label=paper.title,
                     type="paper",
-                    year=p.published_year,
-                    authors=authors_list,
-                    relevance_score=p.relevance_score,
-                    url=p.pdf_url
-                    or (f"https://arxiv.org/abs/{p.arxiv_id}" if p.arxiv_id else None),
+                    year=paper.published_year,
+                    authors=authors or None,
+                    relevance_score=paper.relevance_score,
+                    cluster=min(memberships, default=None),
+                    url=paper.pdf_url
+                    or (f"https://arxiv.org/abs/{paper.arxiv_id}" if paper.arxiv_id else None),
                 )
             )
+            paper_authors[node_id] = set(authors)
+            clusters_by_node[node_id] = memberships
 
-        links: List[GraphLink] = []
+        links: list[GraphLink] = []
+        seen_edges: set[tuple[str, str, str]] = set()
 
-        # Placeholder baseline link creation between adjacent papers for skeleton topology
-        if len(nodes) > 1:
-            for i in range(len(nodes) - 1):
-                links.append(
-                    GraphLink(
-                        source=nodes[i].id,
-                        target=nodes[i + 1].id,
-                        type="thematic_similarity",
-                        weight=0.75,
-                    )
-                )
+        def add_edge(source: str, target: str, edge_type: str, weight: float) -> None:
+            if source == target:
+                return
+            key = (min(source, target), max(source, target), edge_type)
+            if key in seen_edges:
+                return
+            seen_edges.add(key)
+            links.append(GraphLink(source=key[0], target=key[1], type=edge_type, weight=weight))
+
+        for first, second in combinations(nodes, 2):
+            if clusters_by_node[first.id] & clusters_by_node[second.id]:
+                add_edge(first.id, second.id, "thematic_similarity", 0.85)
+            if paper_authors[first.id] & paper_authors[second.id]:
+                add_edge(first.id, second.id, "co_authorship", 0.9)
 
         return CitationGraphResponse(
             review_id=review_id,
