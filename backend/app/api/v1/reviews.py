@@ -97,6 +97,38 @@ class ReviewApprovalRequest(BaseModel):
     approved_paper_ids: list[str] = Field(default_factory=list)
 
 
+async def _record_audit_event(
+    review_id: int | str | None,
+    agent_name: str,
+    status: str,
+    message: str,
+    payload: Optional[dict[str, Any]] = None,
+) -> None:
+    """Record an agent audit milestone safely without breaking the pipeline."""
+    if review_id is None:
+        return
+    numeric_id = int(review_id) if str(review_id).isdigit() else None
+    if numeric_id is None:
+        return
+    try:
+        async with AsyncSessionLocal() as session:
+            await AuditService.record_review_event(
+                db=session,
+                review_id=numeric_id,
+                agent_name=agent_name,
+                status=status,
+                message=message,
+                payload=payload or {},
+            )
+    except Exception as exc:
+        logger.warning(
+            "Failed to record audit event for review %s (agent=%s): %s",
+            numeric_id,
+            agent_name,
+            exc,
+        )
+
+
 async def _run_initial_graph(
     review_id: int,
     query: str,
@@ -124,6 +156,17 @@ async def _run_initial_graph(
                 "status": "running",
                 "message": "Analyzing research query and classifying domains...",
                 "review_id": str(review_id),
+            },
+        )
+        await _record_audit_event(
+            review_id,
+            agent_name="query_expansion",
+            status="started",
+            message="Analyzing research query and classifying domains...",
+            payload={
+                "query": query,
+                "citation_format": citation_format,
+                "max_papers": max_papers,
             },
         )
     except Exception as exc:
@@ -157,6 +200,13 @@ async def _run_initial_graph(
                         "review_id": str(review_id),
                     },
                 )
+                await _record_audit_event(
+                    review_id,
+                    agent_name="query_expansion",
+                    status="completed",
+                    message=f"Expanded into {len(sub_queries)} academic queries",
+                    payload={"sub_queries": sub_queries, "queries_count": len(sub_queries)},
+                )
                 await publish_review_event(
                     review_id,
                     {
@@ -166,6 +216,12 @@ async def _run_initial_graph(
                         "message": "Querying arXiv, PubMed, and academic repositories...",
                         "review_id": str(review_id),
                     },
+                )
+                await _record_audit_event(
+                    review_id,
+                    agent_name="paper_discovery",
+                    status="started",
+                    message="Querying arXiv, PubMed, and academic repositories...",
                 )
 
             elif "paper_discovery" in update:
@@ -191,6 +247,13 @@ async def _run_initial_graph(
                         "review_id": str(review_id),
                     },
                 )
+                await _record_audit_event(
+                    review_id,
+                    agent_name="paper_discovery",
+                    status="completed",
+                    message=f"Discovered {len(discovered)} candidate papers",
+                    payload={"discovered_count": len(discovered), "total_count": len(discovered)},
+                )
                 await publish_review_event(
                     review_id,
                     {
@@ -200,6 +263,12 @@ async def _run_initial_graph(
                         "message": "Screening candidate papers against relevance criteria...",
                         "review_id": str(review_id),
                     },
+                )
+                await _record_audit_event(
+                    review_id,
+                    agent_name="screening",
+                    status="started",
+                    message="Screening candidate papers against relevance criteria...",
                 )
 
             elif "screening" in update:
@@ -248,6 +317,13 @@ async def _run_initial_graph(
                         "review_id": str(review_id),
                     },
                 )
+                await _record_audit_event(
+                    review_id,
+                    agent_name="screening",
+                    status="completed",
+                    message=f"Screened {len(screened)} relevant papers",
+                    payload={"screened_count": len(screened), "total_screened": len(screened)},
+                )
                 await publish_review_event(
                     review_id,
                     {
@@ -258,6 +334,13 @@ async def _run_initial_graph(
                         "data": {"screened_papers": screened, "total_screened": len(screened)},
                         "review_id": str(review_id),
                     },
+                )
+                await _record_audit_event(
+                    review_id,
+                    agent_name="human_interrupt",
+                    status="paused",
+                    message="Awaiting human-in-the-loop candidate paper selection",
+                    payload={"screened_count": len(screened)},
                 )
 
     except Exception as exc:
@@ -282,6 +365,13 @@ async def _run_initial_graph(
                     "message": f"Initial pipeline execution error: {str(exc)}",
                     "review_id": str(review_id),
                 },
+            )
+            await _record_audit_event(
+                review_id,
+                agent_name="orchestrator",
+                status="failed",
+                message=f"Initial pipeline execution error: {str(exc)}",
+                payload={"error": str(exc)},
             )
         except Exception:
             pass
@@ -313,6 +403,13 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                             "review_id": str(review_id),
                         },
                     )
+                    await _record_audit_event(
+                        numeric_id,
+                        agent_name="query_expansion",
+                        status="started",
+                        message="Expanding search queries for additional papers...",
+                        payload={"user_decision": "find_more"},
+                    )
             else:
                 if numeric_id is not None:
                     await publish_review_event(
@@ -324,6 +421,13 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                             "message": "Extracting scientific section text from approved PDFs...",
                             "review_id": str(review_id),
                         },
+                    )
+                    await _record_audit_event(
+                        numeric_id,
+                        agent_name="pdf_extraction",
+                        status="started",
+                        message="Extracting scientific section text from approved PDFs...",
+                        payload={"user_decision": "continue"},
                     )
             stream_input = Command(resume=resume_value)
 
@@ -355,6 +459,13 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                             "review_id": str(review_id),
                         },
                     )
+                    await _record_audit_event(
+                        numeric_id,
+                        agent_name="query_expansion",
+                        status="completed",
+                        message=f"Expanded into {len(sub_queries)} academic queries",
+                        payload={"sub_queries": sub_queries, "queries_count": len(sub_queries)},
+                    )
                     await publish_review_event(
                         numeric_id,
                         {
@@ -364,6 +475,12 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                             "message": "Querying arXiv, PubMed, and academic repositories...",
                             "review_id": str(review_id),
                         },
+                    )
+                    await _record_audit_event(
+                        numeric_id,
+                        agent_name="paper_discovery",
+                        status="started",
+                        message="Querying arXiv, PubMed, and academic repositories...",
                     )
 
             elif "paper_discovery" in update:
@@ -393,6 +510,16 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                             "review_id": str(review_id),
                         },
                     )
+                    await _record_audit_event(
+                        numeric_id,
+                        agent_name="paper_discovery",
+                        status="completed",
+                        message=f"Discovered {len(discovered)} candidate papers",
+                        payload={
+                            "discovered_count": len(discovered),
+                            "total_count": len(discovered),
+                        },
+                    )
                     await publish_review_event(
                         numeric_id,
                         {
@@ -402,6 +529,12 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                             "message": "Screening candidate papers against relevance criteria...",
                             "review_id": str(review_id),
                         },
+                    )
+                    await _record_audit_event(
+                        numeric_id,
+                        agent_name="screening",
+                        status="started",
+                        message="Screening candidate papers against relevance criteria...",
                     )
 
             elif "screening" in update:
@@ -457,6 +590,13 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                             "review_id": str(review_id),
                         },
                     )
+                    await _record_audit_event(
+                        numeric_id,
+                        agent_name="screening",
+                        status="completed",
+                        message=f"Screened {len(screened)} relevant papers",
+                        payload={"screened_count": len(screened), "total_screened": len(screened)},
+                    )
                     await publish_review_event(
                         numeric_id,
                         {
@@ -470,6 +610,13 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                             },
                             "review_id": str(review_id),
                         },
+                    )
+                    await _record_audit_event(
+                        numeric_id,
+                        agent_name="human_interrupt",
+                        status="paused",
+                        message="Awaiting human-in-the-loop candidate paper selection",
+                        payload={"screened_count": len(screened)},
                     )
 
             if "pdf_extraction" in update:
@@ -496,6 +643,13 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                             "review_id": str(review_id),
                         },
                     )
+                    await _record_audit_event(
+                        numeric_id,
+                        agent_name="pdf_extraction",
+                        status="completed",
+                        message=f"Extracted scientific sections from {len(pdf_contents)} PDFs",
+                        payload={"cached_count": len(pdf_contents), "pdf_count": len(pdf_contents)},
+                    )
                     await publish_review_event(
                         numeric_id,
                         {
@@ -505,6 +659,13 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                             "message": "Generating 384D semantic embeddings and indexing in pgvector...",
                             "review_id": str(review_id),
                         },
+                    )
+                    await _record_audit_event(
+                        numeric_id,
+                        agent_name="vector_embedding",
+                        status="started",
+                        message="Generating 384D semantic embeddings and indexing in pgvector...",
+                        payload={"dimensions": 384},
                     )
 
             elif "vector_embedding" in update:
@@ -531,6 +692,13 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                             "review_id": str(review_id),
                         },
                     )
+                    await _record_audit_event(
+                        numeric_id,
+                        agent_name="vector_embedding",
+                        status="completed",
+                        message=f"Indexed {chunks_count} passages in pgvector",
+                        payload={"chunks": chunks_count, "embedding_dimensions": 384},
+                    )
                     await publish_review_event(
                         numeric_id,
                         {
@@ -540,6 +708,12 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                             "message": "Performing comparative methodology synthesis and literature gap analysis...",
                             "review_id": str(review_id),
                         },
+                    )
+                    await _record_audit_event(
+                        numeric_id,
+                        agent_name="gap_analysis",
+                        status="started",
+                        message="Performing comparative methodology synthesis and literature gap analysis...",
                     )
 
             elif "gap_analysis" in update:
@@ -566,6 +740,13 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                             "review_id": str(review_id),
                         },
                     )
+                    await _record_audit_event(
+                        numeric_id,
+                        agent_name="gap_analysis",
+                        status="completed",
+                        message=f"Mapped methodology matrix and {len(gaps)} research gaps",
+                        payload={"gaps_count": len(gaps), "open_gaps": len(gaps)},
+                    )
                     await publish_review_event(
                         numeric_id,
                         {
@@ -575,6 +756,12 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                             "message": "Verifying citation claims against source passages...",
                             "review_id": str(review_id),
                         },
+                    )
+                    await _record_audit_event(
+                        numeric_id,
+                        agent_name="citation_verification",
+                        status="started",
+                        message="Verifying citation claims against source passages...",
                     )
 
             elif "citation_verification" in update:
@@ -604,6 +791,16 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                             "review_id": str(review_id),
                         },
                     )
+                    await _record_audit_event(
+                        numeric_id,
+                        agent_name="citation_verification",
+                        status="completed",
+                        message=f"Verified {len(verified_refs)} citations against source chunks",
+                        payload={
+                            "verified_claims": len(verified_refs),
+                            "verified_count": len(verified_refs),
+                        },
+                    )
                     await publish_review_event(
                         numeric_id,
                         {
@@ -613,6 +810,12 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                             "message": "Synthesizing comprehensive academic literature review report...",
                             "review_id": str(review_id),
                         },
+                    )
+                    await _record_audit_event(
+                        numeric_id,
+                        agent_name="report_synthesis",
+                        status="started",
+                        message="Synthesizing comprehensive academic literature review report...",
                     )
 
             elif "report_synthesis" in update:
@@ -638,6 +841,13 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                             "message": "Literature review report synthesized successfully",
                             "review_id": str(review_id),
                         },
+                    )
+                    await _record_audit_event(
+                        numeric_id,
+                        agent_name="report_synthesis",
+                        status="completed",
+                        message="Literature review report synthesized successfully",
+                        payload={"export_status": "ready"},
                     )
                     await publish_review_event(
                         numeric_id,
@@ -684,6 +894,13 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                         "message": f"Pipeline execution failed: {str(exc)}",
                         "review_id": str(review_id),
                     },
+                )
+                await _record_audit_event(
+                    numeric_id,
+                    agent_name="orchestrator",
+                    status="failed",
+                    message=f"Pipeline execution failed: {str(exc)}",
+                    payload={"error": str(exc)},
                 )
             except Exception:
                 pass
@@ -745,6 +962,13 @@ async def _retry_failed_review(review_id: str) -> None:
                         "review_id": str(review_id),
                     },
                 )
+                await _record_audit_event(
+                    numeric_id,
+                    agent_name="human_interrupt",
+                    status="paused",
+                    message="Awaiting human-in-the-loop candidate paper selection",
+                    payload={"screened_count": len(screened)},
+                )
             return
 
         if numeric_id is not None:
@@ -752,7 +976,7 @@ async def _retry_failed_review(review_id: str) -> None:
                 db_review = await session.get(LiteratureReview, numeric_id, with_for_update=True)
                 if not db_review or db_review.status != ReviewStatus.FAILED.value:
                     logger.info(
-                        ("Skipping retry for review %s because its status is " "no longer failed."),
+                        ("Skipping retry for review %s because its status is no longer failed."),
                         review_id,
                     )
                     return
@@ -768,10 +992,17 @@ async def _retry_failed_review(review_id: str) -> None:
                     "stage": resuming_node.upper(),
                     "status": "running",
                     "message": (
-                        f"Resuming literature review from " f"{resuming_node.replace('_', ' ')}..."
+                        f"Resuming literature review from {resuming_node.replace('_', ' ')}..."
                     ),
                     "review_id": str(review_id),
                 },
+            )
+            await _record_audit_event(
+                numeric_id,
+                agent_name=resuming_node,
+                status="started",
+                message=f"Resuming literature review from {resuming_node.replace('_', ' ')}...",
+                payload={"resuming_node": resuming_node},
             )
 
         await _resume_graph(review_id, None)
@@ -803,6 +1034,13 @@ async def _retry_failed_review(review_id: str) -> None:
                         "message": f"Pipeline execution failed: {str(exc)}",
                         "review_id": str(review_id),
                     },
+                )
+                await _record_audit_event(
+                    numeric_id,
+                    agent_name="orchestrator",
+                    status="failed",
+                    message=f"Pipeline execution failed: {str(exc)}",
+                    payload={"error": str(exc)},
                 )
             except Exception:
                 pass
@@ -1105,6 +1343,21 @@ async def approve_papers(
         except Exception as exc:
             logger.warning("Could not update status for review %s: %s", review_id, exc)
 
+    await _record_audit_event(
+        review_id,
+        agent_name="human_interrupt",
+        status="completed",
+        message=(
+            f"Human approval submitted: decision '{request.user_decision}' "
+            f"for {len(request.approved_paper_ids)} papers"
+        ),
+        payload={
+            "user_decision": request.user_decision,
+            "approved_count": len(request.approved_paper_ids),
+            "approved_paper_ids": request.approved_paper_ids,
+        },
+    )
+
     background_tasks.add_task(
         _resume_graph,
         review_id,
@@ -1210,10 +1463,6 @@ async def get_review_audit(
     current_user: Annotated[Optional[User], Depends(get_current_user_optional)] = None,
 ) -> ReviewAuditTimelineResponse:
     """Fetch all agent lifecycle events and milestone logs recorded for a literature review."""
-    # TODO (Assignee - BE-17):
-    # 1. Check if review exists in DB
-    # 2. Call AuditService.get_review_audit_timeline(db, review_id)
-    # 3. Return ReviewAuditTimelineResponse
     review_result = await db.execute(
         select(LiteratureReview).where(LiteratureReview.id == review_id)
     )

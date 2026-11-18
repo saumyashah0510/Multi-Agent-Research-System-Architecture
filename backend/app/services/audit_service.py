@@ -30,13 +30,14 @@ class AuditService:
         payload: Optional[Dict[str, Any]] = None,
     ) -> Optional[ReviewLog]:
         """Insert a new agent execution milestone record into Neon DB."""
-        # TODO (Assignee - BE-17):
-        # 1. Instantiate ReviewLog with review_id, agent_name, status, message, payload
-        # 2. db.add(log_entry), await db.commit(), await db.refresh(log_entry)
-        # 3. Catch exceptions gracefully without breaking the agent pipeline
         try:
+            numeric_id = int(review_id) if str(review_id).isdigit() else None
+            if numeric_id is None:
+                logger.warning("Cannot record review log with non-integer review_id: %s", review_id)
+                return None
+
             log_entry = ReviewLog(
-                review_id=review_id,
+                review_id=numeric_id,
                 agent_name=agent_name,
                 status=status,
                 message=message,
@@ -48,6 +49,10 @@ class AuditService:
             return log_entry
         except Exception as exc:
             logger.warning("Failed to record review log for review %s: %s", review_id, exc)
+            try:
+                await db.rollback()
+            except Exception:
+                pass
             return None
 
     @staticmethod
@@ -56,15 +61,21 @@ class AuditService:
         review_id: int,
     ) -> List[ReviewLog]:
         """Fetch all audit logs for a review session in chronological order."""
-        # TODO (Assignee - BE-17):
-        # Execute: select(ReviewLog).where(ReviewLog.review_id == review_id).order_by(ReviewLog.created_at.asc())
-        stmt = (
-            select(ReviewLog)
-            .where(ReviewLog.review_id == review_id)
-            .order_by(ReviewLog.created_at.asc())
-        )
-        result = await db.execute(stmt)
-        return list(result.scalars().all())
+        try:
+            numeric_id = int(review_id) if str(review_id).isdigit() else None
+            if numeric_id is None:
+                return []
+
+            stmt = (
+                select(ReviewLog)
+                .where(ReviewLog.review_id == numeric_id)
+                .order_by(ReviewLog.created_at.asc())
+            )
+            result = await db.execute(stmt)
+            return list(result.scalars().all())
+        except Exception as exc:
+            logger.warning("Failed to get review audit timeline for review %s: %s", review_id, exc)
+            return []
 
     @staticmethod
     async def record_execution_event(
