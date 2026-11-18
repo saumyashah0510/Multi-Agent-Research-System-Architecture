@@ -371,7 +371,7 @@ def test_graph_not_found_returns_404():
 
 def test_graph_endpoint_returns_service_graph():
     """The graph endpoint delegates after review existence and ownership checks."""
-    from app.schemas.graph import CitationGraphResponse, GraphNode
+    from app.schemas.graph import CitationGraphResponse, GraphLink, GraphNode
 
     review = LiteratureReview(
         id=31,
@@ -386,8 +386,20 @@ def test_graph_endpoint_returns_service_graph():
     app.dependency_overrides[get_db] = lambda: mock_db
     expected = CitationGraphResponse(
         review_id=31,
-        nodes=[GraphNode(id="paper_1", label="A paper")],
-        total_nodes=1,
+        nodes=[
+            GraphNode(id="paper_1", label="A paper", cluster="Methods"),
+            GraphNode(id="paper_2", label="Another paper", authors=["Shared Author"]),
+        ],
+        links=[
+            GraphLink(
+                source="paper_1",
+                target="paper_2",
+                type="co_authorship",
+                weight=0.9,
+            )
+        ],
+        total_nodes=2,
+        total_links=1,
     )
 
     with patch(
@@ -398,5 +410,33 @@ def test_graph_endpoint_returns_service_graph():
         response = TestClient(app).get("/api/v1/reviews/31/graph")
 
     assert response.status_code == 200
-    assert response.json()["nodes"][0]["id"] == "paper_1"
+    assert response.json() == expected.model_dump(mode="json")
     build_graph.assert_awaited_once_with(mock_db, 31)
+
+
+def test_graph_endpoint_returns_413_when_approved_paper_budget_is_exceeded():
+    from app.services.graph_service import GraphSizeLimitExceeded
+
+    review = LiteratureReview(
+        id=32,
+        user_query="Large knowledge graph",
+        status=ReviewStatus.COMPLETED.value,
+        user_id=None,
+    )
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = review
+    mock_db = AsyncMock()
+    mock_db.execute.return_value = mock_result
+    app.dependency_overrides[get_db] = lambda: mock_db
+
+    with patch(
+        "app.api.v1.reviews.CitationGraphService.build_citation_graph",
+        new_callable=AsyncMock,
+        side_effect=GraphSizeLimitExceeded(
+            "Citation graph exceeds the maximum of 70 approved papers."
+        ),
+    ):
+        response = TestClient(app).get("/api/v1/reviews/32/graph")
+
+    assert response.status_code == 413
+    assert response.json()["detail"] == "Citation graph exceeds the maximum of 70 approved papers."

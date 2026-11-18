@@ -5,7 +5,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from app.schemas.graph import CitationGraphResponse, GraphLink, GraphNode
-from app.services.graph_service import CitationGraphService
+from app.services.graph_service import (
+    MAX_APPROVED_GRAPH_NODES,
+    CitationGraphService,
+    GraphSizeLimitExceeded,
+)
 
 
 def _paper(paper_id, title, authors, **overrides):
@@ -120,6 +124,67 @@ async def test_citation_key_resolves_through_reference_title_and_direct_title_st
     graph = await CitationGraphService.build_citation_graph(db, 9)
 
     assert [node.cluster for node in graph.nodes] == ["Keyed Theme", "Direct Theme", None]
+
+
+@pytest.mark.asyncio
+async def test_explicit_paper_title_uses_title_only_lookup():
+    review = SimpleNamespace(
+        synthesized_review={
+            "thematic_clusters": [
+                {"theme": "Title Theme", "citations": [{"paper_title": "Lee 2024"}]}
+            ],
+            "references": [
+                {"title": "Different Paper", "citation_key": "Lee 2024"},
+            ],
+        }
+    )
+    papers = [_paper(1, "Lee 2024", []), _paper(2, "Different Paper", [])]
+    db = AsyncMock()
+    db.execute.side_effect = [_result(review), _result(papers)]
+
+    graph = await CitationGraphService.build_citation_graph(db, 18)
+
+    assert [node.cluster for node in graph.nodes] == ["Title Theme", None]
+
+
+@pytest.mark.asyncio
+async def test_bare_citation_still_rejects_title_and_key_ambiguity():
+    review = SimpleNamespace(
+        synthesized_review={
+            "thematic_clusters": [{"theme": "Theme", "citations": ["Lee 2024"]}],
+            "references": [{"title": "Different Paper", "citation_key": "Lee 2024"}],
+        }
+    )
+    papers = [_paper(1, "Lee 2024", []), _paper(2, "Different Paper", [])]
+    db = AsyncMock()
+    db.execute.side_effect = [_result(review), _result(papers)]
+
+    graph = await CitationGraphService.build_citation_graph(db, 23)
+
+    assert [node.cluster for node in graph.nodes] == [None, None]
+    assert graph.links == []
+
+
+@pytest.mark.asyncio
+async def test_underscore_and_hyphen_title_separators_match_as_full_titles():
+    review = SimpleNamespace(
+        synthesized_review={
+            "thematic_clusters": [
+                {"theme": "Theme", "citations": ["Graph-Based Learning for Papers"]}
+            ]
+        }
+    )
+    papers = [
+        _paper(1, "Graph_Based Learning for Papers", []),
+        _paper(2, "Graph_Based Learning", []),
+    ]
+    db = AsyncMock()
+    db.execute.side_effect = [_result(review), _result(papers)]
+
+    graph = await CitationGraphService.build_citation_graph(db, 19)
+
+    assert [node.cluster for node in graph.nodes] == ["Theme", None]
+    assert graph.links == []
 
 
 @pytest.mark.asyncio
@@ -254,6 +319,26 @@ async def test_papers_sharing_a_cluster_connect_when_other_clusters_differ():
 
 
 @pytest.mark.asyncio
+async def test_distinct_clusters_with_the_same_theme_do_not_connect_papers():
+    review = SimpleNamespace(
+        synthesized_review={
+            "thematic_clusters": [
+                {"theme": "Methods", "citations": ["Paper A"]},
+                {"theme": "Methods", "citations": ["Paper B"]},
+            ]
+        }
+    )
+    papers = [_paper(1, "Paper A", []), _paper(2, "Paper B", [])]
+    db = AsyncMock()
+    db.execute.side_effect = [_result(review), _result(papers)]
+
+    graph = await CitationGraphService.build_citation_graph(db, 20)
+
+    assert [node.cluster for node in graph.nodes] == ["Methods", "Methods"]
+    assert graph.links == []
+
+
+@pytest.mark.asyncio
 async def test_duplicate_node_ids_do_not_create_self_loops():
     review = SimpleNamespace(
         synthesized_review={"thematic_clusters": [{"theme": "Shared", "citations": ["Paper"]}]}
@@ -303,7 +388,41 @@ async def test_build_graph_does_not_match_partial_titles_or_create_placeholder_e
     graph = await CitationGraphService.build_citation_graph(db, 8)
 
     assert len(graph.nodes) == 2
+    assert [node.cluster for node in graph.nodes] == [None, None]
     assert graph.links == []
+
+
+@pytest.mark.asyncio
+async def test_graph_accepts_maximum_approved_node_count_with_bounded_edges():
+    papers = [_paper(index, f"Paper {index}", ["Shared Author"]) for index in range(1, 71)]
+    review = SimpleNamespace(
+        synthesized_review={
+            "thematic_clusters": [
+                {"theme": "Shared Theme", "citations": [paper.title for paper in papers]}
+            ]
+        }
+    )
+    db = AsyncMock()
+    db.execute.side_effect = [_result(review), _result(papers)]
+
+    graph = await CitationGraphService.build_citation_graph(db, 21)
+
+    assert len(graph.nodes) == MAX_APPROVED_GRAPH_NODES
+    assert graph.total_links == 2 * (MAX_APPROVED_GRAPH_NODES * (MAX_APPROVED_GRAPH_NODES - 1) // 2)
+
+
+@pytest.mark.asyncio
+async def test_graph_rejects_more_than_maximum_approved_node_count():
+    papers = [_paper(index, f"Paper {index}", []) for index in range(1, 72)]
+    review = SimpleNamespace(synthesized_review={})
+    db = AsyncMock()
+    db.execute.side_effect = [_result(review), _result(papers[: MAX_APPROVED_GRAPH_NODES + 1])]
+
+    with pytest.raises(GraphSizeLimitExceeded, match="maximum of 70 approved papers"):
+        await CitationGraphService.build_citation_graph(db, 22)
+
+    paper_query = db.execute.call_args_list[1].args[0]
+    assert paper_query._limit_clause.value == MAX_APPROVED_GRAPH_NODES + 1
 
 
 @pytest.mark.asyncio

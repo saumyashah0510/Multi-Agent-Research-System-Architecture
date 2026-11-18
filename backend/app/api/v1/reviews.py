@@ -41,7 +41,7 @@ from app.services.export_service import (
     generate_presigned_download_url,
     upload_report_pdf_to_s3,
 )
-from app.services.graph_service import CitationGraphService
+from app.services.graph_service import CitationGraphService, GraphSizeLimitExceeded
 from app.services.redis_service import publish_review_event
 from app.services.vector_service import similarity_search
 
@@ -1235,6 +1235,7 @@ async def get_review_audit(
     "/{review_id}/graph",
     response_model=CitationGraphResponse,
     summary="Get citation and thematic knowledge graph topology for a review",
+    responses={413: {"description": "Review exceeds the supported graph size"}},
 )
 async def get_review_graph(
     review_id: int,
@@ -1251,4 +1252,7 @@ async def get_review_graph(
 
     _check_review_access(review, current_user)
 
-    return await CitationGraphService.build_citation_graph(db, review_id)
+    try:
+        return await CitationGraphService.build_citation_graph(db, review_id)
+    except GraphSizeLimitExceeded as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
