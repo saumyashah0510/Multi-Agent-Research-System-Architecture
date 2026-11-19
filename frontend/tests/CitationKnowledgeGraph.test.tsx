@@ -150,6 +150,44 @@ describe("CitationKnowledgeGraph Component (FE-14)", () => {
     ).toBeTruthy();
   });
 
+  it("closes the inspector card when the close button is clicked", async () => {
+    render(<CitationKnowledgeGraph reviewId="42" />);
+    await flush();
+
+    expect(screen.getByText("Selected Paper")).toBeTruthy();
+    const closeBtn = screen.getByTitle("Close Inspector");
+    expect(closeBtn).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.click(closeBtn);
+    });
+
+    expect(screen.queryByText("Selected Paper")).toBeNull();
+  });
+
+  it("safely handles dangling links with invalid node endpoints", async () => {
+    vi.mocked(fetchReviewGraph).mockResolvedValueOnce({
+      review_id: 42,
+      total_nodes: 2,
+      total_links: 3,
+      nodes: [
+        { id: "paper_1", label: "Paper 1", cluster: "Cluster A" },
+        { id: "paper_2", label: "Paper 2", cluster: "Cluster B" },
+      ],
+      links: [
+        { source: "paper_1", target: "paper_2" },
+        { source: "paper_1", target: "paper_missing_999" }, // Dangling endpoint
+        { source: "paper_missing_888", target: "paper_2" }, // Dangling endpoint
+      ],
+    });
+
+    render(<CitationKnowledgeGraph reviewId="42" />);
+    await flush();
+
+    expect(screen.getByText("2 Papers")).toBeTruthy();
+    expect(screen.getByText("3 Connections")).toBeTruthy();
+  });
+
   it("displays error message if fetchReviewGraph fails", async () => {
     vi.mocked(fetchReviewGraph).mockRejectedValueOnce(
       new Error("Database connection timed out")

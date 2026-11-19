@@ -3,16 +3,19 @@
  *
  * Implements Issue [FE-14]: Interactive D3.js Citation Knowledge Graph
  * - Interactive D3 force simulation with collision avoidance, center pull, and link tension
+ * - Actual thematic cluster grouping force (cluster attraction towards spatial centroids)
+ * - Dynamic responsiveness via ResizeObserver measuring container dimensions
  * - Categorical cluster color distribution (#3B82F6, #10B981, #8B5CF6, #F59E0B, #EC4899, #06B6D4)
- * - Draggable nodes to rearrange the graph layout
+ * - Draggable nodes to rearrange the graph layout without triggering false selections
  * - Interactive zoom & pan via mouse drag/scroll and UI buttons (Zoom In, Zoom Out, Reset)
  * - Click-to-inspect side card detailing paper metadata (Title, Authors, Year, Relevance, Cluster, URL)
  * - Hover & selection highlighting: highlights connected neighbors/edges in #4F46E5, dims unlinked nodes to 0.25 opacity
  * - Floating bottom-left cluster legend mapping color swatches to cluster titles
  * - Graceful empty state when no approved papers exist
+ * - Memory-leak free lifecycle management with proper simulation and observer cleanup
  */
 
-import React, { useEffect, useState, useRef, useMemo } from "react";
+import React, { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import * as d3 from "d3";
 import {
   Network,
@@ -48,6 +51,34 @@ export const CLUSTER_COLORS = [
 
 const DEFAULT_COLOR = "#3B82F6";
 
+/**
+ * Calculates spatial centroid target coordinates for a node's thematic cluster.
+ * Clusters are distributed circularly around the canvas center to create natural,
+ * visually distinguishable spatial groupings while avoiding overlap.
+ */
+function getClusterTarget(
+  node: GraphNode,
+  width: number,
+  height: number,
+  clusters: string[]
+): { x: number; y: number } {
+  const centerX = width / 2;
+  const centerY = height / 2;
+  if (!node.cluster || clusters.length === 0) {
+    return { x: centerX, y: centerY };
+  }
+  const idx = clusters.indexOf(node.cluster.trim());
+  if (idx < 0) {
+    return { x: centerX, y: centerY };
+  }
+  const radius = Math.min(width, height) * 0.28;
+  const angle = (idx / clusters.length) * 2 * Math.PI - Math.PI / 2;
+  return {
+    x: centerX + radius * Math.cos(angle),
+    y: centerY + radius * Math.sin(angle),
+  };
+}
+
 export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
   reviewId,
 }) => {
@@ -55,10 +86,16 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
+  const [dimensions, setDimensions] = useState<{ width: number; height: number }>({
+    width: 800,
+    height: 500,
+  });
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const canvasContainerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const zoomBehaviorRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
+  const simulationRef = useRef<d3.Simulation<GraphNode, GraphLink> | null>(null);
   const selectedNodeRef = useRef<GraphNode | null>(null);
   const highlightFnRef = useRef<((node: GraphNode | null) => void) | null>(null);
 
@@ -81,14 +118,71 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
       .range(CLUSTER_COLORS);
   }, [uniqueClusters]);
 
-  const getNodeColor = (node: GraphNode, fallbackIndex: number = 0): string => {
-    if (node.cluster && node.cluster.trim()) {
-      const scaled = clusterColorScale(node.cluster.trim());
-      if (scaled) return scaled;
+  const getNodeColor = useCallback(
+    (node: GraphNode, fallbackIndex: number = 0): string => {
+      if (node.cluster && node.cluster.trim()) {
+        const scaled = clusterColorScale(node.cluster.trim());
+        if (scaled) return scaled;
+      }
+      const fallback = CLUSTER_COLORS[fallbackIndex % CLUSTER_COLORS.length];
+      return fallback ?? DEFAULT_COLOR;
+    },
+    [clusterColorScale]
+  );
+
+  // Responsive container observer measuring dynamic width and height
+  useEffect(() => {
+    const container = canvasContainerRef.current;
+    if (!container) return;
+
+    const measure = () => {
+      const rect = container.getBoundingClientRect();
+      const w = Math.round(rect.width);
+      const h = Math.round(rect.height);
+      if (w > 0 && h > 0) {
+        setDimensions((prev) => {
+          if (Math.abs(prev.width - w) > 2 || Math.abs(prev.height - h) > 2) {
+            return { width: w, height: Math.max(h, 460) };
+          }
+          return prev;
+        });
+      }
+    };
+
+    measure();
+
+    if (typeof ResizeObserver !== "undefined") {
+      const observer = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          const { width: w, height: h } = entry.contentRect;
+          if (w > 0 && h > 0) {
+            setDimensions((prev) => {
+              const rw = Math.round(w);
+              const rh = Math.round(Math.max(h, 460));
+              if (Math.abs(prev.width - rw) > 2 || Math.abs(prev.height - rh) > 2) {
+                return { width: rw, height: rh };
+              }
+              return prev;
+            });
+          }
+        }
+      });
+      observer.observe(container);
+      return () => observer.disconnect();
+    } else {
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
     }
-    const fallback = CLUSTER_COLORS[fallbackIndex % CLUSTER_COLORS.length];
-    return fallback ?? DEFAULT_COLOR;
-  };
+  }, []);
+
+  // Clear selection and restore unhighlighted graph state
+  const clearSelection = useCallback(() => {
+    setSelectedNode(null);
+    selectedNodeRef.current = null;
+    if (highlightFnRef.current) {
+      highlightFnRef.current(null);
+    }
+  }, []);
 
   // Synchronize selectedNode ref and propagate highlighting updates
   useEffect(() => {
@@ -98,7 +192,7 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
     }
   }, [selectedNode]);
 
-  // Fetch graph topology
+  // Fetch graph topology via fetchReviewGraph
   useEffect(() => {
     let isMounted = true;
     async function loadGraph() {
@@ -111,6 +205,8 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
           setData(result);
           if (result.nodes && result.nodes.length > 0) {
             setSelectedNode(result.nodes[0] ?? null);
+          } else {
+            setSelectedNode(null);
           }
         }
       } catch (err: any) {
@@ -129,6 +225,31 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
     };
   }, [reviewId]);
 
+  // Handle dynamic container resizing without destroying the active SVG or desyncing zoom
+  useEffect(() => {
+    if (!simulationRef.current || !svgRef.current) return;
+    const { width, height } = dimensions;
+
+    // Update SVG viewBox attribute
+    d3.select(svgRef.current).attr("viewBox", `0 0 ${width} ${height}`);
+
+    // Update force center
+    simulationRef.current.force("center", d3.forceCenter(width / 2, height / 2));
+
+    // Update thematic cluster spatial targets for new viewport center
+    simulationRef.current.force(
+      "clusterX",
+      d3.forceX<GraphNode>((d) => getClusterTarget(d, width, height, uniqueClusters).x).strength(0.22)
+    );
+    simulationRef.current.force(
+      "clusterY",
+      d3.forceY<GraphNode>((d) => getClusterTarget(d, width, height, uniqueClusters).y).strength(0.22)
+    );
+
+    // Gently glide layout into new dimensions
+    simulationRef.current.alpha(0.2).restart();
+  }, [dimensions, uniqueClusters]);
+
   // Setup D3 Force Simulation, Zoom, Drag, and Highlighting
   useEffect(() => {
     if (!svgRef.current || !data || !data.nodes || data.nodes.length === 0) {
@@ -138,12 +259,22 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
     const svg = d3.select(svgRef.current);
     svg.selectAll("*").remove();
 
-    const width = 800;
-    const height = 500;
+    const { width, height } = dimensions;
+    svg.attr("viewBox", `0 0 ${width} ${height}`);
 
     // Create cloned copies so D3 simulation mutations do not alter props or state
     const nodes: GraphNode[] = data.nodes.map((d) => ({ ...d }));
-    const links: GraphLink[] = data.links.map((d) => ({ ...d }));
+    const rawLinks: GraphLink[] = data.links ? data.links.map((d) => ({ ...d })) : [];
+
+    // Filter out dangling links with missing endpoints to prevent D3 forceLink crashes
+    const nodeMap = new Map<string, GraphNode>();
+    nodes.forEach((n) => nodeMap.set(n.id, n));
+
+    const validLinks: GraphLink[] = rawLinks.filter((l) => {
+      const sId = typeof l.source === "object" ? l.source.id : String(l.source);
+      const tId = typeof l.target === "object" ? l.target.id : String(l.target);
+      return nodeMap.has(sId) && nodeMap.has(tId);
+    });
 
     // Root container group for zoom and pan transformations
     const g = svg.append("g").attr("class", "graph-root");
@@ -158,37 +289,51 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
     svg.call(zoom);
     zoomBehaviorRef.current = zoom;
 
-    // Initialize D3 Force Simulation
+    // Initialize D3 Force Simulation with actual thematic clustering and collision avoidance
     const simulation = d3.forceSimulation<GraphNode>(nodes)
       .force(
         "link",
-        d3.forceLink<GraphNode, GraphLink>(links)
+        d3.forceLink<GraphNode, GraphLink>(validLinks)
           .id((d) => d.id)
           .distance(90)
       )
       .force("charge", d3.forceManyBody().strength(-180))
       .force("center", d3.forceCenter(width / 2, height / 2))
-      .force("collide", d3.forceCollide().radius(28));
+      .force("collide", d3.forceCollide<GraphNode>().radius(28))
+      // Actual thematic cluster attraction forces
+      .force(
+        "clusterX",
+        d3.forceX<GraphNode>((d) => getClusterTarget(d, width, height, uniqueClusters).x).strength(0.22)
+      )
+      .force(
+        "clusterY",
+        d3.forceY<GraphNode>((d) => getClusterTarget(d, width, height, uniqueClusters).y).strength(0.22)
+      );
+
+    simulationRef.current = simulation;
 
     // Render Links
     const linkGroup = g.append("g").attr("class", "graph-links");
     const linkElements = linkGroup
       .selectAll<SVGLineElement, GraphLink>("line")
-      .data(links)
+      .data(validLinks)
       .join("line")
       .attr("stroke", "#CBD5E1")
       .attr("stroke-opacity", 0.6)
       .attr("stroke-width", (d) => Math.max(1.5, (d.weight || 0.5) * 3))
       .attr("stroke-dasharray", (d) => (d.type === "co_authorship" ? "4,4" : null));
 
-    // Node Drag Behavior
+    // Node Drag Behavior (tracks hasDragged to prevent dragging from triggering accidental clicks)
+    let hasDragged = false;
     const drag = d3.drag<SVGGElement, GraphNode>()
       .on("start", (event, d) => {
+        hasDragged = false;
         if (!event.active) simulation.alphaTarget(0.3).restart();
         d.fx = d.x;
         d.fy = d.y;
       })
       .on("drag", (event, d) => {
+        hasDragged = true;
         d.fx = event.x;
         d.fy = event.y;
       })
@@ -230,8 +375,8 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
 
     // Link connection checker
     const isLinkConnected = (l: GraphLink, nodeId: string): boolean => {
-      const sId = typeof l.source === "object" ? (l.source as GraphNode).id : l.source;
-      const tId = typeof l.target === "object" ? (l.target as GraphNode).id : l.target;
+      const sId = typeof l.source === "object" ? (l.source as GraphNode).id : String(l.source);
+      const tId = typeof l.target === "object" ? (l.target as GraphNode).id : String(l.target);
       return sId === nodeId || tId === nodeId;
     };
 
@@ -254,9 +399,9 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
       const neighborIds = new Set<string>();
       neighborIds.add(targetNode.id);
 
-      links.forEach((l) => {
-        const sId = typeof l.source === "object" ? (l.source as GraphNode).id : l.source;
-        const tId = typeof l.target === "object" ? (l.target as GraphNode).id : l.target;
+      validLinks.forEach((l) => {
+        const sId = typeof l.source === "object" ? (l.source as GraphNode).id : String(l.source);
+        const tId = typeof l.target === "object" ? (l.target as GraphNode).id : String(l.target);
         if (sId === targetNode.id) neighborIds.add(tId);
         if (tId === targetNode.id) neighborIds.add(sId);
       });
@@ -296,7 +441,7 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
         applyHighlight(selectedNodeRef.current);
       })
       .on("click", (event, d) => {
-        if (event.defaultPrevented) return;
+        if (hasDragged || event.defaultPrevented) return;
         setSelectedNode(d);
         selectedNodeRef.current = d;
         applyHighlight(d);
@@ -305,32 +450,46 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
     // Background Canvas Click: deselect and reset highlight
     svg.on("click", (event) => {
       if (event.target === svg.node()) {
-        setSelectedNode(null);
-        selectedNodeRef.current = null;
-        applyHighlight(null);
+        clearSelection();
       }
     });
 
     // Force simulation tick updates
     simulation.on("tick", () => {
       linkElements
-        .attr("x1", (d) => (d.source as GraphNode).x ?? 0)
-        .attr("y1", (d) => (d.source as GraphNode).y ?? 0)
-        .attr("x2", (d) => (d.target as GraphNode).x ?? 0)
-        .attr("y2", (d) => (d.target as GraphNode).y ?? 0);
+        .attr("x1", (d) => {
+          const s = d.source as GraphNode;
+          return typeof s === "object" && typeof s.x === "number" ? s.x : 0;
+        })
+        .attr("y1", (d) => {
+          const s = d.source as GraphNode;
+          return typeof s === "object" && typeof s.y === "number" ? s.y : 0;
+        })
+        .attr("x2", (d) => {
+          const t = d.target as GraphNode;
+          return typeof t === "object" && typeof t.x === "number" ? t.x : 0;
+        })
+        .attr("y2", (d) => {
+          const t = d.target as GraphNode;
+          return typeof t === "object" && typeof t.y === "number" ? t.y : 0;
+        });
 
       nodeElements.attr(
         "transform",
-        (d) => `translate(${d.x ?? 0}, ${d.y ?? 0})`
+        (d) => `translate(${typeof d.x === "number" ? d.x : 0}, ${typeof d.y === "number" ? d.y : 0})`
       );
     });
 
     return () => {
       simulation.stop();
+      svg.on(".zoom", null);
+      svg.on("click", null);
       svg.selectAll("*").remove();
+      simulationRef.current = null;
+      zoomBehaviorRef.current = null;
       highlightFnRef.current = null;
     };
-  }, [data]);
+  }, [data, getNodeColor, clearSelection]);
 
   // Smooth Zoom button handlers
   const handleZoomIn = () => {
@@ -425,7 +584,10 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
       </div>
 
       {/* Main Canvas Area */}
-      <div className="relative flex-1 min-h-[460px] bg-radial from-neutral-50/50 to-white flex items-center justify-center overflow-hidden">
+      <div
+        ref={canvasContainerRef}
+        className="relative flex-1 min-h-[460px] bg-radial from-neutral-50/50 to-white flex items-center justify-center overflow-hidden"
+      >
         {isLoading && (
           <div className="flex flex-col items-center gap-2 text-neutral-500">
             <Loader2 className="w-6 h-6 animate-spin text-[var(--lavender-dark)]" />
@@ -455,7 +617,6 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
             <svg
               ref={svgRef}
               className="w-full h-full cursor-grab active:cursor-grabbing"
-              viewBox="0 0 800 500"
               preserveAspectRatio="xMidYMid meet"
             />
 
@@ -476,7 +637,7 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
                       )}
                     <button
                       type="button"
-                      onClick={() => setSelectedNode(null)}
+                      onClick={clearSelection}
                       className="p-0.5 hover:bg-neutral-100 rounded text-neutral-400 hover:text-neutral-600 transition-colors"
                       title="Close Inspector"
                     >
