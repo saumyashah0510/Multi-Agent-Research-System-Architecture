@@ -98,7 +98,7 @@ describe("CitationKnowledgeGraph Component (FE-14)", () => {
     expect(screen.getByText(/Ashish Vaswani/)).toBeTruthy();
     expect(screen.getByText("Published 2017")).toBeTruthy();
     expect(screen.getByText("98% Match")).toBeTruthy();
-    expect(screen.getByText("Cluster: Transformers & Self-Attention")).toBeTruthy();
+    expect(screen.getByText(/Transformers & Self-Attention/)).toBeTruthy();
     expect(screen.getByText("Open Source Document")).toBeTruthy();
   });
 

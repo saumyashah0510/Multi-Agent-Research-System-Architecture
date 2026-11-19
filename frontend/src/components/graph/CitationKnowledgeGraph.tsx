@@ -6,13 +6,13 @@
  * - Actual thematic cluster grouping force (cluster attraction towards spatial centroids)
  * - Dynamic responsiveness via ResizeObserver measuring container dimensions
  * - Categorical cluster color distribution (#3B82F6, #10B981, #8B5CF6, #F59E0B, #EC4899, #06B6D4)
- * - Draggable nodes to rearrange the graph layout without triggering false selections
+ * - Draggable nodes with displacement tracking to prevent accidental selections while allowing clicks
  * - Interactive zoom & pan via mouse drag/scroll and UI buttons (Zoom In, Zoom Out, Reset)
  * - Click-to-inspect side card detailing paper metadata (Title, Authors, Year, Relevance, Cluster, URL)
  * - Hover & selection highlighting: highlights connected neighbors/edges in #4F46E5, dims unlinked nodes to 0.25 opacity
- * - Floating bottom-left cluster legend mapping color swatches to cluster titles
+ * - Floating bottom-left cluster legend matching native Scholaris design system tokens
  * - Graceful empty state when no approved papers exist
- * - Memory-leak free lifecycle management with proper simulation and observer cleanup
+ * - Memory-leak free lifecycle management with proper simulation, zoom, event, and observer cleanup
  */
 
 import React, { useEffect, useState, useRef, useMemo, useCallback } from "react";
@@ -39,7 +39,7 @@ interface CitationKnowledgeGraphProps {
   reviewId: string;
 }
 
-// Categorical palette for thematic clusters (FE-14 specification)
+// Categorical palette for thematic clusters (FE-14 mandatory specification)
 export const CLUSTER_COLORS = [
   "#3B82F6", // Blue
   "#10B981", // Emerald
@@ -53,7 +53,7 @@ const DEFAULT_COLOR = "#3B82F6";
 
 /**
  * Calculates spatial centroid target coordinates for a node's thematic cluster.
- * Clusters are distributed circularly around the canvas center to create natural,
+ * Distributes unique clusters circularly around the canvas center to create natural,
  * visually distinguishable spatial groupings while avoiding overlap.
  */
 function getClusterTarget(
@@ -142,7 +142,7 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
       if (w > 0 && h > 0) {
         setDimensions((prev) => {
           if (Math.abs(prev.width - w) > 2 || Math.abs(prev.height - h) > 2) {
-            return { width: w, height: Math.max(h, 460) };
+            return { width: w, height: Math.max(h, 480) };
           }
           return prev;
         });
@@ -158,7 +158,7 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
           if (w > 0 && h > 0) {
             setDimensions((prev) => {
               const rw = Math.round(w);
-              const rh = Math.round(Math.max(h, 460));
+              const rh = Math.round(Math.max(h, 480));
               if (Math.abs(prev.width - rw) > 2 || Math.abs(prev.height - rh) > 2) {
                 return { width: rw, height: rh };
               }
@@ -323,17 +323,25 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
       .attr("stroke-width", (d) => Math.max(1.5, (d.weight || 0.5) * 3))
       .attr("stroke-dasharray", (d) => (d.type === "co_authorship" ? "4,4" : null));
 
-    // Node Drag Behavior (tracks hasDragged to prevent dragging from triggering accidental clicks)
-    let hasDragged = false;
+    // Node Drag Behavior with displacement threshold to reliably distinguish drags from clicks
+    let dragStartX = 0;
+    let dragStartY = 0;
+    let dragMoved = false;
+    let dragEndTime = 0;
+
     const drag = d3.drag<SVGGElement, GraphNode>()
       .on("start", (event, d) => {
-        hasDragged = false;
+        dragStartX = event.x;
+        dragStartY = event.y;
+        dragMoved = false;
         if (!event.active) simulation.alphaTarget(0.3).restart();
         d.fx = d.x;
         d.fy = d.y;
       })
       .on("drag", (event, d) => {
-        hasDragged = true;
+        if (Math.hypot(event.x - dragStartX, event.y - dragStartY) > 4) {
+          dragMoved = true;
+        }
         d.fx = event.x;
         d.fy = event.y;
       })
@@ -341,6 +349,9 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
         if (!event.active) simulation.alphaTarget(0);
         d.fx = null;
         d.fy = null;
+        if (dragMoved) {
+          dragEndTime = Date.now();
+        }
       });
 
     // Render Nodes
@@ -440,8 +451,13 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
       .on("mouseleave", () => {
         applyHighlight(selectedNodeRef.current);
       })
-      .on("click", (event, d) => {
-        if (hasDragged || event.defaultPrevented) return;
+      .on("click", (_event, d) => {
+        // Suppress selection if the click was part of a real drag gesture
+        if (dragMoved && Date.now() - dragEndTime < 250) {
+          dragMoved = false;
+          return;
+        }
+        dragMoved = false;
         setSelectedNode(d);
         selectedNodeRef.current = d;
         applyHighlight(d);
@@ -522,20 +538,45 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
   return (
     <div
       ref={containerRef}
-      className="relative w-full bg-white rounded-2xl border border-neutral-200/90 shadow-xs overflow-hidden flex flex-col"
-      style={{ minHeight: "580px" }}
+      style={{
+        backgroundColor: "var(--surface-card)",
+        borderColor: "var(--border-default)",
+        borderRadius: "var(--radius-lg)",
+        boxShadow: "var(--shadow-card)",
+        minHeight: "600px",
+      }}
+      className="relative w-full border overflow-hidden flex flex-col"
     >
       {/* Header Bar */}
-      <div className="px-6 py-4 border-b border-neutral-100 flex flex-wrap items-center justify-between gap-3 bg-neutral-50/50">
+      <div
+        style={{
+          borderBottom: "1px solid var(--border-subtle)",
+          backgroundColor: "var(--surface-card)",
+        }}
+        className="px-5 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3"
+      >
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-[var(--tint-lavender)] flex items-center justify-center text-[var(--lavender-dark)]">
+          <div
+            style={{
+              backgroundColor: "var(--tint-lavender)",
+              color: "var(--lavender-dark)",
+              borderRadius: "var(--radius-sm)",
+            }}
+            className="w-8 h-8 flex items-center justify-center shrink-0"
+          >
             <Network className="w-4 h-4" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold text-neutral-900">
+            <h2
+              style={{ color: "var(--text-primary)", fontFamily: "var(--font-sans)" }}
+              className="text-sm font-semibold tracking-tight"
+            >
               Citation Knowledge Graph
             </h2>
-            <p className="text-xs text-neutral-500">
+            <p
+              style={{ color: "var(--text-secondary)" }}
+              className="text-xs"
+            >
               Interactive topology mapping thematic clusters, citations, and co-authorship
             </p>
           </div>
@@ -543,39 +584,74 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
 
         <div className="flex items-center gap-2">
           {data && (
-            <div className="flex items-center gap-2 text-xs text-neutral-500 mr-2">
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-100 font-medium">
-                {data.total_nodes} Papers
+            <div className="flex items-center gap-2 text-xs mr-1">
+              <span
+                style={{
+                  backgroundColor: "var(--surface-page)",
+                  borderColor: "var(--border-default)",
+                  borderRadius: "var(--radius-pill)",
+                  color: "var(--text-secondary)",
+                }}
+                className="inline-flex items-center gap-1 px-2.5 py-1 border font-medium text-xs"
+              >
+                <span className="font-semibold text-[var(--text-primary)]">{data.total_nodes}</span> Papers
               </span>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-100 font-medium">
-                {data.total_links} Connections
+              <span
+                style={{
+                  backgroundColor: "var(--surface-page)",
+                  borderColor: "var(--border-default)",
+                  borderRadius: "var(--radius-pill)",
+                  color: "var(--text-secondary)",
+                }}
+                className="inline-flex items-center gap-1 px-2.5 py-1 border font-medium text-xs"
+              >
+                <span className="font-semibold text-[var(--text-primary)]">{data.total_links}</span> Connections
               </span>
             </div>
           )}
 
           {/* Zoom Controls */}
-          <div className="flex items-center border border-neutral-200 rounded-lg bg-white overflow-hidden shadow-2xs">
+          <div
+            style={{
+              backgroundColor: "var(--surface-card)",
+              borderColor: "var(--border-default)",
+              borderRadius: "var(--radius-sm)",
+            }}
+            className="flex items-center border overflow-hidden shadow-2xs"
+          >
             <button
               type="button"
               onClick={handleZoomIn}
-              className="p-1.5 hover:bg-neutral-100 text-neutral-600 transition-colors"
+              style={{ color: "var(--text-secondary)" }}
+              className="p-1.5 hover:bg-[var(--tint-sky)]/50 hover:text-[var(--sky-dark)] transition-colors cursor-pointer"
               title="Zoom In"
+              aria-label="Zoom In"
             >
               <ZoomIn className="w-3.5 h-3.5" />
             </button>
             <button
               type="button"
               onClick={handleZoomOut}
-              className="p-1.5 hover:bg-neutral-100 text-neutral-600 transition-colors border-l border-neutral-200"
+              style={{
+                color: "var(--text-secondary)",
+                borderLeft: "1px solid var(--border-default)",
+              }}
+              className="p-1.5 hover:bg-[var(--tint-sky)]/50 hover:text-[var(--sky-dark)] transition-colors cursor-pointer"
               title="Zoom Out"
+              aria-label="Zoom Out"
             >
               <ZoomOut className="w-3.5 h-3.5" />
             </button>
             <button
               type="button"
               onClick={handleResetZoom}
-              className="p-1.5 hover:bg-neutral-100 text-neutral-600 transition-colors border-l border-neutral-200"
+              style={{
+                color: "var(--text-secondary)",
+                borderLeft: "1px solid var(--border-default)",
+              }}
+              className="p-1.5 hover:bg-[var(--tint-sky)]/50 hover:text-[var(--sky-dark)] transition-colors cursor-pointer"
               title="Reset Zoom"
+              aria-label="Reset Zoom"
             >
               <RotateCcw className="w-3.5 h-3.5" />
             </button>
@@ -586,24 +662,34 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
       {/* Main Canvas Area */}
       <div
         ref={canvasContainerRef}
-        className="relative flex-1 min-h-[460px] bg-radial from-neutral-50/50 to-white flex items-center justify-center overflow-hidden"
+        style={{
+          background: "radial-gradient(ellipse at center, #FFFFFF 0%, var(--surface-page) 100%)",
+        }}
+        className="relative flex-1 min-h-[480px] flex items-center justify-center overflow-hidden"
       >
         {isLoading && (
-          <div className="flex flex-col items-center gap-2 text-neutral-500">
+          <div className="flex flex-col items-center gap-2 text-[var(--text-secondary)]">
             <Loader2 className="w-6 h-6 animate-spin text-[var(--lavender-dark)]" />
             <span className="text-xs font-medium">Constructing knowledge graph...</span>
           </div>
         )}
 
         {error && (
-          <div className="flex flex-col items-center gap-2 text-[var(--status-error-text)] p-6 text-center max-w-md">
+          <div
+            style={{
+              backgroundColor: "var(--surface-card)",
+              borderColor: "var(--status-error)",
+              borderRadius: "var(--radius-md)",
+            }}
+            className="flex flex-col items-center gap-2 text-[var(--status-error-text)] p-6 text-center max-w-md border shadow-sm"
+          >
             <AlertCircle className="w-6 h-6" />
-            <p className="text-xs">{error}</p>
+            <p className="text-xs font-medium">{error}</p>
           </div>
         )}
 
         {!isLoading && !error && (!data || data.nodes.length === 0) && (
-          <div className="flex flex-col items-center gap-2 text-neutral-400 p-8 text-center max-w-sm">
+          <div className="flex flex-col items-center gap-2 text-[var(--text-secondary)] p-8 text-center max-w-sm">
             <Layers className="w-8 h-8 stroke-[1.5]" />
             <p className="text-xs">
               No approved papers found for this review session to construct the knowledge graph.
@@ -622,76 +708,142 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
 
             {/* Selected Node Inspector Sidebar Card */}
             {selectedNode && (
-              <div className="absolute top-4 right-4 w-72 bg-white/95 backdrop-blur-sm rounded-xl border border-neutral-200/90 shadow-lg p-4 space-y-3 text-xs animate-in fade-in">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-1.5 text-neutral-500 font-medium">
-                    <FileText className="w-3.5 h-3.5 text-[var(--lavender-dark)]" />
-                    <span>Selected Paper</span>
+              <div
+                style={{
+                  backgroundColor: "rgba(255, 255, 255, 0.97)",
+                  borderColor: "var(--border-default)",
+                  borderRadius: "var(--radius-md)",
+                  boxShadow: "var(--shadow-container)",
+                }}
+                className="absolute top-3 sm:top-4 right-3 sm:right-4 w-72 sm:w-80 max-w-[calc(100%-1.5rem)] backdrop-blur-sm border p-4 space-y-3 text-xs z-20 animate-in fade-in duration-200"
+              >
+                {/* Card Header */}
+                <div className="flex items-start justify-between gap-2 pb-1 border-b border-[var(--border-subtle)]">
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      style={{
+                        backgroundColor: "var(--tint-lavender)",
+                        color: "var(--lavender-dark)",
+                        borderRadius: "var(--radius-sm)",
+                      }}
+                      className="w-5 h-5 flex items-center justify-center shrink-0"
+                    >
+                      <FileText className="w-3 h-3" />
+                    </span>
+                    <span
+                      style={{ color: "var(--text-secondary)" }}
+                      className="font-semibold uppercase tracking-wider text-[11px]"
+                    >
+                      Selected Paper
+                    </span>
                   </div>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1.5">
                     {selectedNode.relevance_score !== null &&
                       selectedNode.relevance_score !== undefined && (
-                        <span className="px-2 py-0.5 rounded-full bg-[var(--tint-mint)] text-[var(--color-success-dark)] border border-[var(--color-success-border)] font-semibold text-xs">
+                        <span
+                          style={{
+                            backgroundColor: "var(--tint-mint)",
+                            color: "var(--color-success-dark)",
+                            borderColor: "var(--color-success-border)",
+                            borderRadius: "var(--radius-pill)",
+                          }}
+                          className="px-2 py-0.5 border font-semibold text-[11px]"
+                        >
                           {Math.round(selectedNode.relevance_score * 100)}% Match
                         </span>
                       )}
                     <button
                       type="button"
                       onClick={clearSelection}
-                      className="p-0.5 hover:bg-neutral-100 rounded text-neutral-400 hover:text-neutral-600 transition-colors"
+                      style={{
+                        borderRadius: "var(--radius-sm)",
+                        color: "var(--text-secondary)",
+                      }}
+                      className="p-1 hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
                       title="Close Inspector"
+                      aria-label="Close Inspector"
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>
 
-                <h3 className="font-serif font-bold text-neutral-900 text-xs leading-snug">
+                {/* Paper Title */}
+                <h3
+                  style={{
+                    color: "var(--text-primary)",
+                    fontFamily: "var(--font-serif)",
+                  }}
+                  className="text-sm font-bold leading-snug"
+                >
                   {selectedNode.label}
                 </h3>
 
+                {/* Paper Authors */}
                 {selectedNode.authors && selectedNode.authors.length > 0 && (
-                  <div className="flex items-center gap-1.5 text-neutral-600">
-                    <User className="w-3.5 h-3.5 shrink-0 text-neutral-400" />
-                    <span className="truncate">
+                  <div className="flex items-center gap-2">
+                    <User className="w-3.5 h-3.5 shrink-0 text-[var(--text-secondary)]" />
+                    <span style={{ color: "var(--text-secondary)" }} className="truncate">
                       {selectedNode.authors.slice(0, 3).join(", ")}
                       {selectedNode.authors.length > 3 && " et al."}
                     </span>
                   </div>
                 )}
 
+                {/* Publication Year */}
                 {selectedNode.year && (
-                  <div className="flex items-center gap-1.5 text-neutral-600">
-                    <Calendar className="w-3.5 h-3.5 shrink-0 text-neutral-400" />
-                    <span>Published {selectedNode.year}</span>
-                  </div>
-                )}
-
-                {typeof selectedNode.citation_count === "number" && (
-                  <div className="flex items-center gap-1.5 text-neutral-600">
-                    <Bookmark className="w-3.5 h-3.5 shrink-0 text-neutral-400" />
-                    <span>{selectedNode.citation_count} Citations</span>
-                  </div>
-                )}
-
-                {selectedNode.cluster && (
-                  <div className="pt-1">
-                    <span className="inline-block px-2 py-0.5 rounded bg-[var(--tint-lavender)] text-[var(--lavender-dark)] text-xs font-medium">
-                      Cluster: {selectedNode.cluster}
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-3.5 h-3.5 shrink-0 text-[var(--text-secondary)]" />
+                    <span style={{ color: "var(--text-secondary)" }}>
+                      Published {selectedNode.year}
                     </span>
                   </div>
                 )}
 
+                {/* Citation Count */}
+                {typeof selectedNode.citation_count === "number" && (
+                  <div className="flex items-center gap-2">
+                    <Bookmark className="w-3.5 h-3.5 shrink-0 text-[var(--text-secondary)]" />
+                    <span style={{ color: "var(--text-secondary)" }}>
+                      {selectedNode.citation_count.toLocaleString()} Citations
+                    </span>
+                  </div>
+                )}
+
+                {/* Thematic Cluster Pill */}
+                {selectedNode.cluster && (
+                  <div className="pt-0.5">
+                    <span
+                      style={{
+                        backgroundColor: "var(--tint-sky)",
+                        color: "var(--sky-dark)",
+                        borderColor: "var(--border-sky)",
+                        borderRadius: "var(--radius-sm)",
+                      }}
+                      className="inline-block px-2.5 py-1 border text-xs font-semibold"
+                    >
+                      Theme: {selectedNode.cluster}
+                    </span>
+                  </div>
+                )}
+
+                {/* External Document Link */}
                 {selectedNode.url && (
-                  <div className="pt-2 border-t border-neutral-100">
+                  <div className="pt-2 border-t border-[var(--border-subtle)]">
                     <a
                       href={selectedNode.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-[var(--lavender-dark)] hover:opacity-80 font-medium transition-opacity"
+                      style={{
+                        backgroundColor: "var(--surface-card)",
+                        border: "1px solid var(--border-default)",
+                        borderRadius: "var(--radius-sm)",
+                        color: "var(--sky-dark)",
+                      }}
+                      className="inline-flex items-center justify-between w-full px-3 py-1.5 font-semibold text-xs transition-colors hover:bg-[var(--tint-sky)]/50 hover:border-[var(--sky-dark)] shadow-2xs cursor-pointer"
                     >
                       <span>Open Source Document</span>
-                      <ExternalLink className="w-3 h-3" />
+                      <ExternalLink className="w-3.5 h-3.5 shrink-0 ml-1.5" />
                     </a>
                   </div>
                 )}
@@ -700,21 +852,33 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
 
             {/* Thematic Cluster Color Legend */}
             {uniqueClusters.length > 0 && (
-              <div className="absolute bottom-3 left-4 max-w-xl flex flex-wrap items-center gap-3 bg-white/95 backdrop-blur-xs px-3.5 py-2 rounded-xl border border-neutral-200/90 shadow-sm text-xs text-neutral-600">
-                <span className="font-semibold text-neutral-500 uppercase tracking-wider text-xs">
+              <div
+                style={{
+                  backgroundColor: "rgba(255, 255, 255, 0.95)",
+                  borderColor: "var(--border-default)",
+                  borderRadius: "var(--radius-md)",
+                  boxShadow: "var(--shadow-card)",
+                }}
+                className="absolute bottom-3 left-3 sm:left-4 max-w-[calc(100%-1.5rem)] sm:max-w-xl flex flex-wrap items-center gap-2 sm:gap-3 backdrop-blur-xs px-3 sm:px-3.5 py-2 border text-xs z-10"
+              >
+                <span
+                  style={{ color: "var(--text-secondary)" }}
+                  className="font-semibold uppercase tracking-wider text-[11px]"
+                >
                   Thematic Clusters:
                 </span>
                 {uniqueClusters.map((clusterName, cIdx) => (
                   <div key={clusterName} className="flex items-center gap-1.5">
                     <span
-                      className="w-2.5 h-2.5 rounded-full shrink-0"
+                      className="w-2.5 h-2.5 rounded-full shrink-0 shadow-2xs"
                       style={{
                         backgroundColor:
                           CLUSTER_COLORS[cIdx % CLUSTER_COLORS.length] ?? DEFAULT_COLOR,
                       }}
                     />
                     <span
-                      className="truncate max-w-[150px] font-medium text-xs"
+                      style={{ color: "var(--text-primary)" }}
+                      className="truncate max-w-[130px] sm:max-w-[170px] font-medium text-xs"
                       title={clusterName}
                     >
                       {clusterName}
