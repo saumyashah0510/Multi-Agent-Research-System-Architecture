@@ -295,8 +295,7 @@ export async function retryReviewPipeline(reviewId: string | number): Promise<an
 export async function fetchReviewGraph(
   reviewId: string | number
 ): Promise<CitationGraphResponse> {
-  // TODO (Assignee - FE-14): GET /reviews/{reviewId}/graph
-  const res = await fetch(`${getApiBaseUrl()}/reviews/${reviewId}/graph`, {
+  const res = await fetch(`${getApiBaseUrl()}/reviews/${encodeURIComponent(reviewId)}/graph`, {
     headers: {
       "Content-Type": "application/json",
       ...getAuthHeaders(),

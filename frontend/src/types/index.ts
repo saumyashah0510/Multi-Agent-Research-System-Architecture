@@ -227,6 +227,7 @@ export interface GraphNode {
   url?: string | null;
   citation_count?: number | null;
   // D3 force simulation positioning fields
+  index?: number;
   x?: number;
   y?: number;
   vx?: number;
@@ -240,6 +241,7 @@ export interface GraphLink {
   target: string | GraphNode;
   type?: "thematic_similarity" | "co_authorship" | "direct_citation" | string;
   weight?: number;
+  index?: number;
 }
 
 export interface CitationGraphResponse {
