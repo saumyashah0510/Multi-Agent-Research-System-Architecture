@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import CitationKnowledgeGraph, { CLUSTER_COLORS } from "../src/components/graph/CitationKnowledgeGraph";
 import { fetchReviewGraph } from "../src/lib/api";
@@ -84,22 +84,29 @@ describe("CitationKnowledgeGraph Component (FE-14)", () => {
 
     expect(fetchReviewGraph).toHaveBeenCalledWith("42");
     expect(screen.getByText("Citation Knowledge Graph")).toBeTruthy();
-    expect(screen.getByText("3 Papers")).toBeTruthy();
-    expect(screen.getByText("2 Connections")).toBeTruthy();
+    const papersBadge = screen.getByTestId("total-papers-badge");
+    const connectionsBadge = screen.getByTestId("total-connections-badge");
+    expect(papersBadge.textContent).toContain("3 Papers");
+    expect(connectionsBadge.textContent).toContain("2 Connections");
   });
 
   it("renders the Paper Inspector Card with paper metadata", async () => {
     render(<CitationKnowledgeGraph reviewId="42" />);
     await flush();
 
-    // Default selected node is paper_1
-    expect(screen.getByText("Selected Paper")).toBeTruthy();
-    expect(screen.getByText("Attention Is All You Need")).toBeTruthy();
-    expect(screen.getByText(/Ashish Vaswani/)).toBeTruthy();
-    expect(screen.getByText("Published 2017")).toBeTruthy();
-    expect(screen.getByText("98% Match")).toBeTruthy();
-    expect(screen.getByText(/Transformers & Self-Attention/)).toBeTruthy();
-    expect(screen.getByText("Open Source Document")).toBeTruthy();
+    // Default selected node is paper_1, scoped directly to the inspector card
+    const inspector = screen.getByTestId("paper-inspector-card");
+    expect(inspector).toBeTruthy();
+    expect(within(inspector).getByText("Selected Paper")).toBeTruthy();
+    const heading = within(inspector).getByTestId("inspector-paper-title");
+    expect(heading.textContent).toBe("Attention Is All You Need");
+    expect(within(inspector).getByText(/Ashish Vaswani/)).toBeTruthy();
+    expect(within(inspector).getByText("Published 2017")).toBeTruthy();
+    expect(within(inspector).getByText("98% Match")).toBeTruthy();
+    expect(within(inspector).getByTestId("inspector-paper-cluster").textContent).toContain(
+      "Transformers & Self-Attention"
+    );
+    expect(within(inspector).getByText("Open Source Document")).toBeTruthy();
   });
 
   it("renders the floating thematic cluster legend with cluster names and categorical palette", async () => {
@@ -184,26 +191,29 @@ describe("CitationKnowledgeGraph Component (FE-14)", () => {
     render(<CitationKnowledgeGraph reviewId="42" />);
     await flush();
 
-    expect(screen.getByText("2 Papers")).toBeTruthy();
-    expect(screen.getByText("3 Connections")).toBeTruthy();
+    const papersBadge = screen.getByTestId("total-papers-badge");
+    const connectionsBadge = screen.getByTestId("total-connections-badge");
+    expect(papersBadge.textContent).toContain("2 Papers");
+    expect(connectionsBadge.textContent).toContain("3 Connections");
   });
 
   it("supports node selection, deselection, and legitimate clicks without blocking window", async () => {
     const { container } = render(<CitationKnowledgeGraph reviewId="42" />);
     await flush();
 
-    // Verify initial selection is paper_1
-    expect(screen.getByText("Attention Is All You Need")).toBeTruthy();
+    // Verify initial selection is paper_1 via inspector heading
+    const initialInspector = screen.getByTestId("paper-inspector-card");
+    expect(within(initialInspector).getByTestId("inspector-paper-title").textContent).toBe(
+      "Attention Is All You Need"
+    );
 
-    // Deselect via background click
-    const svg = container.querySelector("svg");
+    // Deselect via background click using stable canvas testid
+    const svg = screen.getByTestId("citation-graph-canvas");
     expect(svg).toBeTruthy();
-    if (svg) {
-      await act(async () => {
-        fireEvent.click(svg);
-      });
-    }
-    expect(screen.queryByText("Selected Paper")).toBeNull();
+    await act(async () => {
+      fireEvent.click(svg);
+    });
+    expect(screen.queryByTestId("paper-inspector-card")).toBeNull();
 
     // Select paper_2 by clicking its node
     const nodeItems = container.querySelectorAll(".node-item");
@@ -212,8 +222,11 @@ describe("CitationKnowledgeGraph Component (FE-14)", () => {
       await act(async () => {
         fireEvent.click(nodeItems[1]!);
       });
-      expect(screen.getByText("Selected Paper")).toBeTruthy();
-      expect(screen.getByText("BERT: Pre-training of Deep Bidirectional Transformers")).toBeTruthy();
+      const updatedInspector = screen.getByTestId("paper-inspector-card");
+      expect(updatedInspector).toBeTruthy();
+      expect(within(updatedInspector).getByTestId("inspector-paper-title").textContent).toBe(
+        "BERT: Pre-training of Deep Bidirectional Transformers"
+      );
     }
   });
 

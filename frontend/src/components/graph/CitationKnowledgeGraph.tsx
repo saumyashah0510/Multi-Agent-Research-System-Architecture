@@ -330,6 +330,7 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
     let clearDragTimer: ReturnType<typeof setTimeout> | null = null;
 
     const drag = d3.drag<SVGGElement, GraphNode>()
+      .clickDistance(4)
       .on("start", (event, d) => {
         dragStartX = event.x;
         dragStartY = event.y;
@@ -592,6 +593,7 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
           {data && (
             <div className="flex items-center gap-2 text-xs mr-1">
               <span
+                data-testid="total-papers-badge"
                 style={{
                   backgroundColor: "var(--surface-page)",
                   borderColor: "var(--border-default)",
@@ -603,6 +605,7 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
                 <span className="font-semibold text-[var(--text-primary)]">{data.total_nodes}</span> Papers
               </span>
               <span
+                data-testid="total-connections-badge"
                 style={{
                   backgroundColor: "var(--surface-page)",
                   borderColor: "var(--border-default)",
@@ -708,6 +711,7 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
             {/* SVG Interactive Canvas */}
             <svg
               ref={svgRef}
+              data-testid="citation-graph-canvas"
               className="w-full h-full cursor-grab active:cursor-grabbing"
               preserveAspectRatio="xMidYMid meet"
             />
@@ -715,6 +719,7 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
             {/* Selected Node Inspector Sidebar Card */}
             {selectedNode && (
               <div
+                data-testid="paper-inspector-card"
                 style={{
                   backgroundColor: "rgba(255, 255, 255, 0.97)",
                   borderColor: "var(--border-default)",
@@ -776,6 +781,7 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
 
                 {/* Paper Title */}
                 <h3
+                  data-testid="inspector-paper-title"
                   style={{
                     color: "var(--text-primary)",
                     fontFamily: "var(--font-serif)",
@@ -820,6 +826,7 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
                 {selectedNode.cluster && (
                   <div className="pt-0.5">
                     <span
+                      data-testid="inspector-paper-cluster"
                       style={{
                         backgroundColor: "var(--tint-sky)",
                         color: "var(--sky-dark)",
