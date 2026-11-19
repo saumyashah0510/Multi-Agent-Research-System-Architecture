@@ -323,7 +323,29 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
       .attr("stroke-width", (d) => Math.max(1.5, (d.weight || 0.5) * 3))
       .attr("stroke-dasharray", (d) => (d.type === "co_authorship" ? "4,4" : null));
 
-    // Node Drag Behavior: track draggedNodeId to suppress only the trailing drag click on the dragged node
+    // Node Drag Behavior: track draggedNodeId using client-pixel displacement matching clickDistance(4)
+    const getClientCoordinates = (sourceEvent: unknown): { x: number; y: number } | null => {
+      if (!sourceEvent || typeof sourceEvent !== "object") return null;
+      const evt = sourceEvent as {
+        clientX?: number;
+        clientY?: number;
+        touches?: ArrayLike<{ clientX: number; clientY: number }>;
+        changedTouches?: ArrayLike<{ clientX: number; clientY: number }>;
+      };
+      if (evt.touches && evt.touches.length > 0 && evt.touches[0]) {
+        return { x: evt.touches[0].clientX, y: evt.touches[0].clientY };
+      }
+      if (evt.changedTouches && evt.changedTouches.length > 0 && evt.changedTouches[0]) {
+        return { x: evt.changedTouches[0].clientX, y: evt.changedTouches[0].clientY };
+      }
+      if (typeof evt.clientX === "number" && typeof evt.clientY === "number") {
+        return { x: evt.clientX, y: evt.clientY };
+      }
+      return null;
+    };
+
+    let dragStartClientX: number | null = null;
+    let dragStartClientY: number | null = null;
     let dragStartX = 0;
     let dragStartY = 0;
     let draggedNodeId: string | null = null;
@@ -332,6 +354,14 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
     const drag = d3.drag<SVGGElement, GraphNode>()
       .clickDistance(4)
       .on("start", (event, d) => {
+        const clientCoords = getClientCoordinates(event.sourceEvent);
+        if (clientCoords) {
+          dragStartClientX = clientCoords.x;
+          dragStartClientY = clientCoords.y;
+        } else {
+          dragStartClientX = null;
+          dragStartClientY = null;
+        }
         dragStartX = event.x;
         dragStartY = event.y;
         draggedNodeId = null;
@@ -340,7 +370,12 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
         d.fy = d.y;
       })
       .on("drag", (event, d) => {
-        if (Math.hypot(event.x - dragStartX, event.y - dragStartY) > 4) {
+        const clientCoords = getClientCoordinates(event.sourceEvent);
+        if (clientCoords && dragStartClientX !== null && dragStartClientY !== null) {
+          if (Math.hypot(clientCoords.x - dragStartClientX, clientCoords.y - dragStartClientY) > 4) {
+            draggedNodeId = d.id;
+          }
+        } else if (Math.hypot(event.x - dragStartX, event.y - dragStartY) > 4) {
           draggedNodeId = d.id;
         }
         d.fx = event.x;
@@ -350,6 +385,8 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
         if (!event.active) simulation.alphaTarget(0);
         d.fx = null;
         d.fy = null;
+        dragStartClientX = null;
+        dragStartClientY = null;
         // Clear draggedNodeId on next tick so immediate trailing click is caught,
         // while subsequent clicks are never blocked.
         if (draggedNodeId) {
