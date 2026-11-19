@@ -284,7 +284,8 @@ describe("CitationKnowledgeGraph Component (FE-14)", () => {
     const nodeLabels = container.querySelectorAll<SVGTextElement>(".node-label");
     expect(nodeLabels.length).toBe(3);
 
-    // Default state: all node title labels are hidden
+    // Default state: all node title labels are hidden and no native SVG tooltips exist on nodes
+    expect(container.querySelectorAll(".node-item title").length).toBe(0);
     nodeLabels.forEach((label) => {
       expect(label.style.display).toBe("none");
     });

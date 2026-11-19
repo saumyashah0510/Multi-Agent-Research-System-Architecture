@@ -463,9 +463,6 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
     };
     updateLabelsFnRef.current = updateSelectedNodeUI;
 
-    // Native tooltip
-    nodeElements.append("title").text((d) => d.label);
-
     // Link connection checker
     const isLinkConnected = (l: GraphLink, nodeId: string): boolean => {
       const sId = typeof l.source === "object" ? (l.source as GraphNode).id : String(l.source);
