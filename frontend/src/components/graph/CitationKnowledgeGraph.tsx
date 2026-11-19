@@ -323,24 +323,24 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
       .attr("stroke-width", (d) => Math.max(1.5, (d.weight || 0.5) * 3))
       .attr("stroke-dasharray", (d) => (d.type === "co_authorship" ? "4,4" : null));
 
-    // Node Drag Behavior with displacement threshold to reliably distinguish drags from clicks
+    // Node Drag Behavior: track draggedNodeId to suppress only the trailing drag click on the dragged node
     let dragStartX = 0;
     let dragStartY = 0;
-    let dragMoved = false;
-    let dragEndTime = 0;
+    let draggedNodeId: string | null = null;
+    let clearDragTimer: ReturnType<typeof setTimeout> | null = null;
 
     const drag = d3.drag<SVGGElement, GraphNode>()
       .on("start", (event, d) => {
         dragStartX = event.x;
         dragStartY = event.y;
-        dragMoved = false;
+        draggedNodeId = null;
         if (!event.active) simulation.alphaTarget(0.3).restart();
         d.fx = d.x;
         d.fy = d.y;
       })
       .on("drag", (event, d) => {
         if (Math.hypot(event.x - dragStartX, event.y - dragStartY) > 4) {
-          dragMoved = true;
+          draggedNodeId = d.id;
         }
         d.fx = event.x;
         d.fy = event.y;
@@ -349,8 +349,13 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
         if (!event.active) simulation.alphaTarget(0);
         d.fx = null;
         d.fy = null;
-        if (dragMoved) {
-          dragEndTime = Date.now();
+        // Clear draggedNodeId on next tick so immediate trailing click is caught,
+        // while subsequent clicks are never blocked.
+        if (draggedNodeId) {
+          if (clearDragTimer) clearTimeout(clearDragTimer);
+          clearDragTimer = setTimeout(() => {
+            draggedNodeId = null;
+          }, 0);
         }
       });
 
@@ -452,12 +457,12 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
         applyHighlight(selectedNodeRef.current);
       })
       .on("click", (_event, d) => {
-        // Suppress selection if the click was part of a real drag gesture
-        if (dragMoved && Date.now() - dragEndTime < 250) {
-          dragMoved = false;
+        // Suppress selection only if this click is the immediate trailing release of dragging THIS specific node
+        if (draggedNodeId === d.id) {
+          draggedNodeId = null;
           return;
         }
-        dragMoved = false;
+        draggedNodeId = null;
         setSelectedNode(d);
         selectedNodeRef.current = d;
         applyHighlight(d);
@@ -497,6 +502,7 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
     });
 
     return () => {
+      if (clearDragTimer) clearTimeout(clearDragTimer);
       simulation.stop();
       svg.on(".zoom", null);
       svg.on("click", null);

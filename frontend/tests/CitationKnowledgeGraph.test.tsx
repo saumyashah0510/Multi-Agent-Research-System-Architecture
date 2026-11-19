@@ -188,6 +188,35 @@ describe("CitationKnowledgeGraph Component (FE-14)", () => {
     expect(screen.getByText("3 Connections")).toBeTruthy();
   });
 
+  it("supports node selection, deselection, and legitimate clicks without blocking window", async () => {
+    const { container } = render(<CitationKnowledgeGraph reviewId="42" />);
+    await flush();
+
+    // Verify initial selection is paper_1
+    expect(screen.getByText("Attention Is All You Need")).toBeTruthy();
+
+    // Deselect via background click
+    const svg = container.querySelector("svg");
+    expect(svg).toBeTruthy();
+    if (svg) {
+      await act(async () => {
+        fireEvent.click(svg);
+      });
+    }
+    expect(screen.queryByText("Selected Paper")).toBeNull();
+
+    // Select paper_2 by clicking its node
+    const nodeItems = container.querySelectorAll(".node-item");
+    expect(nodeItems.length).toBe(3);
+    if (nodeItems[1]) {
+      await act(async () => {
+        fireEvent.click(nodeItems[1]!);
+      });
+      expect(screen.getByText("Selected Paper")).toBeTruthy();
+      expect(screen.getByText("BERT: Pre-training of Deep Bidirectional Transformers")).toBeTruthy();
+    }
+  });
+
   it("displays error message if fetchReviewGraph fails", async () => {
     vi.mocked(fetchReviewGraph).mockRejectedValueOnce(
       new Error("Database connection timed out")
