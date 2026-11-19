@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import CitationKnowledgeGraph, { CLUSTER_COLORS } from "../src/components/graph/CitationKnowledgeGraph";
+import CitationKnowledgeGraph, {
+  CLUSTER_COLORS,
+  ISOLATED_NODE_COLOR,
+} from "../src/components/graph/CitationKnowledgeGraph";
 import { fetchReviewGraph } from "../src/lib/api";
 import type { CitationGraphResponse } from "../src/types";
 
@@ -90,11 +93,21 @@ describe("CitationKnowledgeGraph Component (FE-14)", () => {
     expect(connectionsBadge.textContent).toContain("2 Connections");
   });
 
-  it("renders the Paper Inspector Card with paper metadata", async () => {
-    render(<CitationKnowledgeGraph reviewId="42" />);
+  it("renders the Paper Inspector Card with paper metadata when a node is clicked", async () => {
+    const { container } = render(<CitationKnowledgeGraph reviewId="42" />);
     await flush();
 
-    // Default selected node is paper_1, scoped directly to the inspector card
+    // Clean initial state: no inspector card is rendered before selection
+    expect(screen.queryByTestId("paper-inspector-card")).toBeNull();
+
+    // Click on paper_1 node
+    const nodeItems = container.querySelectorAll(".node-item");
+    expect(nodeItems.length).toBe(3);
+    await act(async () => {
+      fireEvent.click(nodeItems[0]!);
+    });
+
+    // Inspector card opens displaying metadata for paper_1
     const inspector = screen.getByTestId("paper-inspector-card");
     expect(inspector).toBeTruthy();
     expect(within(inspector).getByText("Selected Paper")).toBeTruthy();
@@ -158,8 +171,16 @@ describe("CitationKnowledgeGraph Component (FE-14)", () => {
   });
 
   it("closes the inspector card when the close button is clicked", async () => {
-    render(<CitationKnowledgeGraph reviewId="42" />);
+    const { container } = render(<CitationKnowledgeGraph reviewId="42" />);
     await flush();
+
+    // Select paper_1 node to show inspector
+    const nodeItems = container.querySelectorAll(".node-item");
+    if (nodeItems[0]) {
+      await act(async () => {
+        fireEvent.click(nodeItems[0]!);
+      });
+    }
 
     expect(screen.getByText("Selected Paper")).toBeTruthy();
     const closeBtn = screen.getByTitle("Close Inspector");
@@ -201,8 +222,19 @@ describe("CitationKnowledgeGraph Component (FE-14)", () => {
     const { container } = render(<CitationKnowledgeGraph reviewId="42" />);
     await flush();
 
-    // Verify initial selection is paper_1 via inspector heading
+    // Default clean state: no inspector open
+    expect(screen.queryByTestId("paper-inspector-card")).toBeNull();
+
+    const nodeItems = container.querySelectorAll(".node-item");
+    expect(nodeItems.length).toBe(3);
+
+    // Select paper_1 by clicking its node
+    await act(async () => {
+      fireEvent.click(nodeItems[0]!);
+    });
+
     const initialInspector = screen.getByTestId("paper-inspector-card");
+    expect(initialInspector).toBeTruthy();
     expect(within(initialInspector).getByTestId("inspector-paper-title").textContent).toBe(
       "Attention Is All You Need"
     );
@@ -216,8 +248,6 @@ describe("CitationKnowledgeGraph Component (FE-14)", () => {
     expect(screen.queryByTestId("paper-inspector-card")).toBeNull();
 
     // Select paper_2 by clicking its node
-    const nodeItems = container.querySelectorAll(".node-item");
-    expect(nodeItems.length).toBe(3);
     if (nodeItems[1]) {
       await act(async () => {
         fireEvent.click(nodeItems[1]!);
@@ -228,6 +258,68 @@ describe("CitationKnowledgeGraph Component (FE-14)", () => {
         "BERT: Pre-training of Deep Bidirectional Transformers"
       );
     }
+  });
+
+  it("colors isolated nodes with neutral grey and connected nodes with cluster colors", async () => {
+    const { container } = render(<CitationKnowledgeGraph reviewId="42" />);
+    await flush();
+
+    // In mockGraphData, paper_1 and paper_2 are linked, while paper_3 is isolated (0 links)
+    const circles = container.querySelectorAll(".node-item circle");
+    expect(circles.length).toBe(3);
+
+    // Connected nodes (paper_1 and paper_2) have thematic cluster color from CLUSTER_COLORS
+    expect(circles[0]?.getAttribute("fill")).toBe("#3B82F6");
+    expect(circles[1]?.getAttribute("fill")).toBe("#3B82F6");
+
+    // Isolated node (paper_3) has neutral grey ISOLATED_NODE_COLOR (#94A3B8)
+    expect(circles[2]?.getAttribute("fill")).toBe(ISOLATED_NODE_COLOR);
+    expect(ISOLATED_NODE_COLOR).toBe("#94A3B8");
+  });
+
+  it("hides all node title labels by default and displays only the selected node's title on click", async () => {
+    const { container } = render(<CitationKnowledgeGraph reviewId="42" />);
+    await flush();
+
+    const nodeLabels = container.querySelectorAll<SVGTextElement>(".node-label");
+    expect(nodeLabels.length).toBe(3);
+
+    // Default state: all node title labels are hidden
+    nodeLabels.forEach((label) => {
+      expect(label.style.display).toBe("none");
+    });
+
+    const nodeItems = container.querySelectorAll(".node-item");
+
+    // Click node 0 (paper_1): its label should display beside it
+    await act(async () => {
+      fireEvent.click(nodeItems[0]!);
+    });
+
+    expect(nodeLabels[0]?.style.display).toBe("inline");
+    expect(nodeLabels[0]?.textContent).toBe("Attention Is All You Need");
+    expect(nodeLabels[1]?.style.display).toBe("none");
+    expect(nodeLabels[2]?.style.display).toBe("none");
+
+    // Click node 1 (paper_2): previous label hides, new label displays
+    await act(async () => {
+      fireEvent.click(nodeItems[1]!);
+    });
+
+    expect(nodeLabels[0]?.style.display).toBe("none");
+    expect(nodeLabels[1]?.style.display).toBe("inline");
+    expect(nodeLabels[1]?.textContent).toBe("BERT: Pre-training of Deep Bidirectional Transformers");
+    expect(nodeLabels[2]?.style.display).toBe("none");
+
+    // Deselect via canvas click: all labels hidden again
+    const svg = screen.getByTestId("citation-graph-canvas");
+    await act(async () => {
+      fireEvent.click(svg);
+    });
+
+    nodeLabels.forEach((label) => {
+      expect(label.style.display).toBe("none");
+    });
   });
 
   it("displays error message if fetchReviewGraph fails", async () => {

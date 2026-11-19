@@ -49,6 +49,9 @@ export const CLUSTER_COLORS = [
   "#06B6D4", // Cyan
 ];
 
+// Neutral grey color for isolated nodes (zero valid connections)
+export const ISOLATED_NODE_COLOR = "#94A3B8";
+
 const DEFAULT_COLOR = "#3B82F6";
 
 /**
@@ -98,6 +101,23 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
   const simulationRef = useRef<d3.Simulation<GraphNode, GraphLink> | null>(null);
   const selectedNodeRef = useRef<GraphNode | null>(null);
   const highlightFnRef = useRef<((node: GraphNode | null) => void) | null>(null);
+  const updateLabelsFnRef = useRef<((selected: GraphNode | null) => void) | null>(null);
+
+  // Identify set of node IDs that have at least one valid link connection
+  const connectedNodeIds = useMemo(() => {
+    if (!data?.nodes || !data?.links) return new Set<string>();
+    const validNodeIdSet = new Set<string>(data.nodes.map((n) => n.id));
+    const connected = new Set<string>();
+    for (const l of data.links) {
+      const sId = typeof l.source === "object" && l.source !== null ? (l.source as GraphNode).id : String(l.source);
+      const tId = typeof l.target === "object" && l.target !== null ? (l.target as GraphNode).id : String(l.target);
+      if (validNodeIdSet.has(sId) && validNodeIdSet.has(tId)) {
+        connected.add(sId);
+        connected.add(tId);
+      }
+    }
+    return connected;
+  }, [data]);
 
   // Derive unique clusters for consistent color mapping across the graph
   const uniqueClusters = useMemo(() => {
@@ -120,6 +140,10 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
 
   const getNodeColor = useCallback(
     (node: GraphNode, fallbackIndex: number = 0): string => {
+      // Isolated nodes (zero valid connections) receive neutral grey color
+      if (!connectedNodeIds.has(node.id)) {
+        return ISOLATED_NODE_COLOR;
+      }
       if (node.cluster && node.cluster.trim()) {
         const scaled = clusterColorScale(node.cluster.trim());
         if (scaled) return scaled;
@@ -127,7 +151,7 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
       const fallback = CLUSTER_COLORS[fallbackIndex % CLUSTER_COLORS.length];
       return fallback ?? DEFAULT_COLOR;
     },
-    [clusterColorScale]
+    [connectedNodeIds, clusterColorScale]
   );
 
   // Responsive container observer measuring dynamic width and height
@@ -179,16 +203,22 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
   const clearSelection = useCallback(() => {
     setSelectedNode(null);
     selectedNodeRef.current = null;
+    if (updateLabelsFnRef.current) {
+      updateLabelsFnRef.current(null);
+    }
     if (highlightFnRef.current) {
       highlightFnRef.current(null);
     }
   }, []);
 
-  // Synchronize selectedNode ref and propagate highlighting updates
+  // Synchronize selectedNode ref and propagate highlighting / label visibility updates
   useEffect(() => {
     selectedNodeRef.current = selectedNode;
     if (highlightFnRef.current) {
       highlightFnRef.current(selectedNode);
+    }
+    if (updateLabelsFnRef.current) {
+      updateLabelsFnRef.current(selectedNode);
     }
   }, [selectedNode]);
 
@@ -203,11 +233,8 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
         const result = await fetchReviewGraph(reviewId);
         if (isMounted) {
           setData(result);
-          if (result.nodes && result.nodes.length > 0) {
-            setSelectedNode(result.nodes[0] ?? null);
-          } else {
-            setSelectedNode(null);
-          }
+          // By default, no node is selected to keep graph clean and uncluttered
+          setSelectedNode(null);
         }
       } catch (err: any) {
         if (isMounted) {
@@ -416,13 +443,25 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
       .attr("stroke-width", (d) => (selectedNodeRef.current?.id === d.id ? 3 : 2))
       .style("transition", "r 0.15s ease, stroke-width 0.15s ease");
 
-    // Node Text Labels
-    nodeElements
+    // Selected Node Title Label: hidden by default, displayed only when node is selected
+    const labelElements = nodeElements
       .append("text")
-      .attr("dy", 26)
-      .attr("text-anchor", "middle")
-      .attr("class", "text-xs font-sans fill-neutral-700 select-none pointer-events-none font-medium")
-      .text((d) => (d.label.length > 20 ? `${d.label.slice(0, 18)}...` : d.label));
+      .attr("class", "node-label text-xs font-sans font-semibold select-none pointer-events-none")
+      .attr("data-testid", "node-canvas-label")
+      .attr("x", 24)
+      .attr("y", 4)
+      .attr("fill", "#0F172A")
+      .attr("stroke", "#FFFFFF")
+      .attr("stroke-width", 3.5)
+      .attr("stroke-linejoin", "round")
+      .style("paint-order", "stroke fill")
+      .style("display", (d) => (selectedNodeRef.current?.id === d.id ? "inline" : "none"))
+      .text((d) => d.label);
+
+    const updateSelectedNodeUI = (selected: GraphNode | null) => {
+      labelElements.style("display", (d) => (selected && d.id === selected.id ? "inline" : "none"));
+    };
+    updateLabelsFnRef.current = updateSelectedNodeUI;
 
     // Native tooltip
     nodeElements.append("title").text((d) => d.label);
@@ -503,6 +542,7 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
         draggedNodeId = null;
         setSelectedNode(d);
         selectedNodeRef.current = d;
+        updateSelectedNodeUI(d);
         applyHighlight(d);
       });
 
@@ -548,6 +588,7 @@ export const CitationKnowledgeGraph: React.FC<CitationKnowledgeGraphProps> = ({
       simulationRef.current = null;
       zoomBehaviorRef.current = null;
       highlightFnRef.current = null;
+      updateLabelsFnRef.current = null;
     };
   }, [data, getNodeColor, clearSelection]);
 
