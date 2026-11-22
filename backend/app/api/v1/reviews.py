@@ -10,6 +10,7 @@ Assignee Task (Issue BE-01 / BE-03):
 import asyncio
 import inspect
 import logging
+import time
 import uuid
 from typing import Annotated, Any, Optional
 
@@ -82,6 +83,33 @@ def _check_review_access(review: Any, current_user: Optional[User]) -> None:
             )
 
 
+async def _safe_record_audit_event(
+    review_id: int,
+    agent_name: str,
+    status: str,
+    message: str,
+    payload: Optional[dict[str, Any]] = None,
+) -> None:
+    """Safely persist audit log entry into Neon DB without interrupting graph execution."""
+    try:
+        async with AsyncSessionLocal() as session:
+            await AuditService.record_review_event(
+                session,
+                review_id=review_id,
+                agent_name=agent_name,
+                status=status,
+                message=message,
+                payload=payload,
+            )
+    except Exception as exc:
+        logger.debug(
+            "Failed to persist audit log for review %s [%s]: %s",
+            review_id,
+            agent_name,
+            exc,
+        )
+
+
 class ReviewCreateRequest(BaseModel):
     """Schema for initiating a new literature review task."""
 
@@ -129,6 +157,16 @@ async def _run_initial_graph(
     except Exception as exc:
         logger.debug("Could not publish initial event to Redis: %s", exc)
 
+    await _safe_record_audit_event(
+        review_id=review_id,
+        agent_name="query_expansion",
+        status="started",
+        message="Analyzing research query and classifying domains...",
+        payload={"query": query},
+    )
+
+    t_stage_start = time.perf_counter()
+
     try:
         async for update in graph.astream(initial_state, config=config, stream_mode="updates"):
             if not isinstance(update, dict):
@@ -137,6 +175,7 @@ async def _run_initial_graph(
             if "query_expansion" in update:
                 node_out = update["query_expansion"]
                 sub_queries = node_out.get("search_queries", [])
+                duration_s = round(time.perf_counter() - t_stage_start, 2)
                 try:
                     async with AsyncSessionLocal() as session:
                         rev = await session.get(LiteratureReview, review_id)
@@ -157,6 +196,18 @@ async def _run_initial_graph(
                         "review_id": str(review_id),
                     },
                 )
+                await _safe_record_audit_event(
+                    review_id=review_id,
+                    agent_name="query_expansion",
+                    status="completed",
+                    message=f"Expanded into {len(sub_queries)} academic queries",
+                    payload={
+                        "sub_queries": sub_queries,
+                        "queries_count": len(sub_queries),
+                        "duration_s": duration_s,
+                    },
+                )
+                t_stage_start = time.perf_counter()
                 await publish_review_event(
                     review_id,
                     {
@@ -167,10 +218,18 @@ async def _run_initial_graph(
                         "review_id": str(review_id),
                     },
                 )
+                await _safe_record_audit_event(
+                    review_id=review_id,
+                    agent_name="paper_discovery",
+                    status="started",
+                    message="Querying arXiv, PubMed, and academic repositories...",
+                    payload={"queries_count": len(sub_queries)},
+                )
 
             elif "paper_discovery" in update:
                 node_out = update["paper_discovery"]
                 discovered = node_out.get("discovered_papers", [])
+                duration_s = round(time.perf_counter() - t_stage_start, 2)
                 try:
                     async with AsyncSessionLocal() as session:
                         rev = await session.get(LiteratureReview, review_id)
@@ -179,6 +238,11 @@ async def _run_initial_graph(
                             await session.commit()
                 except Exception as db_exc:
                     logger.debug("DB status update error: %s", db_exc)
+
+                sources: dict[str, int] = {}
+                for p in discovered:
+                    src = (p.get("source") or "arxiv").lower()
+                    sources[src] = sources.get(src, 0) + 1
 
                 await publish_review_event(
                     review_id,
@@ -191,6 +255,20 @@ async def _run_initial_graph(
                         "review_id": str(review_id),
                     },
                 )
+                await _safe_record_audit_event(
+                    review_id=review_id,
+                    agent_name="paper_discovery",
+                    status="completed",
+                    message=f"Discovered {len(discovered)} candidate papers",
+                    payload={
+                        "total_count": len(discovered),
+                        "arxiv_count": sources.get("arxiv", 0),
+                        "pubmed_count": sources.get("pubmed", 0),
+                        "by_source": sources,
+                        "duration_s": duration_s,
+                    },
+                )
+                t_stage_start = time.perf_counter()
                 await publish_review_event(
                     review_id,
                     {
@@ -201,10 +279,18 @@ async def _run_initial_graph(
                         "review_id": str(review_id),
                     },
                 )
+                await _safe_record_audit_event(
+                    review_id=review_id,
+                    agent_name="screening",
+                    status="started",
+                    message="Screening candidate papers against relevance criteria...",
+                    payload={"candidates_count": len(discovered)},
+                )
 
             elif "screening" in update:
                 node_out = update["screening"]
                 screened = node_out.get("screened_papers", [])
+                duration_s = round(time.perf_counter() - t_stage_start, 2)
 
                 try:
                     async with AsyncSessionLocal() as session:
@@ -237,6 +323,12 @@ async def _run_initial_graph(
                 except Exception as db_exc:
                     logger.debug("DB paper persistence error: %s", db_exc)
 
+                scores = [
+                    p.get("relevance_score")
+                    for p in screened
+                    if p.get("relevance_score") is not None
+                ]
+
                 await publish_review_event(
                     review_id,
                     {
@@ -246,6 +338,18 @@ async def _run_initial_graph(
                         "message": f"Screened {len(screened)} relevant papers",
                         "data": {"screened_papers": screened, "total_screened": len(screened)},
                         "review_id": str(review_id),
+                    },
+                )
+                await _safe_record_audit_event(
+                    review_id=review_id,
+                    agent_name="screening",
+                    status="completed",
+                    message=f"Screened {len(screened)} relevant papers",
+                    payload={
+                        "screened_count": len(screened),
+                        "passed_count": len(screened),
+                        "relevance_scores": scores,
+                        "duration_s": duration_s,
                     },
                 )
                 await publish_review_event(
@@ -258,6 +362,13 @@ async def _run_initial_graph(
                         "data": {"screened_papers": screened, "total_screened": len(screened)},
                         "review_id": str(review_id),
                     },
+                )
+                await _safe_record_audit_event(
+                    review_id=review_id,
+                    agent_name="human_interrupt",
+                    status="paused",
+                    message="Awaiting human-in-the-loop candidate paper selection",
+                    payload={"candidate_count": len(screened)},
                 )
 
     except Exception as exc:
@@ -285,12 +396,20 @@ async def _run_initial_graph(
             )
         except Exception:
             pass
+        await _safe_record_audit_event(
+            review_id=review_id,
+            agent_name="orchestrator",
+            status="failed",
+            message=f"Initial pipeline execution error: {str(exc)}",
+            payload={"error": str(exc)},
+        )
 
 
 async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> None:
     """Resume the paused LangGraph thread belonging to this review."""
     config = {"configurable": {"thread_id": str(review_id)}}
     numeric_id = int(review_id) if str(review_id).isdigit() else None
+    t_stage_start = time.perf_counter()
     try:
         snapshot = await graph.aget_state(config)
         if not snapshot.next:
@@ -301,6 +420,7 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
             stream_input = None
         else:
             decision = resume_value.get("user_decision", "continue")
+            approved_ids = resume_value.get("approved_paper_ids", [])
             if decision == "find_more":
                 if numeric_id is not None:
                     await publish_review_event(
@@ -312,6 +432,13 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                             "message": "Expanding search queries for additional papers...",
                             "review_id": str(review_id),
                         },
+                    )
+                    await _safe_record_audit_event(
+                        review_id=numeric_id,
+                        agent_name="query_expansion",
+                        status="started",
+                        message="Expanding search queries for additional papers...",
+                        payload={"decision": decision},
                     )
             else:
                 if numeric_id is not None:
@@ -325,15 +452,46 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                             "review_id": str(review_id),
                         },
                     )
+                    await _safe_record_audit_event(
+                        review_id=numeric_id,
+                        agent_name="pdf_extraction",
+                        status="started",
+                        message="Extracting scientific section text from approved PDFs...",
+                        payload={
+                            "approved_count": len(approved_ids),
+                            "approved_paper_ids": approved_ids,
+                        },
+                    )
             stream_input = Command(resume=resume_value)
 
         async for update in graph.astream(stream_input, config=config, stream_mode="updates"):
             if not isinstance(update, dict):
                 continue
 
+            if "human_interrupt" in update:
+                node_out = update["human_interrupt"]
+                approved = node_out.get("approved_papers", [])
+                decision = node_out.get("user_decision", "continue")
+                duration_s = round(time.perf_counter() - t_stage_start, 2)
+                if numeric_id is not None:
+                    await _safe_record_audit_event(
+                        review_id=numeric_id,
+                        agent_name="human_interrupt",
+                        status="completed",
+                        message=f"Human review completed with decision: {decision} ({len(approved)} papers approved)",
+                        payload={
+                            "decision": decision,
+                            "user_approvals": len(approved),
+                            "approved_count": len(approved),
+                            "duration_s": duration_s,
+                        },
+                    )
+                t_stage_start = time.perf_counter()
+
             if "query_expansion" in update:
                 node_out = update["query_expansion"]
                 sub_queries = node_out.get("search_queries", [])
+                duration_s = round(time.perf_counter() - t_stage_start, 2)
                 if numeric_id is not None:
                     try:
                         async with AsyncSessionLocal() as session:
@@ -355,6 +513,18 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                             "review_id": str(review_id),
                         },
                     )
+                    await _safe_record_audit_event(
+                        review_id=numeric_id,
+                        agent_name="query_expansion",
+                        status="completed",
+                        message=f"Expanded into {len(sub_queries)} academic queries",
+                        payload={
+                            "sub_queries": sub_queries,
+                            "queries_count": len(sub_queries),
+                            "duration_s": duration_s,
+                        },
+                    )
+                    t_stage_start = time.perf_counter()
                     await publish_review_event(
                         numeric_id,
                         {
@@ -365,10 +535,18 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                             "review_id": str(review_id),
                         },
                     )
+                    await _safe_record_audit_event(
+                        review_id=numeric_id,
+                        agent_name="paper_discovery",
+                        status="started",
+                        message="Querying arXiv, PubMed, and academic repositories...",
+                        payload={"queries_count": len(sub_queries)},
+                    )
 
             elif "paper_discovery" in update:
                 node_out = update["paper_discovery"]
                 discovered = node_out.get("discovered_papers", [])
+                duration_s = round(time.perf_counter() - t_stage_start, 2)
                 if numeric_id is not None:
                     try:
                         async with AsyncSessionLocal() as session:
@@ -378,6 +556,11 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                                 await session.commit()
                     except Exception as db_exc:
                         logger.debug("DB status error: %s", db_exc)
+
+                    sources: dict[str, int] = {}
+                    for p in discovered:
+                        src = (p.get("source") or "arxiv").lower()
+                        sources[src] = sources.get(src, 0) + 1
 
                     await publish_review_event(
                         numeric_id,
@@ -393,6 +576,20 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                             "review_id": str(review_id),
                         },
                     )
+                    await _safe_record_audit_event(
+                        review_id=numeric_id,
+                        agent_name="paper_discovery",
+                        status="completed",
+                        message=f"Discovered {len(discovered)} candidate papers",
+                        payload={
+                            "total_count": len(discovered),
+                            "arxiv_count": sources.get("arxiv", 0),
+                            "pubmed_count": sources.get("pubmed", 0),
+                            "by_source": sources,
+                            "duration_s": duration_s,
+                        },
+                    )
+                    t_stage_start = time.perf_counter()
                     await publish_review_event(
                         numeric_id,
                         {
@@ -403,10 +600,18 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                             "review_id": str(review_id),
                         },
                     )
+                    await _safe_record_audit_event(
+                        review_id=numeric_id,
+                        agent_name="screening",
+                        status="started",
+                        message="Screening candidate papers against relevance criteria...",
+                        payload={"candidates_count": len(discovered)},
+                    )
 
             elif "screening" in update:
                 node_out = update["screening"]
                 screened = node_out.get("screened_papers", [])
+                duration_s = round(time.perf_counter() - t_stage_start, 2)
                 if numeric_id is not None:
                     try:
                         async with AsyncSessionLocal() as session:
@@ -443,6 +648,12 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                         logger.debug("DB paper persistence error: %s", db_exc)
                         raise
 
+                    scores = [
+                        p.get("relevance_score")
+                        for p in screened
+                        if p.get("relevance_score") is not None
+                    ]
+
                     await publish_review_event(
                         numeric_id,
                         {
@@ -455,6 +666,18 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                                 "total_screened": len(screened),
                             },
                             "review_id": str(review_id),
+                        },
+                    )
+                    await _safe_record_audit_event(
+                        review_id=numeric_id,
+                        agent_name="screening",
+                        status="completed",
+                        message=f"Screened {len(screened)} relevant papers",
+                        payload={
+                            "screened_count": len(screened),
+                            "passed_count": len(screened),
+                            "relevance_scores": scores,
+                            "duration_s": duration_s,
                         },
                     )
                     await publish_review_event(
@@ -471,10 +694,18 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                             "review_id": str(review_id),
                         },
                     )
+                    await _safe_record_audit_event(
+                        review_id=numeric_id,
+                        agent_name="human_interrupt",
+                        status="paused",
+                        message="Awaiting human-in-the-loop candidate paper selection",
+                        payload={"candidate_count": len(screened)},
+                    )
 
             if "pdf_extraction" in update:
                 node_out = update["pdf_extraction"]
                 pdf_contents = node_out.get("extracted_pdf_contents", {})
+                duration_s = round(time.perf_counter() - t_stage_start, 2)
                 if numeric_id is not None:
                     try:
                         async with AsyncSessionLocal() as session:
@@ -484,6 +715,10 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                                 await session.commit()
                     except Exception as db_exc:
                         logger.debug("DB status error: %s", db_exc)
+
+                    total_sections = sum(
+                        len(secs) for secs in pdf_contents.values() if isinstance(secs, dict)
+                    )
 
                     await publish_review_event(
                         numeric_id,
@@ -496,6 +731,19 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                             "review_id": str(review_id),
                         },
                     )
+                    await _safe_record_audit_event(
+                        review_id=numeric_id,
+                        agent_name="pdf_extraction",
+                        status="completed",
+                        message=f"Extracted scientific sections from {len(pdf_contents)} PDFs",
+                        payload={
+                            "cached_count": len(pdf_contents),
+                            "downloaded_count": len(pdf_contents),
+                            "pages_parsed": total_sections,
+                            "duration_s": duration_s,
+                        },
+                    )
+                    t_stage_start = time.perf_counter()
                     await publish_review_event(
                         numeric_id,
                         {
@@ -506,10 +754,18 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                             "review_id": str(review_id),
                         },
                     )
+                    await _safe_record_audit_event(
+                        review_id=numeric_id,
+                        agent_name="vector_embedding",
+                        status="started",
+                        message="Generating 384D semantic embeddings and indexing in pgvector...",
+                        payload={"pdf_count": len(pdf_contents)},
+                    )
 
             elif "vector_embedding" in update:
                 node_out = update["vector_embedding"]
                 chunks_count = node_out.get("chunks_stored_count", 0)
+                duration_s = round(time.perf_counter() - t_stage_start, 2)
                 if numeric_id is not None:
                     try:
                         async with AsyncSessionLocal() as session:
@@ -531,6 +787,19 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                             "review_id": str(review_id),
                         },
                     )
+                    await _safe_record_audit_event(
+                        review_id=numeric_id,
+                        agent_name="vector_embedding",
+                        status="completed",
+                        message=f"Indexed {chunks_count} passages in pgvector",
+                        payload={
+                            "total_chunks": chunks_count,
+                            "chunks_stored_count": chunks_count,
+                            "embedding_dimensions": 384,
+                            "duration_s": duration_s,
+                        },
+                    )
+                    t_stage_start = time.perf_counter()
                     await publish_review_event(
                         numeric_id,
                         {
@@ -541,10 +810,19 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                             "review_id": str(review_id),
                         },
                     )
+                    await _safe_record_audit_event(
+                        review_id=numeric_id,
+                        agent_name="gap_analysis",
+                        status="started",
+                        message="Performing comparative methodology synthesis and literature gap analysis...",
+                        payload={"chunks_count": chunks_count},
+                    )
 
             elif "gap_analysis" in update:
                 node_out = update["gap_analysis"]
                 gaps = node_out.get("research_gaps", [])
+                methods = node_out.get("methodology_matrix", [])
+                duration_s = round(time.perf_counter() - t_stage_start, 2)
                 if numeric_id is not None:
                     try:
                         async with AsyncSessionLocal() as session:
@@ -566,6 +844,19 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                             "review_id": str(review_id),
                         },
                     )
+                    await _safe_record_audit_event(
+                        review_id=numeric_id,
+                        agent_name="gap_analysis",
+                        status="completed",
+                        message=f"Mapped methodology matrix ({len(methods)} methods) and {len(gaps)} research gaps",
+                        payload={
+                            "methodologies_identified": len(methods),
+                            "open_gaps": len(gaps),
+                            "research_gaps": gaps,
+                            "duration_s": duration_s,
+                        },
+                    )
+                    t_stage_start = time.perf_counter()
                     await publish_review_event(
                         numeric_id,
                         {
@@ -576,10 +867,20 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                             "review_id": str(review_id),
                         },
                     )
+                    await _safe_record_audit_event(
+                        review_id=numeric_id,
+                        agent_name="citation_verification",
+                        status="started",
+                        message="Verifying citation claims against source passages...",
+                        payload={"gaps_count": len(gaps)},
+                    )
 
             elif "citation_verification" in update:
                 node_out = update["citation_verification"]
                 verified_refs = node_out.get("verified_references", [])
+                rejected_claims = node_out.get("rejected_claims", [])
+                has_hallucinations = node_out.get("has_hallucinations", False)
+                duration_s = round(time.perf_counter() - t_stage_start, 2)
                 if numeric_id is not None:
                     try:
                         async with AsyncSessionLocal() as session:
@@ -604,6 +905,21 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                             "review_id": str(review_id),
                         },
                     )
+                    await _safe_record_audit_event(
+                        review_id=numeric_id,
+                        agent_name="citation_verification",
+                        status="completed",
+                        message=f"Verified {len(verified_refs)} citations against source chunks (Hallucinations: {has_hallucinations})",
+                        payload={
+                            "fact_checked_claims": len(verified_refs) + len(rejected_claims),
+                            "verified_claims": len(verified_refs),
+                            "rejected_claims": len(rejected_claims),
+                            "hallucination_status": has_hallucinations,
+                            "has_hallucinations": has_hallucinations,
+                            "duration_s": duration_s,
+                        },
+                    )
+                    t_stage_start = time.perf_counter()
                     await publish_review_event(
                         numeric_id,
                         {
@@ -614,10 +930,19 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                             "review_id": str(review_id),
                         },
                     )
+                    await _safe_record_audit_event(
+                        review_id=numeric_id,
+                        agent_name="report_synthesis",
+                        status="started",
+                        message="Synthesizing comprehensive academic literature review report...",
+                        payload={"verified_citations": len(verified_refs)},
+                    )
 
             elif "report_synthesis" in update:
                 node_out = update["report_synthesis"]
                 synthesized = node_out.get("synthesized_review", {})
+                thematic_clusters = synthesized.get("thematic_clusters", [])
+                duration_s = round(time.perf_counter() - t_stage_start, 2)
                 if numeric_id is not None:
                     try:
                         async with AsyncSessionLocal() as session:
@@ -639,6 +964,18 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                             "review_id": str(review_id),
                         },
                     )
+                    await _safe_record_audit_event(
+                        review_id=numeric_id,
+                        agent_name="report_synthesis",
+                        status="completed",
+                        message="Literature review report synthesized successfully",
+                        payload={
+                            "chapters_generated": len(thematic_clusters),
+                            "tokens_consumed": synthesized.get("tokens_consumed") or 0,
+                            "export_status": "ready",
+                            "duration_s": duration_s,
+                        },
+                    )
                     await publish_review_event(
                         numeric_id,
                         {
@@ -648,6 +985,13 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                             "message": "Literature review pipeline completed",
                             "review_id": str(review_id),
                         },
+                    )
+                    await _safe_record_audit_event(
+                        review_id=numeric_id,
+                        agent_name="report_synthesis",
+                        status="completed",
+                        message="Literature review pipeline completed",
+                        payload={"status": "completed"},
                     )
 
     except Exception as exc:
@@ -687,6 +1031,13 @@ async def _resume_graph(review_id: str, resume_value: dict[str, Any] | None) -> 
                 )
             except Exception:
                 pass
+            await _safe_record_audit_event(
+                review_id=numeric_id,
+                agent_name="orchestrator",
+                status="failed",
+                message=f"Pipeline execution failed: {str(exc)}",
+                payload={"error": str(exc)},
+            )
 
 
 async def _retry_failed_review(review_id: str) -> None:
@@ -745,6 +1096,13 @@ async def _retry_failed_review(review_id: str) -> None:
                         "review_id": str(review_id),
                     },
                 )
+                await _safe_record_audit_event(
+                    review_id=numeric_id,
+                    agent_name="human_interrupt",
+                    status="paused",
+                    message="Awaiting human-in-the-loop candidate paper selection",
+                    payload={"screened_count": len(screened)},
+                )
             return
 
         if numeric_id is not None:
@@ -752,7 +1110,7 @@ async def _retry_failed_review(review_id: str) -> None:
                 db_review = await session.get(LiteratureReview, numeric_id, with_for_update=True)
                 if not db_review or db_review.status != ReviewStatus.FAILED.value:
                     logger.info(
-                        ("Skipping retry for review %s because its status is " "no longer failed."),
+                        ("Skipping retry for review %s because its status is no longer failed."),
                         review_id,
                     )
                     return
@@ -768,10 +1126,17 @@ async def _retry_failed_review(review_id: str) -> None:
                     "stage": resuming_node.upper(),
                     "status": "running",
                     "message": (
-                        f"Resuming literature review from " f"{resuming_node.replace('_', ' ')}..."
+                        f"Resuming literature review from {resuming_node.replace('_', ' ')}..."
                     ),
                     "review_id": str(review_id),
                 },
+            )
+            await _safe_record_audit_event(
+                review_id=numeric_id,
+                agent_name=resuming_node,
+                status="started",
+                message=f"Resuming literature review from {resuming_node.replace('_', ' ')}...",
+                payload={"resuming_node": resuming_node},
             )
 
         await _resume_graph(review_id, None)
@@ -806,6 +1171,13 @@ async def _retry_failed_review(review_id: str) -> None:
                 )
             except Exception:
                 pass
+            await _safe_record_audit_event(
+                review_id=numeric_id,
+                agent_name="orchestrator",
+                status="failed",
+                message=f"Pipeline execution failed: {str(exc)}",
+                payload={"error": str(exc)},
+            )
 
 
 @router.post("/", summary="Submit new literature review task")
@@ -1210,10 +1582,6 @@ async def get_review_audit(
     current_user: Annotated[Optional[User], Depends(get_current_user_optional)] = None,
 ) -> ReviewAuditTimelineResponse:
     """Fetch all agent lifecycle events and milestone logs recorded for a literature review."""
-    # TODO (Assignee - BE-17):
-    # 1. Check if review exists in DB
-    # 2. Call AuditService.get_review_audit_timeline(db, review_id)
-    # 3. Return ReviewAuditTimelineResponse
     review_result = await db.execute(
         select(LiteratureReview).where(LiteratureReview.id == review_id)
     )
