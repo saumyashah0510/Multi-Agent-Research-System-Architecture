@@ -6,7 +6,9 @@ Assignee Task (Issue BE-17):
 - Implement record_execution_event(): persists global ExecutionLog rows.
 """
 
+import inspect
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import select
@@ -30,10 +32,6 @@ class AuditService:
         payload: Optional[Dict[str, Any]] = None,
     ) -> Optional[ReviewLog]:
         """Insert a new agent execution milestone record into Neon DB."""
-        # TODO (Assignee - BE-17):
-        # 1. Instantiate ReviewLog with review_id, agent_name, status, message, payload
-        # 2. db.add(log_entry), await db.commit(), await db.refresh(log_entry)
-        # 3. Catch exceptions gracefully without breaking the agent pipeline
         try:
             log_entry = ReviewLog(
                 review_id=review_id,
@@ -44,9 +42,20 @@ class AuditService:
             )
             db.add(log_entry)
             await db.commit()
-            await db.refresh(log_entry)
+            if hasattr(db, "refresh"):
+                res = db.refresh(log_entry)
+                if inspect.isawaitable(res):
+                    await res
+            if getattr(log_entry, "created_at", None) is None:
+                log_entry.created_at = datetime.now(timezone.utc)
             return log_entry
         except Exception as exc:
+            try:
+                res = db.rollback()
+                if inspect.isawaitable(res):
+                    await res
+            except Exception:
+                pass
             logger.warning("Failed to record review log for review %s: %s", review_id, exc)
             return None
 
@@ -56,12 +65,10 @@ class AuditService:
         review_id: int,
     ) -> List[ReviewLog]:
         """Fetch all audit logs for a review session in chronological order."""
-        # TODO (Assignee - BE-17):
-        # Execute: select(ReviewLog).where(ReviewLog.review_id == review_id).order_by(ReviewLog.created_at.asc())
         stmt = (
             select(ReviewLog)
             .where(ReviewLog.review_id == review_id)
-            .order_by(ReviewLog.created_at.asc())
+            .order_by(ReviewLog.created_at.asc(), ReviewLog.id.asc())
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
@@ -73,16 +80,24 @@ class AuditService:
         message: str,
     ) -> Optional[ExecutionLog]:
         """Insert a system-wide execution event into Neon DB."""
-        # TODO (Assignee - BE-17):
-        # Instantiate ExecutionLog(agent_name=agent_name, message=message)
-        # db.add(log_entry), await db.commit(), await db.refresh(log_entry)
         try:
             log_entry = ExecutionLog(agent_name=agent_name, message=message)
             db.add(log_entry)
             await db.commit()
-            await db.refresh(log_entry)
+            if hasattr(db, "refresh"):
+                res = db.refresh(log_entry)
+                if inspect.isawaitable(res):
+                    await res
+            if getattr(log_entry, "timestamp", None) is None:
+                log_entry.timestamp = datetime.now(timezone.utc)
             return log_entry
         except Exception as exc:
+            try:
+                res = db.rollback()
+                if inspect.isawaitable(res):
+                    await res
+            except Exception:
+                pass
             logger.warning("Failed to record system execution log: %s", exc)
             return None
 
